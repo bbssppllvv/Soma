@@ -12,10 +12,7 @@ interface DatabaseUser {
   fiber_goal_g: number;
   first_seen_utc: string;
   last_seen_utc: string;
-  silent_mode: boolean;
   daily_digest_time: string;
-  created_at: string;
-  updated_at: string;
 }
 
 interface DatabaseEntry {
@@ -24,10 +21,9 @@ interface DatabaseEntry {
   timestamp_utc: string;
   day_local: string;
   chat_id: number;
-  msg_id: number;
+  message_id: number;  // Your schema uses message_id instead of msg_id
   text?: string;
   photo_file_id?: string;
-  photo_note?: string;
   calories: number;
   protein_g: number;
   fat_g: number;
@@ -37,7 +33,6 @@ interface DatabaseEntry {
   confidence: number;
   advice_short?: string;
   raw_model_json?: any;
-  created_at: string;
 }
 
 interface DatabaseDaily {
@@ -51,8 +46,6 @@ interface DatabaseDaily {
   meals_count: number;
   daily_score: number;
   notes?: string;
-  created_at: string;
-  updated_at: string;
 }
 
 class SupabaseService {
@@ -112,7 +105,6 @@ class SupabaseService {
           protein_goal_g: user.protein_goal_g || existingUser.protein_goal_g,
           fiber_goal_g: user.fiber_goal_g || existingUser.fiber_goal_g,
           last_seen_utc: now,
-          silent_mode: user.silent_mode !== undefined ? user.silent_mode : existingUser.silent_mode,
           daily_digest_time: user.daily_digest_time || existingUser.daily_digest_time,
         };
 
@@ -124,7 +116,7 @@ class SupabaseService {
         if (error) throw error;
       } else {
         // Create new user
-        const insertData: Omit<DatabaseUser, 'id' | 'created_at' | 'updated_at'> = {
+        const insertData: Omit<DatabaseUser, 'id'> = {
           telegram_user_id: user.user_id,
           display_name: user.display_name || 'User',
           timezone: user.timezone || 'Europe/Madrid',
@@ -133,7 +125,6 @@ class SupabaseService {
           fiber_goal_g: user.fiber_goal_g || 25,
           first_seen_utc: now,
           last_seen_utc: now,
-          silent_mode: user.silent_mode || false,
           daily_digest_time: user.daily_digest_time || '21:30',
         };
 
@@ -168,15 +159,14 @@ class SupabaseService {
         throw new Error(`User UUID not found for telegram_user_id ${entry.user_id}`);
       }
 
-      const insertData: Omit<DatabaseEntry, 'id' | 'created_at'> = {
+      const insertData: Omit<DatabaseEntry, 'id'> = {
         user_id: userData.id,
         timestamp_utc: entry.timestamp_utc,
         day_local: entry.day_local,
         chat_id: entry.chat_id,
-        msg_id: entry.msg_id,
+        message_id: entry.msg_id,  // Map msg_id to message_id
         text: entry.text || null,
         photo_file_id: entry.photo_file_id || null,
-        photo_note: entry.photo_note || null,
         calories: entry.calories,
         protein_g: entry.protein_g,
         fat_g: entry.fat_g,
@@ -269,7 +259,7 @@ class SupabaseService {
         throw new Error(`User ${entry.user_id} not found`);
       }
 
-      const upsertData: Omit<DatabaseDaily, 'created_at' | 'updated_at'> = {
+      const upsertData: Omit<DatabaseDaily, never> = {
         user_id: userData.id,
         day_local: entry.day_local,
         calories_sum: entry.calories_sum,
@@ -374,7 +364,7 @@ class SupabaseService {
       fiber_goal_g: dbUser.fiber_goal_g,
       first_seen_utc: dbUser.first_seen_utc,
       last_seen_utc: dbUser.last_seen_utc,
-      silent_mode: dbUser.silent_mode,
+      silent_mode: false, // Default since not in your schema
       daily_digest_time: dbUser.daily_digest_time,
     };
   }
@@ -385,10 +375,10 @@ class SupabaseService {
       day_local: dbEntry.day_local,
       user_id: 0, // Will be filled by caller
       chat_id: dbEntry.chat_id,
-      msg_id: dbEntry.msg_id,
+      msg_id: dbEntry.message_id,  // Map message_id back to msg_id
       text: dbEntry.text || undefined,
       photo_file_id: dbEntry.photo_file_id || undefined,
-      photo_note: dbEntry.photo_note || undefined,
+      photo_note: undefined, // Not in your schema
       calories: Number(dbEntry.calories),
       protein_g: Number(dbEntry.protein_g),
       fat_g: Number(dbEntry.fat_g),

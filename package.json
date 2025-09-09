@@ -12,12 +12,13 @@
     "test": "jest"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
     "@vercel/node": "^3.0.21",
+    "date-fns": "^2.30.0",
+    "date-fns-tz": "^2.0.0",
+    "dotenv": "^17.2.2",
     "node-telegram-bot-api": "^0.64.0",
     "openai": "^4.28.4",
-    "@supabase/supabase-js": "^2.39.0",
-    "date-fns": "^3.3.1",
-    "date-fns-tz": "^2.0.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {
