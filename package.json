@@ -4,8 +4,8 @@
   "description": "Telegram bot for nutrition tracking with photo analysis",
   "main": "dist/index.js",
   "scripts": {
-    "build": "echo 'No build needed for Vercel serverless functions'",
-    "dev": "tsx watch api/telegram.ts",
+    "build": "tsc",
+    "dev": "tsx watch api/telegram.ts", 
     "start": "node dist/index.js",
     "type-check": "tsc --noEmit",
     "lint": "eslint . --ext .ts,.tsx",

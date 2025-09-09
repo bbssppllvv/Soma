@@ -1,13 +1,7 @@
 {
   "functions": {
-    "api/telegram.ts": {
+    "api/**/*.ts": {
       "maxDuration": 30
-    },
-    "api/cron/daily-summary.ts": {
-      "maxDuration": 60
     }
-  },
-  "buildCommand": "echo 'No build needed for serverless functions'",
-  "outputDirectory": ".",
-  "installCommand": "npm install"
+  }
 }
