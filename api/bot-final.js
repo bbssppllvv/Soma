@@ -263,12 +263,19 @@ Return JSON analysis with confidence score and specific advice.`
     }
 
     const openaiData = await openaiResponse.json();
-    console.log('GPT-5 Vision response received:', openaiData.choices[0]?.message?.content?.substring(0, 200));
+    console.log('GPT-5 full response:', JSON.stringify(openaiData, null, 2));
     
-    const content = openaiData.choices[0]?.message?.content;
+    // Check different possible response formats
+    const content = openaiData.choices?.[0]?.message?.content || 
+                   openaiData.output_text || 
+                   openaiData.text ||
+                   openaiData.response;
+    
+    console.log('Extracted content:', content);
     
     if (!content) {
-      throw new Error('No response content from GPT-5 Vision');
+      console.error('No content found in GPT-5 response structure:', Object.keys(openaiData));
+      throw new Error(`No response content from GPT-5. Response keys: ${Object.keys(openaiData).join(', ')}`);
     }
 
     return parseNutritionResponse(content, 'photo');
