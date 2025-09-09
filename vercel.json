@@ -6,5 +6,8 @@
     "api/cron/daily-summary.ts": {
       "maxDuration": 60
     }
-  }
+  },
+  "buildCommand": "echo 'No build needed for serverless functions'",
+  "outputDirectory": ".",
+  "installCommand": "npm install"
 }
