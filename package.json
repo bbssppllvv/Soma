@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "build": "echo 'Vercel handles TypeScript compilation automatically'",
+    "build": "mkdir -p public && echo 'Serverless functions only' > public/index.html",
     "dev": "tsx watch api/telegram.ts", 
     "start": "node dist/index.js",
     "type-check": "tsc --noEmit",
