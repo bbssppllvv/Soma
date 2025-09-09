@@ -178,7 +178,7 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
 
     console.log('Calling OpenAI Vision API...');
 
-    // Use GPT-5 with new responses API
+    // Use GPT-5 with Responses API for image analysis
     const openaiResponse = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
@@ -187,14 +187,18 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
       },
       body: JSON.stringify({
         model: 'gpt-5',
-        input: `Analyze this food photo and provide nutritional information.
+        input: [
+          {
+            type: 'text',
+            text: `Analyze this food photo and provide nutritional information.
 
-${caption ? `User description: "${caption}"` : ''}
+${caption ? `Food description: "${caption}"` : ''}
 
 USER CONTEXT:
 - Daily goals: ${userContext.goals.cal_goal} calories, ${userContext.goals.protein_goal_g}g protein, ${userContext.goals.fiber_goal_g}g fiber
 - Today so far: ${userContext.todayTotals.calories} calories, ${userContext.todayTotals.protein}g protein, ${userContext.todayTotals.fiber}g fiber
 - This is meal #${userContext.mealsToday + 1} today
+- Still need: ${userContext.goals.cal_goal - userContext.todayTotals.calories} calories, ${userContext.goals.protein_goal_g - userContext.todayTotals.protein}g protein, ${userContext.goals.fiber_goal_g - userContext.todayTotals.fiber}g fiber
 
 ANALYSIS REQUIREMENTS:
 - Estimate portion sizes from visual cues (plate size, utensils, comparisons)
@@ -207,15 +211,22 @@ ANALYSIS REQUIREMENTS:
 Return ONLY a JSON object:
 {
   "calories": number,
-  "protein_g": number (1 decimal),
-  "fat_g": number (1 decimal),
-  "carbs_g": number (1 decimal),
-  "fiber_g": number (1 decimal),
-  "confidence": number (0-1),
+  "protein_g": number,
+  "fat_g": number,
+  "carbs_g": number,
+  "fiber_g": number,
+  "confidence": number,
   "advice_short": "string (max 120 chars, actionable nutrition advice)"
-}
-
-Image: data:image/jpeg;base64,${base64Image}`,
+}`
+          },
+          {
+            type: 'image_url',
+            image_url: {
+              url: `data:image/jpeg;base64,${base64Image}`,
+              detail: 'high'
+            }
+          }
+        ],
         reasoning: { effort: "high" },
         text: { verbosity: "low" }
       })
@@ -228,12 +239,12 @@ Image: data:image/jpeg;base64,${base64Image}`,
     }
 
     const openaiData = await openaiResponse.json();
-    console.log('GPT-5 response received:', openaiData.output_text?.substring(0, 200));
+    console.log('GPT-5 Vision response received:', openaiData.output_text?.substring(0, 200));
     
     const content = openaiData.output_text;
     
     if (!content) {
-      throw new Error('No output_text from GPT-5 response');
+      throw new Error('No output_text from GPT-5 Vision response');
     }
 
     return parseNutritionResponse(content, 'photo');
