@@ -178,8 +178,8 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
 
     console.log('Calling OpenAI Vision API...');
 
-    // Use GPT-5 with Chat Completions API for image analysis (as per documentation)
-    const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+    // Use GPT-5 with Responses API for proper image analysis
+    const openaiResponse = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -187,29 +187,48 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
       },
       body: JSON.stringify({
         model: 'gpt-5-mini',
-        messages: [
-          {
-            role: 'system',
-            content: `Analyze food photo. Return ONLY JSON: {"calories": number, "protein_g": number, "fat_g": number, "carbs_g": number, "fiber_g": number, "confidence": number, "advice_short": "string"}`
-          },
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: `Analyze food photo. ${caption ? `Description: "${caption}".` : ''} Return JSON only.`
+        reasoning: { effort: "minimal" },
+        text: { verbosity: "low" },
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "FoodAnalysis",
+            schema: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                calories: { type: "integer" },
+                protein_g: { type: "number" },
+                fat_g: { type: "number" },
+                carbs_g: { type: "number" },
+                fiber_g: { type: "number" },
+                confidence: { type: "number" },
+                advice_short: { type: "string" }
               },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: `data:image/jpeg;base64,${base64Image}`,
-                  detail: 'high'
-                }
-              }
-            ]
+              required: ["calories", "protein_g", "fat_g", "carbs_g", "fiber_g", "confidence", "advice_short"]
+            }
           }
-        ],
-        max_completion_tokens: 300
+        },
+        input: [{
+          role: "user",
+          content: [
+            { 
+              type: "input_text", 
+              text: `Analyze this food photo and return nutrition data.
+              
+${caption ? `User description: "${caption}"` : ''}
+
+User context: Daily goals ${userContext.goals.cal_goal} cal, ${userContext.goals.protein_goal_g}g protein, ${userContext.goals.fiber_goal_g}g fiber. Today consumed: ${userContext.todayTotals.calories} cal, ${userContext.todayTotals.protein}g protein, ${userContext.todayTotals.fiber}g fiber.
+
+Estimate calories, macronutrients, fiber and provide brief advice. Return JSON per schema.`
+            },
+            { 
+              type: "input_image", 
+              image_url: `data:image/jpeg;base64,${base64Image}`
+            }
+          ]
+        }],
+        max_output_tokens: 400
       })
     });
 
@@ -220,19 +239,16 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
     }
 
     const openaiData = await openaiResponse.json();
-    console.log('GPT-5 full response:', JSON.stringify(openaiData, null, 2));
+    console.log('GPT-5 Responses API response:', JSON.stringify(openaiData, null, 2));
     
-    // Check different possible response formats
-    const content = openaiData.choices?.[0]?.message?.content || 
-                   openaiData.output_text || 
-                   openaiData.text ||
-                   openaiData.response;
+    // For Responses API, content is in output_text
+    const content = openaiData.output_text;
     
     console.log('Extracted content:', content);
     
     if (!content) {
-      console.error('No content found in GPT-5 response structure:', Object.keys(openaiData));
-      throw new Error(`No response content from GPT-5. Response keys: ${Object.keys(openaiData).join(', ')}`);
+      console.error('No output_text in GPT-5 Responses API response:', Object.keys(openaiData));
+      throw new Error(`No output_text from GPT-5 Responses API. Response keys: ${Object.keys(openaiData).join(', ')}`);
     }
 
     return parseNutritionResponse(content, 'photo');
