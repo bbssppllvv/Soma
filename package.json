@@ -2,6 +2,7 @@
   "name": "soma-diet-tracker",
   "version": "1.0.0",
   "description": "Telegram bot for nutrition tracking with photo analysis",
+  "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "build": "echo 'Vercel handles TypeScript compilation automatically'",
