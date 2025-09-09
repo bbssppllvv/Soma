@@ -1,6 +1,6 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import TelegramBot from 'node-telegram-bot-api';
-import { sheetsService } from '../services/sheets';
+import { supabaseService } from '../services/supabase';
 import { LLMService } from '../services/llm';
 import { ScoringService } from '../services/scoring';
 import { TimeService } from '../services/time';
@@ -46,7 +46,7 @@ async function processMessage(message: TelegramMessage) {
 
   try {
     // Get or create user
-    let user = await sheetsService.getUser(userId);
+    let user = await supabaseService.getUser(userId);
     if (!user) {
       user = {
         user_id: userId,
@@ -60,10 +60,10 @@ async function processMessage(message: TelegramMessage) {
         silent_mode: false,
         daily_digest_time: '21:30',
       };
-      await sheetsService.createOrUpdateUser(user);
+      await supabaseService.createOrUpdateUser(user);
     } else {
       // Update last seen
-      await sheetsService.createOrUpdateUser({
+      await supabaseService.createOrUpdateUser({
         user_id: userId,
         last_seen_utc: timestamp,
         display_name: message.from.first_name || user.display_name,
@@ -141,14 +141,14 @@ async function handleCommand(command: string, chatId: number, user: User, dayLoc
 
 async function handleTodayCommand(chatId: number, user: User, dayLocal: string) {
   try {
-    let dailyData = await sheetsService.getDailyEntry(user.user_id, dayLocal);
+    let dailyData = await supabaseService.getDailyEntry(user.user_id, dayLocal);
     
     if (!dailyData) {
       // Try to aggregate from log entries
-      const logEntries = await sheetsService.getLogEntriesForDay(user.user_id, dayLocal);
+      const logEntries = await supabaseService.getLogEntriesForDay(user.user_id, dayLocal);
       if (logEntries.length > 0) {
         dailyData = aggregateLogEntriesToDaily(logEntries, user, dayLocal);
-        await sheetsService.upsertDailyEntry(dailyData);
+        await supabaseService.upsertDailyEntry(dailyData);
       }
     }
 
@@ -163,7 +163,7 @@ async function handleTodayCommand(chatId: number, user: User, dayLocal: string) 
 async function handleWeekCommand(chatId: number, user: User) {
   try {
     const { startDate, endDate } = TimeService.getLastNDaysRange(user.timezone, 7);
-    const weeklyData = await sheetsService.getDailyEntriesForPeriod(user.user_id, startDate, endDate);
+    const weeklyData = await supabaseService.getDailyEntriesForPeriod(user.user_id, startDate, endDate);
     
     const weeklyStats = ScoringService.calculateWeeklyStats(weeklyData, user);
     const advice = ScoringService.generateWeeklyAdvice(weeklyData, user);
@@ -179,7 +179,7 @@ async function handleWeekCommand(chatId: number, user: User) {
 async function handleMonthCommand(chatId: number, user: User) {
   try {
     const { startDate, endDate } = TimeService.getLastNDaysRange(user.timezone, 30);
-    const monthlyData = await sheetsService.getDailyEntriesForPeriod(user.user_id, startDate, endDate);
+    const monthlyData = await supabaseService.getDailyEntriesForPeriod(user.user_id, startDate, endDate);
     
     const monthlyStats = ScoringService.calculateWeeklyStats(monthlyData, user);
     
@@ -236,9 +236,9 @@ async function handleSetGoalsCommand(command: string, chatId: number, user: User
       return;
     }
 
-    await sheetsService.createOrUpdateUser({ user_id: user.user_id, ...newGoals });
+    await supabaseService.createOrUpdateUser({ user_id: user.user_id, ...newGoals });
     
-    const updatedUser = await sheetsService.getUser(user.user_id);
+    const updatedUser = await supabaseService.getUser(user.user_id);
     if (updatedUser) {
       await bot.sendMessage(chatId, TelegramUtils.formatGoalsUpdateMessage(updatedUser));
     }
@@ -250,7 +250,7 @@ async function handleSetGoalsCommand(command: string, chatId: number, user: User
 
 async function handleDeleteCommand(chatId: number, user: User) {
   try {
-    await sheetsService.deleteUserData(user.user_id);
+    await supabaseService.deleteUserData(user.user_id);
     await bot.sendMessage(chatId, '✅ Все ваши данные удалены. Используйте /start для начала заново.');
   } catch (error) {
     console.error('Error deleting user data:', error);
@@ -269,7 +269,7 @@ async function handleFoodAnalysis(message: TelegramMessage, user: User, dayLocal
 
     // Get recent days for context
     const { startDate } = TimeService.getLastNDaysRange(user.timezone, 3);
-    const recentDays = await sheetsService.getDailyEntriesForPeriod(user.user_id, startDate, dayLocal);
+    const recentDays = await supabaseService.getDailyEntriesForPeriod(user.user_id, startDate, dayLocal);
 
     if (message.photo && message.photo.length > 0) {
       // Get the largest photo
@@ -298,7 +298,7 @@ async function handleFoodAnalysis(message: TelegramMessage, user: User, dayLocal
     }
 
     // Get today's data for scoring context
-    const todayData = await sheetsService.getDailyEntry(user.user_id, dayLocal);
+    const todayData = await supabaseService.getDailyEntry(user.user_id, dayLocal);
     const mealScore = ScoringService.calculateMealScore(nutritionAnalysis, user, !todayData);
 
     // Create log entry
@@ -322,7 +322,7 @@ async function handleFoodAnalysis(message: TelegramMessage, user: User, dayLocal
       raw_model_json: JSON.stringify(nutritionAnalysis),
     };
 
-    await sheetsService.addLogEntry(logEntry);
+    await supabaseService.addLogEntry(logEntry);
 
     // Update or create daily entry
     const updatedDailyData: DailyEntry = {
@@ -339,7 +339,7 @@ async function handleFoodAnalysis(message: TelegramMessage, user: User, dayLocal
     };
 
     updatedDailyData.daily_score = ScoringService.calculateDailyScore(updatedDailyData, user);
-    await sheetsService.upsertDailyEntry(updatedDailyData);
+    await supabaseService.upsertDailyEntry(updatedDailyData);
 
     // Send response to user
     const response = TelegramUtils.formatMealResponse(

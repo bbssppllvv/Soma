@@ -1,6 +1,6 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import TelegramBot from 'node-telegram-bot-api';
-import { sheetsService } from '../../services/sheets';
+import { supabaseService } from '../../services/supabase';
 import { LLMService } from '../../services/llm';
 import { ScoringService } from '../../services/scoring';
 import { TimeService } from '../../services/time';
@@ -19,7 +19,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     console.log('Starting daily summary cron job...');
     
-    const users = await sheetsService.getAllUsersForDigest();
+    const users = await supabaseService.getAllUsersForDigest();
     const processedUsers = [];
     const errors = [];
 
@@ -82,14 +82,14 @@ async function sendDailyDigest(user: User) {
   
   try {
     // Get today's data
-    let todayData = await sheetsService.getDailyEntry(user.user_id, currentDate);
+    let todayData = await supabaseService.getDailyEntry(user.user_id, currentDate);
     
     // If no daily entry exists, try to aggregate from log entries
     if (!todayData) {
-      const logEntries = await sheetsService.getLogEntriesForDay(user.user_id, currentDate);
+      const logEntries = await supabaseService.getLogEntriesForDay(user.user_id, currentDate);
       if (logEntries.length > 0) {
         todayData = aggregateLogEntriesToDaily(logEntries, user, currentDate);
-        await sheetsService.upsertDailyEntry(todayData);
+        await supabaseService.upsertDailyEntry(todayData);
       }
     }
 
@@ -105,7 +105,7 @@ async function sendDailyDigest(user: User) {
 
     // Get recent days for context
     const { startDate } = TimeService.getLastNDaysRange(user.timezone, 3);
-    const recentDays = await sheetsService.getDailyEntriesForPeriod(user.user_id, startDate, currentDate);
+    const recentDays = await supabaseService.getDailyEntriesForPeriod(user.user_id, startDate, currentDate);
     
     // Generate personalized advice for tomorrow
     let tomorrowAdvice: string;
@@ -197,7 +197,7 @@ function generateFallbackAdvice(todayData: DailyEntry, user: User): string {
 export async function healthCheck(req: VercelRequest, res: VercelResponse) {
   try {
     // Basic connectivity test
-    const users = await sheetsService.getAllUsersForDigest();
+    const users = await supabaseService.getAllUsersForDigest();
     
     return res.status(200).json({
       status: 'healthy',

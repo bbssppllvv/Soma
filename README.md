@@ -7,7 +7,7 @@ Telegram bot for nutrition tracking with AI-powered food photo analysis.
 - Node.js + TypeScript
 - Vercel serverless functions
 - OpenAI GPT-4o Vision API
-- Google Sheets storage
+- Supabase PostgreSQL database
 - Telegram Bot API
 
 ## Features
@@ -23,19 +23,20 @@ Telegram bot for nutrition tracking with AI-powered food photo analysis.
 
 1. Create Telegram bot via @BotFather
 2. Get OpenAI API key
-3. Set up Google Sheets with service account
+3. Set up Supabase database
 4. Configure environment variables
 5. Deploy to Vercel
 
 See `DEPLOYMENT.md` for detailed setup instructions.
+See `MIGRATION_TO_SUPABASE.md` for migration from Google Sheets.
 
 ## Environment Variables
 
 ```
 TELEGRAM_BOT_TOKEN=your_bot_token
 OPENAI_API_KEY=your_openai_key
-GOOGLE_SERVICE_ACCOUNT=service_account_json
-SHEET_ID=google_sheet_id
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 TIMEZONE_DEFAULT=Europe/Madrid
 ```
 

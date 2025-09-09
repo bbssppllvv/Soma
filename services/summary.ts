@@ -1,4 +1,4 @@
-import { sheetsService } from './sheets';
+import { supabaseService } from './supabase';
 import { ScoringService } from './scoring';
 import { TimeService } from './time';
 import { User, DailyEntry, WeeklyStats, MonthlyStats } from '../types';
@@ -13,7 +13,7 @@ export class SummaryService {
     data: DailyEntry[];
   }> {
     const { startDate, endDate } = TimeService.getLastNDaysRange(user.timezone, 7);
-    const weeklyData = await sheetsService.getDailyEntriesForPeriod(user.user_id, startDate, endDate);
+    const weeklyData = await supabaseService.getDailyEntriesForPeriod(user.user_id, startDate, endDate);
     
     const stats = ScoringService.calculateWeeklyStats(weeklyData, user);
     const advice = ScoringService.generateWeeklyAdvice(weeklyData, user);
@@ -34,7 +34,7 @@ export class SummaryService {
     weeklyBreakdown: WeeklyStats[];
   }> {
     const { startDate, endDate } = TimeService.getLastNDaysRange(user.timezone, 30);
-    const monthlyData = await sheetsService.getDailyEntriesForPeriod(user.user_id, startDate, endDate);
+    const monthlyData = await supabaseService.getDailyEntriesForPeriod(user.user_id, startDate, endDate);
     
     // Split into weeks for trend analysis
     const weeksData: DailyEntry[][] = [];
@@ -80,11 +80,11 @@ export class SummaryService {
   static async getTodaySummary(user: User): Promise<DailyEntry | null> {
     const todayDate = TimeService.getCurrentLocalDate(user.timezone);
     
-    let dailyData = await sheetsService.getDailyEntry(user.user_id, todayDate);
+    let dailyData = await supabaseService.getDailyEntry(user.user_id, todayDate);
     
     if (!dailyData) {
       // Try to aggregate from log entries
-      const logEntries = await sheetsService.getLogEntriesForDay(user.user_id, todayDate);
+      const logEntries = await supabaseService.getLogEntriesForDay(user.user_id, todayDate);
       if (logEntries.length > 0) {
         const totals = logEntries.reduce((acc, entry) => ({
           calories: acc.calories + entry.calories,
@@ -110,7 +110,7 @@ export class SummaryService {
         dailyData.daily_score = ScoringService.calculateDailyScore(dailyData, user);
         
         // Save the aggregated data
-        await sheetsService.upsertDailyEntry(dailyData);
+        await supabaseService.upsertDailyEntry(dailyData);
       }
     }
     
@@ -186,7 +186,7 @@ export class SummaryService {
     const { startDate } = TimeService.getLastNDaysRange(user.timezone, 60); // Look back 60 days
     const endDate = TimeService.getCurrentLocalDate(user.timezone);
     
-    const data = await sheetsService.getDailyEntriesForPeriod(user.user_id, startDate, endDate);
+    const data = await supabaseService.getDailyEntriesForPeriod(user.user_id, startDate, endDate);
     
     if (data.length === 0) {
       return { currentStreak: 0, longestStreak: 0, lastActiveDate: null };

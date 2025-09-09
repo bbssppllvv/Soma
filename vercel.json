@@ -16,8 +16,8 @@
   "env": {
     "TELEGRAM_BOT_TOKEN": "@telegram_bot_token",
     "OPENAI_API_KEY": "@openai_api_key",
-    "GOOGLE_SERVICE_ACCOUNT": "@google_service_account",
-    "SHEET_ID": "@sheet_id",
+    "SUPABASE_URL": "@supabase_url",
+    "SUPABASE_SERVICE_ROLE_KEY": "@supabase_service_role_key",
     "TIMEZONE_DEFAULT": "Europe/Madrid"
   }
 }

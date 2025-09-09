@@ -1,5 +1,5 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
-import { sheetsService } from '../services/sheets';
+import { supabaseService } from '../services/supabase';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {
@@ -8,19 +8,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     // Test database connectivity
-    const users = await sheetsService.getAllUsersForDigest();
+    const healthCheck = await supabaseService.healthCheck();
+    const users = await supabaseService.getAllUsersForDigest();
     
     // Basic system info
     const health = {
       status: 'healthy',
       timestamp: new Date().toISOString(),
-      version: '1.0.0',
+      version: '2.0.0',
       environment: process.env.NODE_ENV || 'development',
       services: {
-        database: 'connected',
+        database: healthCheck.status,
         telegram: process.env.TELEGRAM_BOT_TOKEN ? 'configured' : 'missing',
         openai: process.env.OPENAI_API_KEY ? 'configured' : 'missing',
-        sheets: process.env.GOOGLE_SERVICE_ACCOUNT ? 'configured' : 'missing'
+        supabase: process.env.SUPABASE_URL ? 'configured' : 'missing'
       },
       stats: {
         totalUsers: users.length,
@@ -40,7 +41,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         database: 'disconnected',
         telegram: process.env.TELEGRAM_BOT_TOKEN ? 'configured' : 'missing',
         openai: process.env.OPENAI_API_KEY ? 'configured' : 'missing',
-        sheets: process.env.GOOGLE_SERVICE_ACCOUNT ? 'configured' : 'missing'
+        supabase: process.env.SUPABASE_URL ? 'configured' : 'missing'
       }
     });
   }
