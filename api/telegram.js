@@ -188,12 +188,13 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
       body: JSON.stringify({
         model: 'gpt-5-mini',
         reasoning: { effort: "minimal" },
-        text: { 
-          verbosity: "low",
-          format: "json_schema",
-          json_schema: {
-            name: "FoodAnalysis",
-            schema: {
+        text: { verbosity: "low" },
+        tools: [{
+          type: "function",
+          function: {
+            name: "food_analysis",
+            description: "Return nutrition estimation for the photo",
+            parameters: {
               type: "object",
               additionalProperties: false,
               properties: {
@@ -208,7 +209,8 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
               required: ["calories", "protein_g", "fat_g", "carbs_g", "fiber_g", "confidence", "advice_short"]
             }
           }
-        },
+        }],
+        tool_choice: { type: "function", function: { name: "food_analysis", strict: true } },
         input: [{
           role: "user",
           content: [
@@ -241,17 +243,31 @@ Estimate calories, macronutrients, fiber and provide brief advice. Return JSON p
     const openaiData = await openaiResponse.json();
     console.log('GPT-5 Responses API response:', JSON.stringify(openaiData, null, 2));
     
-    // For Responses API, content is in output_text
-    const content = openaiData.output_text;
+    // For function calling, extract from tool_call arguments
+    const toolCall = openaiData.output?.find(o => o.type === "tool_call");
+    const functionArgs = toolCall?.tool_call?.function?.arguments;
     
-    console.log('Extracted content:', content);
+    console.log('Extracted function arguments:', functionArgs);
     
-    if (!content) {
-      console.error('No output_text in GPT-5 Responses API response:', Object.keys(openaiData));
-      throw new Error(`No output_text from GPT-5 Responses API. Response keys: ${Object.keys(openaiData).join(', ')}`);
+    if (!functionArgs) {
+      // Fallback to output_text if no tool call
+      const content = openaiData.output_text;
+      if (content) {
+        return parseNutritionResponse(content, 'photo');
+      }
+      
+      console.error('No tool_call or output_text in GPT-5 response:', Object.keys(openaiData));
+      throw new Error(`No function call from GPT-5. Response keys: ${Object.keys(openaiData).join(', ')}`);
     }
-
-    return parseNutritionResponse(content, 'photo');
+    
+    // Parse function arguments as JSON
+    const parsed = JSON.parse(functionArgs);
+    
+    // Add meal score
+    parsed.score = calculateMealScore(parsed);
+    
+    console.log('Final parsed result:', parsed);
+    return parsed;
 
   } catch (error) {
     console.error('Photo analysis error:', error);
