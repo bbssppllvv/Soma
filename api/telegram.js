@@ -192,22 +192,20 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
         tools: [{
           type: "function",
           name: "food_analysis",
-          function: {
-            description: "Return nutrition estimation for the photo",
-            parameters: {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                calories: { type: "integer" },
-                protein_g: { type: "number" },
-                fat_g: { type: "number" },
-                carbs_g: { type: "number" },
-                fiber_g: { type: "number" },
-                confidence: { type: "number" },
-                advice_short: { type: "string" }
-              },
-              required: ["calories", "protein_g", "fat_g", "carbs_g", "fiber_g", "confidence", "advice_short"]
-            }
+          description: "Return nutrition estimation for the photo",
+          parameters: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              calories: { type: "integer" },
+              protein_g: { type: "number" },
+              fat_g: { type: "number" },
+              carbs_g: { type: "number" },
+              fiber_g: { type: "number" },
+              confidence: { type: "number" },
+              advice_short: { type: "string" }
+            },
+            required: ["calories", "protein_g", "fat_g", "carbs_g", "fiber_g", "confidence", "advice_short"]
           }
         }],
         tool_choice: { type: "function", name: "food_analysis" },
