@@ -28,7 +28,6 @@ Telegram bot for nutrition tracking with AI-powered food photo analysis.
 5. Deploy to Vercel
 
 See `DEPLOYMENT.md` for detailed setup instructions.
-See `MIGRATION_TO_SUPABASE.md` for migration from Google Sheets.
 
 ## Environment Variables
 
