@@ -252,7 +252,8 @@ Return JSON analysis with confidence score and specific advice.`
             ]
           }
         ],
-        max_completion_tokens: 800
+        max_completion_tokens: 800,
+        reasoning: { effort: "minimal" }
       })
     });
 
