@@ -191,8 +191,8 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
         text: { verbosity: "low" },
         tools: [{
           type: "function",
+          name: "food_analysis",
           function: {
-            name: "food_analysis",
             description: "Return nutrition estimation for the photo",
             parameters: {
               type: "object",
@@ -210,7 +210,7 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
             }
           }
         }],
-        tool_choice: { type: "function", function: { name: "food_analysis", strict: true } },
+        tool_choice: { type: "function", name: "food_analysis", strict: true },
         input: [{
           role: "user",
           content: [
