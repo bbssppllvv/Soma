@@ -1,0 +1,36 @@
+{
+  "name": "soma-diet-tracker",
+  "version": "1.0.0",
+  "description": "Telegram bot for nutrition tracking with photo analysis",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch api/telegram.ts",
+    "start": "node dist/index.js",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint . --ext .ts,.tsx",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@vercel/node": "^3.0.21",
+    "node-telegram-bot-api": "^0.64.0",
+    "openai": "^4.28.4",
+    "googleapis": "^126.0.1",
+    "date-fns": "^3.3.1",
+    "date-fns-tz": "^2.0.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.19",
+    "@types/node-telegram-bot-api": "^0.64.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.2",
+    "@typescript-eslint/parser": "^7.0.2",
+    "eslint": "^8.56.0",
+    "jest": "^29.7.0",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "functions": {
+    "api/telegram.ts": {
+      "maxDuration": 30
+    },
+    "api/cron/daily-summary.ts": {
+      "maxDuration": 60
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/daily-summary",
+      "schedule": "0 * * * *"
+    }
+  ],
+  "env": {
+    "TELEGRAM_BOT_TOKEN": "@telegram_bot_token",
+    "OPENAI_API_KEY": "@openai_api_key",
+    "GOOGLE_SERVICE_ACCOUNT": "@google_service_account",
+    "SHEET_ID": "@sheet_id",
+    "TIMEZONE_DEFAULT": "Europe/Madrid"
+  }
+}
