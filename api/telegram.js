@@ -186,7 +186,7 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
         'Authorization': `Bearer ${openaiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-5',
+        model: 'gpt-5-mini',
         messages: [
           {
             role: 'system',
@@ -252,7 +252,7 @@ Return JSON analysis with confidence score and specific advice.`
             ]
           }
         ],
-        max_completion_tokens: 1500
+        max_completion_tokens: 800
       })
     });
 
@@ -298,7 +298,7 @@ async function analyzeTextWithOpenAI(text, openaiKey, userContext) {
         'Authorization': `Bearer ${openaiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-5',
+        model: 'gpt-5-mini',
         input: `Analyze this food description: "${text}"
 
 USER CONTEXT:
