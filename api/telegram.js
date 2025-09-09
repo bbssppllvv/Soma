@@ -210,7 +210,7 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
             }
           }
         }],
-        tool_choice: { type: "function", name: "food_analysis", strict: true },
+        tool_choice: { type: "function", function: { name: "food_analysis" } },
         input: [{
           role: "user",
           content: [
@@ -243,9 +243,9 @@ Estimate calories, macronutrients, fiber and provide brief advice. Return JSON p
     const openaiData = await openaiResponse.json();
     console.log('GPT-5 Responses API response:', JSON.stringify(openaiData, null, 2));
     
-    // For function calling, extract from tool_call arguments
-    const toolCall = openaiData.output?.find(o => o.type === "tool_call");
-    const functionArgs = toolCall?.tool_call?.function?.arguments;
+    // For function calling, extract from function_call arguments
+    const functionCall = openaiData.output?.find(o => o.type === "function_call");
+    const functionArgs = functionCall?.arguments;
     
     console.log('Extracted function arguments:', functionArgs);
     
@@ -256,7 +256,7 @@ Estimate calories, macronutrients, fiber and provide brief advice. Return JSON p
         return parseNutritionResponse(content, 'photo');
       }
       
-      console.error('No tool_call or output_text in GPT-5 response:', Object.keys(openaiData));
+      console.error('No function_call or output_text in GPT-5 response:', Object.keys(openaiData));
       throw new Error(`No function call from GPT-5. Response keys: ${Object.keys(openaiData).join(', ')}`);
     }
     
