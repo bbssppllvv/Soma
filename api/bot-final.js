@@ -178,8 +178,8 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
 
     console.log('Calling OpenAI Vision API...');
 
-    // Use GPT-5 with Responses API for image analysis
-    const openaiResponse = await fetch('https://api.openai.com/v1/responses', {
+    // Use GPT-5 with Chat Completions API for image analysis (as per documentation)
+    const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -187,27 +187,12 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
       },
       body: JSON.stringify({
         model: 'gpt-5',
-        input: `Analyze this food photo and provide nutritional information.
+        messages: [
+          {
+            role: 'system',
+            content: `You are Soma, an expert nutrition analyst. Analyze food photos with precision and provide actionable advice.
 
-${caption ? `Food description: "${caption}"` : ''}
-
-USER CONTEXT:
-- Daily goals: ${userContext.goals.cal_goal} calories, ${userContext.goals.protein_goal_g}g protein, ${userContext.goals.fiber_goal_g}g fiber
-- Today so far: ${userContext.todayTotals.calories} calories, ${userContext.todayTotals.protein}g protein, ${userContext.todayTotals.fiber}g fiber
-- This is meal #${userContext.mealsToday + 1} today
-- Still need: ${userContext.goals.cal_goal - userContext.todayTotals.calories} calories, ${userContext.goals.protein_goal_g - userContext.todayTotals.protein}g protein, ${userContext.goals.fiber_goal_g - userContext.todayTotals.fiber}g fiber
-
-ANALYSIS REQUIREMENTS:
-- Estimate portion sizes from visual cues (plate size, utensils, comparisons)
-- Consider cooking methods (fried adds 20-30% calories vs grilled)
-- Account for hidden ingredients (oils, sauces, dressings)
-- Identify all protein sources and estimate quality
-- Detect fiber sources (vegetables, whole grains, legumes)
-- Provide actionable advice for remaining daily nutrition needs
-
-IMAGE: The food photo is attached to this analysis request.
-
-Return ONLY a JSON object:
+RESPONSE FORMAT: Return ONLY valid JSON:
 {
   "calories": number,
   "protein_g": number,
@@ -215,16 +200,60 @@ Return ONLY a JSON object:
   "carbs_g": number,
   "fiber_g": number,
   "confidence": number,
-  "advice_short": "string (max 120 chars, actionable nutrition advice)"
-}`,
-        images: [
+  "advice_short": "string"
+}
+
+ANALYSIS EXPERTISE:
+- Estimate portions using visual cues (plate size, utensil scale, hand comparisons)
+- Account for cooking methods (fried +30% calories, grilled baseline, steamed -10%)
+- Detect hidden calories (cooking oils, sauces, dressings, butter)
+- Identify protein sources (meat, fish, eggs, dairy, legumes, nuts)
+- Recognize fiber sources (vegetables, fruits, whole grains, legumes)
+- Consider food density and water content
+
+SCORING FACTORS:
+- Protein: 25-40g per main meal is excellent
+- Fiber: 8-12g per meal supports satiety and health
+- Calories: 300-600 per meal depending on meal type
+- Balance: Variety of nutrients and food groups
+
+Return precise analysis with actionable advice.`
+          },
           {
-            url: `data:image/jpeg;base64,${base64Image}`,
-            detail: 'high'
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `NUTRITION ANALYSIS REQUEST
+
+${caption ? `Food description: "${caption}"` : 'Please analyze this food photo.'}
+
+PERSONAL CONTEXT:
+• Daily goals: ${userContext.goals.cal_goal} calories, ${userContext.goals.protein_goal_g}g protein, ${userContext.goals.fiber_goal_g}g fiber
+• Today's progress: ${userContext.todayTotals.calories} calories, ${userContext.todayTotals.protein}g protein, ${userContext.todayTotals.fiber}g fiber
+• This is meal #${userContext.mealsToday + 1} today
+• Still need: ${userContext.goals.cal_goal - userContext.todayTotals.calories} calories, ${userContext.goals.protein_goal_g - userContext.todayTotals.protein}g protein, ${userContext.goals.fiber_goal_g - userContext.todayTotals.fiber}g fiber
+
+ANALYSIS FOCUS:
+- Accurate portion size estimation from visual cues
+- Complete macronutrient breakdown
+- Fiber content assessment
+- Personalized advice for reaching daily goals
+
+Return JSON analysis with confidence score and specific advice.`
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:image/jpeg;base64,${base64Image}`,
+                  detail: 'high'
+                }
+              }
+            ]
           }
         ],
-        reasoning: { effort: "high" },
-        text: { verbosity: "low" }
+        max_tokens: 600,
+        temperature: 0.2
       })
     });
 
@@ -235,12 +264,12 @@ Return ONLY a JSON object:
     }
 
     const openaiData = await openaiResponse.json();
-    console.log('GPT-5 Vision response received:', openaiData.output_text?.substring(0, 200));
+    console.log('GPT-5 Vision response received:', openaiData.choices[0]?.message?.content?.substring(0, 200));
     
-    const content = openaiData.output_text;
+    const content = openaiData.choices[0]?.message?.content;
     
     if (!content) {
-      throw new Error('No output_text from GPT-5 Vision response');
+      throw new Error('No response content from GPT-5 Vision');
     }
 
     return parseNutritionResponse(content, 'photo');
