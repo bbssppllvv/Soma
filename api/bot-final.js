@@ -186,7 +186,7 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
         'Authorization': `Bearer ${openaiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-5',
+        model: 'gpt-image-1',
         messages: [
           {
             role: 'system',
