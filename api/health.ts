@@ -36,7 +36,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({
       status: 'unhealthy',
       timestamp: new Date().toISOString(),
-      error: error.message,
+      error: error instanceof Error ? error.message : String(error),
       services: {
         database: 'disconnected',
         telegram: process.env.TELEGRAM_BOT_TOKEN ? 'configured' : 'missing',

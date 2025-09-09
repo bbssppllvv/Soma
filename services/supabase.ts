@@ -165,8 +165,8 @@ class SupabaseService {
         day_local: entry.day_local,
         chat_id: entry.chat_id,
         message_id: entry.msg_id,  // Map msg_id to message_id
-        text: entry.text || null,
-        photo_file_id: entry.photo_file_id || null,
+        text: entry.text || undefined,
+        photo_file_id: entry.photo_file_id || undefined,
         calories: entry.calories,
         protein_g: entry.protein_g,
         fat_g: entry.fat_g,
@@ -174,7 +174,7 @@ class SupabaseService {
         fiber_g: entry.fiber_g,
         score_item: entry.score_item,
         confidence: entry.confidence,
-        advice_short: entry.advice_short || null,
+        advice_short: entry.advice_short || undefined,
         raw_model_json: entry.raw_model_json ? JSON.parse(entry.raw_model_json) : null,
       };
 
@@ -269,7 +269,7 @@ class SupabaseService {
         fiber_sum: entry.fiber_sum,
         meals_count: entry.meals_count,
         daily_score: entry.daily_score,
-        notes: entry.notes || null,
+        notes: entry.notes || undefined,
       };
 
       const { error } = await this.supabase

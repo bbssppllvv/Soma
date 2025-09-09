@@ -42,7 +42,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         
       } catch (error) {
         console.error(`Error processing user ${user.user_id}:`, error);
-        errors.push({ userId: user.user_id, error: error.message });
+        errors.push({ userId: user.user_id, error: error instanceof Error ? error.message : String(error) });
       }
     }
 
@@ -59,12 +59,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.error('Daily summary cron error:', error);
     return res.status(500).json({ 
       success: false, 
-      error: error.message 
+      error: error instanceof Error ? error.message : String(error)
     });
   }
 }
 
-async function checkIfTimeForDigest(user: User): boolean {
+async function checkIfTimeForDigest(user: User): Promise<boolean> {
   try {
     const currentLocalTime = TimeService.getCurrentLocalTime(user.timezone);
     const targetTime = user.daily_digest_time;
@@ -208,7 +208,7 @@ export async function healthCheck(req: VercelRequest, res: VercelResponse) {
   } catch (error) {
     return res.status(500).json({
       status: 'unhealthy',
-      error: error.message,
+      error: error instanceof Error ? error.message : String(error),
       timestamp: new Date().toISOString()
     });
   }
