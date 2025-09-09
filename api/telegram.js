@@ -188,9 +188,9 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
       body: JSON.stringify({
         model: 'gpt-5-mini',
         reasoning: { effort: "minimal" },
-        text: { verbosity: "low" },
-        response_format: {
-          type: "json_schema",
+        text: { 
+          verbosity: "low",
+          format: "json_schema",
           json_schema: {
             name: "FoodAnalysis",
             schema: {
