@@ -1,10 +1,12 @@
 {
   "functions": {
-    "api/**/*.ts": {
+    "api/bot.ts": {
+      "memory": 1024,
       "maxDuration": 30
+    },
+    "api/health.ts": {
+      "memory": 512,
+      "maxDuration": 10
     }
-  },
-  "buildCommand": "echo 'Serverless functions - no build needed'",
-  "outputDirectory": "api",
-  "installCommand": "npm install"
+  }
 }
