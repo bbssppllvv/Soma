@@ -210,7 +210,7 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
             }
           }
         }],
-        tool_choice: { type: "function", function: { name: "food_analysis" } },
+        tool_choice: { type: "function", name: "food_analysis" },
         input: [{
           role: "user",
           content: [
