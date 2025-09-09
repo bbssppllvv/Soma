@@ -186,61 +186,18 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
         'Authorization': `Bearer ${openaiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        model: 'gpt-5-mini',
         messages: [
           {
             role: 'system',
-            content: `You are Soma, an expert nutrition analyst. Analyze food photos with precision and provide actionable advice.
-
-RESPONSE FORMAT: Return ONLY valid JSON:
-{
-  "calories": number,
-  "protein_g": number,
-  "fat_g": number,
-  "carbs_g": number,
-  "fiber_g": number,
-  "confidence": number,
-  "advice_short": "string"
-}
-
-ANALYSIS EXPERTISE:
-- Estimate portions using visual cues (plate size, utensil scale, hand comparisons)
-- Account for cooking methods (fried +30% calories, grilled baseline, steamed -10%)
-- Detect hidden calories (cooking oils, sauces, dressings, butter)
-- Identify protein sources (meat, fish, eggs, dairy, legumes, nuts)
-- Recognize fiber sources (vegetables, fruits, whole grains, legumes)
-- Consider food density and water content
-
-SCORING FACTORS:
-- Protein: 25-40g per main meal is excellent
-- Fiber: 8-12g per meal supports satiety and health
-- Calories: 300-600 per meal depending on meal type
-- Balance: Variety of nutrients and food groups
-
-Return precise analysis with actionable advice.`
+            content: `Analyze food photo. Return ONLY JSON: {"calories": number, "protein_g": number, "fat_g": number, "carbs_g": number, "fiber_g": number, "confidence": number, "advice_short": "string"}`
           },
           {
             role: 'user',
             content: [
               {
                 type: 'text',
-                text: `NUTRITION ANALYSIS REQUEST
-
-${caption ? `Food description: "${caption}"` : 'Please analyze this food photo.'}
-
-PERSONAL CONTEXT:
-• Daily goals: ${userContext.goals.cal_goal} calories, ${userContext.goals.protein_goal_g}g protein, ${userContext.goals.fiber_goal_g}g fiber
-• Today's progress: ${userContext.todayTotals.calories} calories, ${userContext.todayTotals.protein}g protein, ${userContext.todayTotals.fiber}g fiber
-• This is meal #${userContext.mealsToday + 1} today
-• Still need: ${userContext.goals.cal_goal - userContext.todayTotals.calories} calories, ${userContext.goals.protein_goal_g - userContext.todayTotals.protein}g protein, ${userContext.goals.fiber_goal_g - userContext.todayTotals.fiber}g fiber
-
-ANALYSIS FOCUS:
-- Accurate portion size estimation from visual cues
-- Complete macronutrient breakdown
-- Fiber content assessment
-- Personalized advice for reaching daily goals
-
-Return JSON analysis with confidence score and specific advice.`
+                text: `Analyze food photo. ${caption ? `Description: "${caption}".` : ''} Return JSON only.`
               },
               {
                 type: 'image_url',
@@ -252,8 +209,7 @@ Return JSON analysis with confidence score and specific advice.`
             ]
           }
         ],
-        max_tokens: 600,
-        temperature: 0.2
+        max_completion_tokens: 300
       })
     });
 
