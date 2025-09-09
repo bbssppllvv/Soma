@@ -50,6 +50,8 @@ export default async function handler(req, res) {
       await handleTodayCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders);
     } else if (text === '/goals') {
       await handleGoalsCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders);
+    } else if (text === '/debug') {
+      await handleDebugCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders);
     } else if (message.photo || (text && !text.startsWith('/'))) {
       // Handle food analysis
       await handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, supabaseHeaders);
@@ -259,18 +261,39 @@ async function handleTodayCommand(chatId, userId, botToken, supabaseUrl, supabas
   try {
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     
-    // Get today's entries
+    // First get user UUID
+    const userResponse = await fetch(
+      `${supabaseUrl}/rest/v1/users?telegram_user_id=eq.${userId}&select=id`,
+      { headers: supabaseHeaders }
+    );
+
+    if (!userResponse.ok) {
+      await sendMessage(chatId, '❌ Ошибка: пользователь не найден. Попробуйте /start', botToken);
+      return;
+    }
+
+    const users = await userResponse.json();
+    if (users.length === 0) {
+      await sendMessage(chatId, '❌ Пользователь не найден. Отправьте /start для регистрации', botToken);
+      return;
+    }
+
+    const userUuid = users[0].id;
+    
+    // Get today's entries using UUID
     const entriesResponse = await fetch(
-      `${supabaseUrl}/rest/v1/entries?user_id=eq.${userId}&day_local=eq.${today}&select=*`,
+      `${supabaseUrl}/rest/v1/entries?user_id=eq.${userUuid}&day_local=eq.${today}&select=*`,
       { headers: supabaseHeaders }
     );
 
     if (!entriesResponse.ok) {
+      console.error('Entries fetch error:', await entriesResponse.text());
       await sendMessage(chatId, '❌ Ошибка получения данных за сегодня', botToken);
       return;
     }
 
     const entries = await entriesResponse.json();
+    console.log(`Found ${entries.length} entries for user ${userId} on ${today}`);
 
     if (entries.length === 0) {
       await sendMessage(chatId, 
@@ -290,20 +313,30 @@ async function handleTodayCommand(chatId, userId, botToken, supabaseUrl, supabas
       fiber: acc.fiber + (entry.fiber_g || 0)
     }), { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 });
 
+    // Calculate average score
+    const avgScore = entries.reduce((sum, entry) => sum + (entry.score_item || 0), 0) / entries.length;
+
     const todayText = `📊 <b>Сегодня (${today})</b>
 
 🍽️ <b>Приёмов пищи:</b> ${entries.length}
 
-📈 <b>Итого:</b>
+📈 <b>Итого за день:</b>
 • Калории: ~${Math.round(totals.calories)} ккал
 • Белок: ${Math.round(totals.protein * 10) / 10} г
 • Жиры: ${Math.round(totals.fat * 10) / 10} г
 • Углеводы: ${Math.round(totals.carbs * 10) / 10} г
 • Клетчатка: ${Math.round(totals.fiber * 10) / 10} г
 
+⭐ <b>Средняя оценка:</b> ${Math.round(avgScore * 10) / 10}/10
+
 🎯 <b>Цели:</b> 1800 ккал, 120г белка, 25г клетчатки
 
-💡 Продолжайте отслеживать питание для лучших результатов!`;
+📊 <b>Прогресс к целям:</b>
+• Калории: ${Math.round((totals.calories / 1800) * 100)}%
+• Белок: ${Math.round((totals.protein / 120) * 100)}%  
+• Клетчатка: ${Math.round((totals.fiber / 25) * 100)}%
+
+💡 ${totals.calories < 1500 ? 'Добавьте калорий до ужина' : totals.calories > 2000 ? 'Калорий достаточно на сегодня' : 'Отличный баланс калорий!'}`;
 
     await sendMessage(chatId, todayText, botToken);
 
@@ -707,5 +740,83 @@ async function updateDailyAggregates(userUuid, dayLocal, supabaseUrl, supabaseHe
 
   } catch (error) {
     console.error('Update daily aggregates error:', error);
+  }
+}
+
+// Debug command - detailed database info
+async function handleDebugCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders) {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Get user info
+    const userResponse = await fetch(
+      `${supabaseUrl}/rest/v1/users?telegram_user_id=eq.${userId}&select=*`,
+      { headers: supabaseHeaders }
+    );
+    
+    const users = await userResponse.json();
+    
+    if (users.length === 0) {
+      await sendMessage(chatId, '❌ Пользователь не найден в базе данных. Отправьте /start', botToken);
+      return;
+    }
+    
+    const user = users[0];
+    const userUuid = user.id;
+    
+    // Get entries count
+    const entriesResponse = await fetch(
+      `${supabaseUrl}/rest/v1/entries?user_id=eq.${userUuid}&select=*`,
+      { headers: supabaseHeaders }
+    );
+    
+    const allEntries = await entriesResponse.json();
+    
+    // Get today's entries
+    const todayEntriesResponse = await fetch(
+      `${supabaseUrl}/rest/v1/entries?user_id=eq.${userUuid}&day_local=eq.${today}&select=*`,
+      { headers: supabaseHeaders }
+    );
+    
+    const todayEntries = await todayEntriesResponse.json();
+    
+    // Get daily record
+    const dailyResponse = await fetch(
+      `${supabaseUrl}/rest/v1/daily?user_id=eq.${userUuid}&day_local=eq.${today}&select=*`,
+      { headers: supabaseHeaders }
+    );
+    
+    const dailyRecords = await dailyResponse.json();
+    
+    const debugText = `🔧 <b>Отладочная информация</b>
+
+👤 <b>Пользователь:</b>
+• ID: ${userId}
+• UUID: ${userUuid.substring(0, 8)}...
+• Имя: ${user.display_name}
+• Создан: ${new Date(user.first_seen_utc).toLocaleDateString('ru-RU')}
+
+📊 <b>Статистика записей:</b>
+• Всего записей: ${allEntries.length}
+• Записей за сегодня: ${todayEntries.length}
+• Дневных агрегатов: ${dailyRecords.length}
+
+📅 <b>Сегодня (${today}):</b>
+${todayEntries.length > 0 ? 
+  todayEntries.map((entry, i) => 
+    `${i+1}. ${entry.calories}ккал (${new Date(entry.timestamp_utc).toLocaleTimeString('ru-RU')})`
+  ).join('\n') 
+  : 'Нет записей'}
+
+💾 <b>База данных:</b> ✅ Подключена
+🔗 <b>URL:</b> ${supabaseUrl.substring(0, 30)}...
+
+Если /today не работает, проблема в запросах к БД.`;
+
+    await sendMessage(chatId, debugText, botToken);
+    
+  } catch (error) {
+    console.error('Debug command error:', error);
+    await sendMessage(chatId, `❌ Ошибка debug: ${error.message}`, botToken);
   }
 }
