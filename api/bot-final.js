@@ -187,10 +187,7 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
       },
       body: JSON.stringify({
         model: 'gpt-5',
-        input: [
-          {
-            type: 'text',
-            text: `Analyze this food photo and provide nutritional information.
+        input: `Analyze this food photo and provide nutritional information.
 
 ${caption ? `Food description: "${caption}"` : ''}
 
@@ -208,6 +205,8 @@ ANALYSIS REQUIREMENTS:
 - Detect fiber sources (vegetables, whole grains, legumes)
 - Provide actionable advice for remaining daily nutrition needs
 
+IMAGE: The food photo is attached to this analysis request.
+
 Return ONLY a JSON object:
 {
   "calories": number,
@@ -217,14 +216,11 @@ Return ONLY a JSON object:
   "fiber_g": number,
   "confidence": number,
   "advice_short": "string (max 120 chars, actionable nutrition advice)"
-}`
-          },
+}`,
+        images: [
           {
-            type: 'image_url',
-            image_url: {
-              url: `data:image/jpeg;base64,${base64Image}`,
-              detail: 'high'
-            }
+            url: `data:image/jpeg;base64,${base64Image}`,
+            detail: 'high'
           }
         ],
         reasoning: { effort: "high" },
