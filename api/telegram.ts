@@ -134,6 +134,10 @@ async function handleCommand(command: string, chatId: number, user: User, dayLoc
       await handleDeleteCommand(chatId, user);
       break;
 
+    case '/report':
+      await handleReportCommand(chatId, user, dayLocal);
+      break;
+
     default:
       await bot.sendMessage(chatId, 'Неизвестная команда. Используйте /help для справки.');
   }
@@ -255,6 +259,45 @@ async function handleDeleteCommand(chatId: number, user: User) {
   } catch (error) {
     console.error('Error deleting user data:', error);
     await bot.sendMessage(chatId, TelegramUtils.formatErrorMessage('Не удалось удалить данные.'));
+  }
+}
+
+async function handleReportCommand(chatId: number, user: User, dayLocal: string) {
+  try {
+    let dailyData = await supabaseService.getDailyEntry(user.user_id, dayLocal);
+    
+    if (!dailyData) {
+      // Try to aggregate from log entries
+      const logEntries = await supabaseService.getLogEntriesForDay(user.user_id, dayLocal);
+      if (logEntries.length > 0) {
+        dailyData = aggregateLogEntriesToDaily(logEntries, user, dayLocal);
+        await supabaseService.upsertDailyEntry(dailyData);
+      }
+    }
+
+    if (!dailyData || dailyData.meals_count === 0) {
+      await bot.sendMessage(chatId, `📝 Сегодня (${dayLocal}) ещё нет записей о питании.\n\n💡 Пришлите фото еды или опишите что съели!`);
+      return;
+    }
+
+    // Get recent days for context
+    const { startDate } = TimeService.getLastNDaysRange(user.timezone, 3);
+    const recentDays = await supabaseService.getDailyEntriesForPeriod(user.user_id, startDate, dayLocal);
+    
+    // Generate advice
+    let advice = 'Продолжайте в том же духе!';
+    try {
+      advice = await llmService.generateDailyAdvice(user, dailyData, recentDays);
+    } catch (error) {
+      console.error('Error generating daily advice:', error);
+    }
+
+    const reportMessage = TelegramUtils.formatDailyReport(dayLocal, dailyData, user, advice);
+    await bot.sendMessage(chatId, reportMessage);
+    
+  } catch (error) {
+    console.error('Error handling report command:', error);
+    await bot.sendMessage(chatId, TelegramUtils.formatErrorMessage('Не удалось сформировать отчёт.'));
   }
 }
 
