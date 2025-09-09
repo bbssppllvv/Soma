@@ -108,7 +108,7 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
     let nutritionData;
 
     if (message.photo && openaiKey) {
-      console.log('Starting photo analysis with OpenAI...');
+      console.log('Starting photo analysis with GPT-5...');
       nutritionData = await analyzePhotoWithOpenAI(message.photo, text, openaiKey, userContext);
     } else if (text && openaiKey) {
       console.log('Starting text analysis with OpenAI...');
@@ -186,7 +186,7 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
         'Authorization': `Bearer ${openaiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-image-1',
+        model: 'gpt-5',
         messages: [
           {
             role: 'system',
