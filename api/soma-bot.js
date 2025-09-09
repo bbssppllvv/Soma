@@ -574,19 +574,329 @@ ${supabaseUrl ? '✅' : '❌'} Supabase Database: ${supabaseUrl ? 'Connected' : 
   await sendMessage(chatId, testText, botToken);
 }
 
-// Placeholder for other functions - copy from full-bot.js
+// Today command - show daily summary
 async function handleTodayCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders) {
-  await sendMessage(chatId, 'Today command - implementation from full-bot.js', botToken);
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Get user UUID
+    const userResponse = await fetch(
+      `${supabaseUrl}/rest/v1/users?telegram_user_id=eq.${userId}&select=id`,
+      { headers: supabaseHeaders }
+    );
+
+    if (!userResponse.ok) {
+      await sendMessage(chatId, '❌ User not found. Try /start first', botToken);
+      return;
+    }
+
+    const users = await userResponse.json();
+    if (users.length === 0) {
+      await sendMessage(chatId, '❌ User not found. Send /start to register', botToken);
+      return;
+    }
+
+    const userUuid = users[0].id;
+    
+    // Get today's entries
+    const entriesResponse = await fetch(
+      `${supabaseUrl}/rest/v1/entries?user_id=eq.${userUuid}&day_local=eq.${today}&select=*`,
+      { headers: supabaseHeaders }
+    );
+
+    if (!entriesResponse.ok) {
+      await sendMessage(chatId, '❌ Error fetching today\'s data', botToken);
+      return;
+    }
+
+    const entries = await entriesResponse.json();
+
+    if (entries.length === 0) {
+      await sendMessage(chatId, 
+        `📝 <b>Today (${today})</b>\n\nNo food entries yet.\nSend a photo or describe what you ate!`, 
+        botToken);
+      return;
+    }
+
+    // Calculate totals
+    const totals = entries.reduce((acc, entry) => ({
+      calories: acc.calories + (entry.calories || 0),
+      protein: acc.protein + (entry.protein_g || 0),
+      fat: acc.fat + (entry.fat_g || 0),
+      carbs: acc.carbs + (entry.carbs_g || 0),
+      fiber: acc.fiber + (entry.fiber_g || 0)
+    }), { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 });
+
+    const avgScore = entries.reduce((sum, entry) => sum + (entry.score_item || 0), 0) / entries.length;
+
+    const todayText = `📊 <b>Today (${today})</b>
+
+🍽️ <b>Meals:</b> ${entries.length}
+
+📈 <b>Daily Totals:</b>
+• Calories: ~${Math.round(totals.calories)} kcal
+• Protein: ${Math.round(totals.protein * 10) / 10}g
+• Fat: ${Math.round(totals.fat * 10) / 10}g
+• Carbs: ${Math.round(totals.carbs * 10) / 10}g
+• Fiber: ${Math.round(totals.fiber * 10) / 10}g
+
+⭐ <b>Average Score:</b> ${Math.round(avgScore * 10) / 10}/10
+
+🎯 <b>Goals:</b> 1800 kcal, 120g protein, 25g fiber
+
+📊 <b>Progress:</b>
+• Calories: ${Math.round((totals.calories / 1800) * 100)}%
+• Protein: ${Math.round((totals.protein / 120) * 100)}%  
+• Fiber: ${Math.round((totals.fiber / 25) * 100)}%
+
+💡 ${totals.calories < 1500 ? 'Add more calories before dinner' : totals.calories > 2000 ? 'Sufficient calories for today' : 'Great calorie balance!'}`;
+
+    await sendMessage(chatId, todayText, botToken);
+
+  } catch (error) {
+    console.error('Today command error:', error);
+    await sendMessage(chatId, '❌ Error retrieving today\'s data', botToken);
+  }
 }
 
+// Goals command
 async function handleGoalsCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders) {
-  await sendMessage(chatId, 'Goals command - implementation from full-bot.js', botToken);
+  try {
+    const userResponse = await fetch(
+      `${supabaseUrl}/rest/v1/users?telegram_user_id=eq.${userId}&select=*`,
+      { headers: supabaseHeaders }
+    );
+
+    const users = await userResponse.json();
+    const user = users[0] || {
+      cal_goal: 1800,
+      protein_goal_g: 120,
+      fiber_goal_g: 25,
+      timezone: 'Europe/Madrid',
+      daily_digest_time: '21:30'
+    };
+
+    const goalsText = `🎯 <b>Your Nutrition Goals</b>
+
+🔥 <b>Calories:</b> ${user.cal_goal} kcal/day
+💪 <b>Protein:</b> ${user.protein_goal_g}g/day  
+🌾 <b>Fiber:</b> ${user.fiber_goal_g}g/day
+🕘 <b>Report time:</b> ${user.daily_digest_time}
+🌍 <b>Timezone:</b> ${user.timezone}
+
+📊 These goals are used for meal scoring and advice.
+
+💡 <b>Goal customization:</b> Feature will be added in next version.`;
+
+    await sendMessage(chatId, goalsText, botToken);
+
+  } catch (error) {
+    console.error('Goals command error:', error);
+    await sendMessage(chatId, '❌ Error retrieving goals', botToken);
+  }
 }
 
+// Debug command
 async function handleDebugCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders) {
-  await sendMessage(chatId, 'Debug command - implementation from full-bot.js', botToken);
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    
+    const userResponse = await fetch(
+      `${supabaseUrl}/rest/v1/users?telegram_user_id=eq.${userId}&select=*`,
+      { headers: supabaseHeaders }
+    );
+    
+    const users = await userResponse.json();
+    
+    if (users.length === 0) {
+      await sendMessage(chatId, '❌ User not found in database. Send /start', botToken);
+      return;
+    }
+    
+    const user = users[0];
+    const userUuid = user.id;
+    
+    const entriesResponse = await fetch(
+      `${supabaseUrl}/rest/v1/entries?user_id=eq.${userUuid}&select=*`,
+      { headers: supabaseHeaders }
+    );
+    
+    const allEntries = await entriesResponse.json();
+    
+    const todayEntriesResponse = await fetch(
+      `${supabaseUrl}/rest/v1/entries?user_id=eq.${userUuid}&day_local=eq.${today}&select=*`,
+      { headers: supabaseHeaders }
+    );
+    
+    const todayEntries = await todayEntriesResponse.json();
+    
+    const debugText = `🔧 <b>Debug Information</b>
+
+👤 <b>User:</b>
+• Telegram ID: ${userId}
+• UUID: ${userUuid.substring(0, 8)}...
+• Name: ${user.display_name}
+• Created: ${new Date(user.first_seen_utc).toLocaleDateString()}
+
+📊 <b>Entry Statistics:</b>
+• Total entries: ${allEntries.length}
+• Today's entries: ${todayEntries.length}
+
+📅 <b>Today (${today}):</b>
+${todayEntries.length > 0 ? 
+  todayEntries.map((entry, i) => 
+    `${i+1}. ${entry.calories}kcal (${new Date(entry.timestamp_utc).toLocaleTimeString()})`
+  ).join('\n') 
+  : 'No entries'}
+
+💾 <b>Database:</b> ✅ Connected
+🔗 <b>URL:</b> ${supabaseUrl.substring(0, 30)}...`;
+
+    await sendMessage(chatId, debugText, botToken);
+    
+  } catch (error) {
+    console.error('Debug command error:', error);
+    await sendMessage(chatId, `❌ Debug error: ${error.message}`, botToken);
+  }
 }
 
+// Save food entry with auto-user creation
 async function saveFoodEntry(userId, message, nutritionData, supabaseUrl, supabaseHeaders) {
-  console.log('Save food entry - implementation from full-bot.js');
+  try {
+    let userUuid;
+    
+    const userResponse = await fetch(
+      `${supabaseUrl}/rest/v1/users?telegram_user_id=eq.${userId}&select=id`,
+      { headers: supabaseHeaders }
+    );
+
+    const users = await userResponse.json();
+    
+    if (users.length === 0) {
+      console.log(`Creating user ${userId} for food entry`);
+      
+      const newUser = {
+        telegram_user_id: userId,
+        display_name: message.from.first_name || 'User',
+        timezone: 'Europe/Madrid',
+        cal_goal: 1800,
+        protein_goal_g: 120,
+        fiber_goal_g: 25,
+        daily_digest_time: '21:30',
+        first_seen_utc: new Date().toISOString(),
+        last_seen_utc: new Date().toISOString()
+      };
+
+      const createResponse = await fetch(`${supabaseUrl}/rest/v1/users`, {
+        method: 'POST',
+        headers: {
+          ...supabaseHeaders,
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify(newUser)
+      });
+
+      if (!createResponse.ok) {
+        console.error('Failed to create user:', await createResponse.text());
+        return;
+      }
+
+      const newUsers = await createResponse.json();
+      userUuid = newUsers[0].id;
+    } else {
+      userUuid = users[0].id;
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+
+    // Create entry
+    const entry = {
+      user_id: userUuid,
+      timestamp_utc: new Date().toISOString(),
+      day_local: today,
+      chat_id: message.chat.id,
+      message_id: message.message_id,
+      text: message.text || message.caption || null,
+      photo_file_id: message.photo ? message.photo[message.photo.length - 1].file_id : null,
+      calories: nutritionData.calories,
+      protein_g: nutritionData.protein_g,
+      fat_g: nutritionData.fat_g,
+      carbs_g: nutritionData.carbs_g,
+      fiber_g: nutritionData.fiber_g,
+      score_item: nutritionData.score || calculateEnhancedMealScore(nutritionData),
+      confidence: nutritionData.confidence,
+      advice_short: nutritionData.advice_short,
+      raw_model_json: nutritionData
+    };
+
+    const saveResponse = await fetch(`${supabaseUrl}/rest/v1/entries`, {
+      method: 'POST',
+      headers: supabaseHeaders,
+      body: JSON.stringify(entry)
+    });
+
+    if (saveResponse.ok) {
+      console.log(`Saved food entry for user ${userId}`);
+      await updateDailyAggregates(userUuid, today, supabaseUrl, supabaseHeaders);
+    } else {
+      console.error('Failed to save entry:', await saveResponse.text());
+    }
+
+  } catch (error) {
+    console.error('Save entry error:', error);
+  }
+}
+
+// Update daily aggregates
+async function updateDailyAggregates(userUuid, dayLocal, supabaseUrl, supabaseHeaders) {
+  try {
+    const entriesResponse = await fetch(
+      `${supabaseUrl}/rest/v1/entries?user_id=eq.${userUuid}&day_local=eq.${dayLocal}&select=*`,
+      { headers: supabaseHeaders }
+    );
+
+    const entries = await entriesResponse.json();
+    
+    if (entries.length === 0) return;
+
+    const totals = entries.reduce((acc, entry) => ({
+      calories: acc.calories + (entry.calories || 0),
+      protein: acc.protein + (entry.protein_g || 0),
+      fat: acc.fat + (entry.fat_g || 0),
+      carbs: acc.carbs + (entry.carbs_g || 0),
+      fiber: acc.fiber + (entry.fiber_g || 0),
+      score: acc.score + (entry.score_item || 0)
+    }), { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0, score: 0 });
+
+    const dailyScore = Math.round((totals.score / entries.length) * 10) / 10;
+
+    const dailyData = {
+      user_id: userUuid,
+      day_local: dayLocal,
+      calories_sum: Math.round(totals.calories),
+      protein_sum: Math.round(totals.protein * 10) / 10,
+      fat_sum: Math.round(totals.fat * 10) / 10,
+      carbs_sum: Math.round(totals.carbs * 10) / 10,
+      fiber_sum: Math.round(totals.fiber * 10) / 10,
+      meals_count: entries.length,
+      daily_score: dailyScore,
+      notes: ''
+    };
+
+    const upsertResponse = await fetch(`${supabaseUrl}/rest/v1/daily`, {
+      method: 'POST',
+      headers: {
+        ...supabaseHeaders,
+        'Prefer': 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify(dailyData)
+    });
+
+    if (upsertResponse.ok) {
+      console.log(`Updated daily aggregates for ${dayLocal}`);
+    }
+
+  } catch (error) {
+    console.error('Update daily aggregates error:', error);
+  }
 }

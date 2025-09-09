@@ -467,31 +467,61 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey) {
         'Authorization': `Bearer ${openaiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        model: 'gpt-5',
         messages: [
           {
             role: 'system',
-            content: 'Analyze food photo and return JSON with calories, protein_g, fat_g, carbs_g, fiber_g, confidence (0-1), advice_short (max 120 chars in Russian). Be conservative with estimates.'
+            content: `You are Soma, an expert nutrition analyst. Analyze the food photo and provide accurate nutritional information.
+
+RESPONSE FORMAT: JSON only with these exact fields:
+{
+  "calories": number (total calories for this portion),
+  "protein_g": number (protein in grams, 1 decimal place),
+  "fat_g": number (total fat in grams, 1 decimal place), 
+  "carbs_g": number (carbohydrates in grams, 1 decimal place),
+  "fiber_g": number (dietary fiber in grams, 1 decimal place),
+  "confidence": number (0-1, how certain you are about the analysis),
+  "advice_short": "string (actionable nutrition advice, max 120 chars)"
+}
+
+ANALYSIS GUIDELINES:
+- Estimate portion sizes from visual cues (plate size, utensils, comparisons)
+- Consider cooking methods (fried adds 20-30% calories vs grilled)
+- Account for hidden ingredients (oils, dressings, sauces)
+- Be conservative with calorie estimates (better to underestimate)
+- Look for protein sources and estimate quality
+- Identify fiber sources (vegetables, whole grains, legumes)
+
+ADVICE PRIORITIES:
+1. Protein adequacy (target: 25-40g per main meal)
+2. Fiber content (target: 8-12g per meal for satiety and health)
+3. Calorie appropriateness (300-600 per meal depending on meal type)
+4. Micronutrient density (colorful vegetables, whole foods)
+5. Practical suggestions for improvement
+
+USER CONTEXT: Daily goals are 1800 calories, 120g protein, 25g fiber.
+
+Return only valid JSON, no additional text.`
           },
           {
             role: 'user',
             content: [
               {
                 type: 'text',
-                text: caption ? `Food description: "${caption}"\n\nAnalyze and return JSON only.` : 'Analyze this food photo and return JSON only.'
+                text: caption ? `Food description from user: "${caption}"\n\nAnalyze this meal photo considering the user's daily nutrition goals. Provide detailed nutritional breakdown and actionable advice.` : 'Analyze this food photo. Consider portion size, cooking method, and ingredients. Provide nutritional breakdown and advice for achieving daily goals of 1800 cal, 120g protein, 25g fiber.'
               },
               {
                 type: 'image_url',
                 image_url: {
                   url: `data:image/jpeg;base64,${base64Image}`,
-                  detail: 'low'
+                  detail: 'high'
                 }
               }
             ]
           }
         ],
-        max_tokens: 400,
-        temperature: 0.3
+        max_tokens: 600,
+        temperature: 0.2
       })
     });
 
@@ -605,19 +635,53 @@ async function analyzeTextWithOpenAI(text, openaiKey) {
 // Save food entry to Supabase
 async function saveFoodEntry(userId, message, nutritionData, supabaseUrl, supabaseHeaders) {
   try {
-    // Get user UUID
+    // Get user UUID, create if doesn't exist
+    let userUuid;
+    
     const userResponse = await fetch(
       `${supabaseUrl}/rest/v1/users?telegram_user_id=eq.${userId}&select=id`,
       { headers: supabaseHeaders }
     );
 
     const users = await userResponse.json();
+    
     if (users.length === 0) {
-      console.error('User not found for food entry');
-      return;
-    }
+      console.log(`Creating user ${userId} for food entry`);
+      
+      // Create user if doesn't exist
+      const newUser = {
+        telegram_user_id: userId,
+        display_name: message.from.first_name || 'User',
+        timezone: 'Europe/Madrid',
+        cal_goal: 1800,
+        protein_goal_g: 120,
+        fiber_goal_g: 25,
+        daily_digest_time: '21:30',
+        first_seen_utc: new Date().toISOString(),
+        last_seen_utc: new Date().toISOString()
+      };
 
-    const userUuid = users[0].id;
+      const createResponse = await fetch(`${supabaseUrl}/rest/v1/users`, {
+        method: 'POST',
+        headers: {
+          ...supabaseHeaders,
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify(newUser)
+      });
+
+      if (!createResponse.ok) {
+        console.error('Failed to create user for food entry:', await createResponse.text());
+        return;
+      }
+
+      const newUsers = await createResponse.json();
+      userUuid = newUsers[0].id;
+      console.log(`Created user with UUID: ${userUuid}`);
+    } else {
+      userUuid = users[0].id;
+      console.log(`Found existing user UUID: ${userUuid}`);
+    }
     const today = new Date().toISOString().split('T')[0];
 
     // Create entry
