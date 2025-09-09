@@ -186,7 +186,7 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
         'Authorization': `Bearer ${openaiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-5-mini',
+        model: 'gpt-4o',
         messages: [
           {
             role: 'system',
@@ -252,8 +252,8 @@ Return JSON analysis with confidence score and specific advice.`
             ]
           }
         ],
-        max_completion_tokens: 800,
-        reasoning: { effort: "minimal" }
+        max_tokens: 600,
+        temperature: 0.2
       })
     });
 
