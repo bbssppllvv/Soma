@@ -3,5 +3,8 @@
     "api/**/*.ts": {
       "maxDuration": 30
     }
-  }
+  },
+  "buildCommand": "echo 'Serverless functions - no build needed'",
+  "outputDirectory": "api",
+  "installCommand": "npm install"
 }

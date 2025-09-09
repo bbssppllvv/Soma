@@ -4,7 +4,7 @@
   "description": "Telegram bot for nutrition tracking with photo analysis",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "echo 'Vercel handles TypeScript compilation automatically'",
     "dev": "tsx watch api/telegram.ts", 
     "start": "node dist/index.js",
     "type-check": "tsc --noEmit",
