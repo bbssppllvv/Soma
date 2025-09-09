@@ -178,68 +178,46 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
 
     console.log('Calling OpenAI Vision API...');
 
-    // Try GPT-4o first (more reliable than GPT-5)
-    const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+    // Use GPT-5 with new responses API
+    const openaiResponse = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${openaiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-4o',  // Using GPT-4o for reliability
-        messages: [
-          {
-            role: 'system',
-            content: `You are Soma, an expert nutrition analyst. Analyze the food photo and provide accurate nutritional information.
+        model: 'gpt-5',
+        input: `Analyze this food photo and provide nutritional information.
 
-RESPONSE FORMAT: Return ONLY a valid JSON object with these exact fields:
-{
-  "calories": number,
-  "protein_g": number,
-  "fat_g": number,
-  "carbs_g": number,
-  "fiber_g": number,
-  "confidence": number,
-  "advice_short": "string"
-}
-
-ANALYSIS GUIDELINES:
-- Estimate portion sizes carefully from visual cues
-- Consider cooking methods (fried vs grilled affects calories significantly)
-- Account for hidden ingredients (oils, sauces, dressings)
-- Be conservative with calorie estimates
-- Focus on visible protein sources
-- Identify fiber sources (vegetables, whole grains)
+${caption ? `User description: "${caption}"` : ''}
 
 USER CONTEXT:
 - Daily goals: ${userContext.goals.cal_goal} calories, ${userContext.goals.protein_goal_g}g protein, ${userContext.goals.fiber_goal_g}g fiber
 - Today so far: ${userContext.todayTotals.calories} calories, ${userContext.todayTotals.protein}g protein, ${userContext.todayTotals.fiber}g fiber
 - This is meal #${userContext.mealsToday + 1} today
 
-Provide actionable advice considering what nutrients are still needed today.
-Return ONLY the JSON object, no other text.`
-          },
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: caption ? 
-                  `Analyze this food photo. User description: "${caption}". Consider portion size, ingredients, and how this meal fits into daily nutrition goals.` :
-                  'Analyze this food photo. Estimate portion size, identify ingredients, and provide nutritional breakdown with advice.'
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: `data:image/jpeg;base64,${base64Image}`,
-                  detail: 'high'
-                }
-              }
-            ]
-          }
-        ],
-        max_tokens: 500,
-        temperature: 0.3
+ANALYSIS REQUIREMENTS:
+- Estimate portion sizes from visual cues (plate size, utensils, comparisons)
+- Consider cooking methods (fried adds 20-30% calories vs grilled)
+- Account for hidden ingredients (oils, sauces, dressings)
+- Identify all protein sources and estimate quality
+- Detect fiber sources (vegetables, whole grains, legumes)
+- Provide actionable advice for remaining daily nutrition needs
+
+Return ONLY a JSON object:
+{
+  "calories": number,
+  "protein_g": number (1 decimal),
+  "fat_g": number (1 decimal),
+  "carbs_g": number (1 decimal),
+  "fiber_g": number (1 decimal),
+  "confidence": number (0-1),
+  "advice_short": "string (max 120 chars, actionable nutrition advice)"
+}
+
+Image: data:image/jpeg;base64,${base64Image}`,
+        reasoning: { effort: "high" },
+        text: { verbosity: "low" }
       })
     });
 
@@ -250,12 +228,12 @@ Return ONLY the JSON object, no other text.`
     }
 
     const openaiData = await openaiResponse.json();
-    console.log('OpenAI response received:', openaiData.choices[0]?.message?.content?.substring(0, 200));
+    console.log('GPT-5 response received:', openaiData.output_text?.substring(0, 200));
     
-    const content = openaiData.choices[0]?.message?.content;
+    const content = openaiData.output_text;
     
     if (!content) {
-      throw new Error('No response content from OpenAI');
+      throw new Error('No output_text from GPT-5 response');
     }
 
     return parseNutritionResponse(content, 'photo');
@@ -271,54 +249,43 @@ async function analyzeTextWithOpenAI(text, openaiKey, userContext) {
   try {
     console.log('Calling OpenAI for text analysis...');
 
-    const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+    const openaiResponse = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${openaiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',  // Reliable model for text
-        messages: [
-          {
-            role: 'system',
-            content: `You are Soma, an expert nutrition analyst. Analyze the food description and provide accurate nutritional information.
-
-RESPONSE FORMAT: Return ONLY a valid JSON object:
-{
-  "calories": number,
-  "protein_g": number,
-  "fat_g": number,
-  "carbs_g": number,
-  "fiber_g": number,
-  "confidence": number,
-  "advice_short": "string"
-}
-
-ANALYSIS GUIDELINES:
-- Interpret portion descriptions accurately
-- Consider typical preparation methods
-- Account for cooking additions (oil, butter)
-- Estimate standard serving sizes
-- Focus on complete nutrition profile
+        model: 'gpt-5',
+        input: `Analyze this food description: "${text}"
 
 USER CONTEXT:
-- Daily goals: ${userContext.goals.cal_goal} cal, ${userContext.goals.protein_goal_g}g protein, ${userContext.goals.fiber_goal_g}g fiber
-- Today so far: ${userContext.todayTotals.calories} cal, ${userContext.todayTotals.protein}g protein, ${userContext.todayTotals.fiber}g fiber
+- Daily nutrition goals: ${userContext.goals.cal_goal} calories, ${userContext.goals.protein_goal_g}g protein, ${userContext.goals.fiber_goal_g}g fiber
+- Today's progress: ${userContext.todayTotals.calories} calories, ${userContext.todayTotals.protein}g protein, ${userContext.todayTotals.fiber}g fiber consumed
+- This is meal #${userContext.mealsToday + 1} today
+- Remaining needs: ${userContext.goals.cal_goal - userContext.todayTotals.calories} calories, ${userContext.goals.protein_goal_g - userContext.todayTotals.protein}g protein, ${userContext.goals.fiber_goal_g - userContext.todayTotals.fiber}g fiber
 
-Return ONLY the JSON object.`
-          },
-          {
-            role: 'user',
-            content: `Analyze this food: "${text}"
+ANALYSIS REQUIREMENTS:
+- Interpret portion descriptions (small/medium/large, cups, pieces, grams)
+- Consider preparation methods (fried, grilled, steamed, raw)
+- Account for typical cooking additions (oil, butter, sauces)
+- Estimate standard serving sizes when not specified
+- Assess protein quality and completeness
+- Identify fiber sources and estimate content
+- Provide personalized advice based on remaining daily needs
 
-Context: User has consumed ${userContext.todayTotals.calories} calories today. Still needs ${userContext.goals.cal_goal - userContext.todayTotals.calories} calories, ${userContext.goals.protein_goal_g - userContext.todayTotals.protein}g protein, ${userContext.goals.fiber_goal_g - userContext.todayTotals.fiber}g fiber.
-
-Provide nutritional analysis and advice for meeting daily goals.`
-          }
-        ],
-        max_tokens: 400,
-        temperature: 0.3
+Return ONLY a JSON object with exact format:
+{
+  "calories": number,
+  "protein_g": number (1 decimal place),
+  "fat_g": number (1 decimal place),
+  "carbs_g": number (1 decimal place),
+  "fiber_g": number (1 decimal place),
+  "confidence": number (0-1 based on description detail),
+  "advice_short": "string (actionable advice max 120 chars)"
+}`,
+        reasoning: { effort: "high" },
+        text: { verbosity: "low" }
       })
     });
 
@@ -329,12 +296,12 @@ Provide nutritional analysis and advice for meeting daily goals.`
     }
 
     const openaiData = await openaiResponse.json();
-    console.log('OpenAI text response:', openaiData.choices[0]?.message?.content?.substring(0, 200));
+    console.log('GPT-5 text response:', openaiData.output_text?.substring(0, 200));
     
-    const content = openaiData.choices[0]?.message?.content;
+    const content = openaiData.output_text;
     
     if (!content) {
-      throw new Error('No response content from OpenAI');
+      throw new Error('No output_text from GPT-5 response');
     }
 
     return parseNutritionResponse(content, 'text');
