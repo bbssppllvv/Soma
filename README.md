@@ -4,11 +4,11 @@ Telegram bot for nutrition tracking with AI-powered food photo analysis.
 
 ## Tech Stack
 
-- Node.js + TypeScript
+- Node.js + JavaScript (ES6 modules)
 - Vercel serverless functions
-- OpenAI GPT-4o Vision API
+- OpenAI GPT-5 (Vision + Text analysis)
 - Supabase PostgreSQL database
-- Telegram Bot API
+- Native Fetch API (no external dependencies)
 
 ## Features
 
@@ -53,8 +53,7 @@ TIMEZONE_DEFAULT=Europe/Madrid
 
 ```bash
 npm install
-npm run type-check
-npm run build
+npm run dev
 ```
 
 ## License
