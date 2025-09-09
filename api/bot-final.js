@@ -252,8 +252,7 @@ Return JSON analysis with confidence score and specific advice.`
             ]
           }
         ],
-        max_completion_tokens: 600,
-        temperature: 0.2
+        max_completion_tokens: 600
       })
     });
 
