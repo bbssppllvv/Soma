@@ -117,7 +117,7 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
   const text = message.text || message.caption || '';
   
   try {
-    await sendMessage(chatId, '🔍 Analyzing nutrition with AI...', botToken);
+    await sendMessage(chatId, 'Analyzing your food...', botToken);
 
     // Get user context for personalized analysis
     const userContext = await getUserContext(userId, supabaseUrl, supabaseHeaders);
@@ -137,26 +137,26 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
     console.log('Analysis result:', nutritionData);
 
     // Don't save yet - show analysis and ask for confirmation
-    const confidenceText = nutritionData.confidence < 0.6 ? '⚠️ <b>Low confidence estimate</b>\n' : 
-                          nutritionData.confidence > 0.8 ? '✅ <b>High confidence analysis</b>\n' : '';
+    const confidenceText = nutritionData.confidence < 0.6 ? 'Low confidence estimate\n' : 
+                          nutritionData.confidence > 0.8 ? 'High confidence analysis\n' : '';
 
-    const responseText = `🍽️ <b>Nutrition Analysis</b>
+    const responseText = `<b>Nutrition Analysis</b>
 
-🥘 <b>Food:</b> ${nutritionData.food_name || 'Mixed Food'}
-📏 <b>Portion:</b> ${nutritionData.portion_size || 'Standard'} (${nutritionData.portion_description || 'medium serving'})
+<b>Food:</b> ${nutritionData.food_name || 'Mixed Food'}
+<b>Portion:</b> ${nutritionData.portion_size || 'Standard'} (${nutritionData.portion_description || 'medium serving'})
 
-📊 <b>Nutritional Breakdown:</b>
-🔥 Calories: ${nutritionData.calories} kcal
-🥩 Protein: ${nutritionData.protein_g}g
-🧈 Fat: ${nutritionData.fat_g}g  
-🍞 Carbs: ${nutritionData.carbs_g}g
-🌾 Fiber: ${nutritionData.fiber_g}g
+<b>Nutritional Breakdown:</b>
+Calories: ${nutritionData.calories} kcal
+Protein: ${nutritionData.protein_g}g
+Fat: ${nutritionData.fat_g}g  
+Carbs: ${nutritionData.carbs_g}g
+Fiber: ${nutritionData.fiber_g}g
 
-⭐ <b>Meal Score:</b> ${nutritionData.score}/10
+<b>Meal Score:</b> ${nutritionData.score}/10
 
-${confidenceText}💡 <b>Advice:</b> ${nutritionData.advice_short}
+${confidenceText}<b>Advice:</b> ${nutritionData.advice_short}
 
-❓ <b>Add to diet or modify data?</b>`;
+Ready to add this to your diet?`;
 
     // Store analysis data temporarily with unique ID
     const analysisId = `${userId}_${message.message_id}_${Date.now()}`;
@@ -172,15 +172,15 @@ ${confidenceText}💡 <b>Advice:</b> ${nutritionData.advice_short}
     // Create confirmation keyboard with edit options
     const keyboard = [
       [
-        { text: '✅ Add to Diet', callback_data: `confirm_save_${analysisId}` },
-        { text: '❌ Cancel', callback_data: 'cancel_analysis' }
+        { text: 'Add to Diet', callback_data: `confirm_save_${analysisId}` },
+        { text: 'Cancel', callback_data: 'cancel_analysis' }
       ],
       [
-        { text: '✏️ Edit Calories', callback_data: `edit_analysis_calories_${analysisId}` },
-        { text: '✏️ Edit Protein', callback_data: `edit_analysis_protein_${analysisId}` }
+        { text: 'Edit Calories', callback_data: `edit_analysis_calories_${analysisId}` },
+        { text: 'Edit Protein', callback_data: `edit_analysis_protein_${analysisId}` }
       ],
       [
-        { text: '📊 Edit Portion', callback_data: `edit_analysis_portion_${analysisId}` }
+        { text: 'Edit Portion', callback_data: `edit_analysis_portion_${analysisId}` }
       ]
     ];
 
@@ -610,21 +610,21 @@ async function handleStartCommand(chatId, userId, userName, botToken, supabaseUr
       await startOnboarding(chatId, userId, userName, botToken, supabaseUrl, supabaseHeaders);
     } else {
       // Existing user with profile - show welcome back message
-      const welcomeText = `👋 Welcome back ${userName}! I'm Soma - your personal nutrition tracker.
+      const welcomeText = `Hey ${userName}! Welcome back to Soma.
 
-📸 <b>Send food photos</b> - I'll analyze calories, protein, fat, carbs, and fiber
-💬 <b>Describe meals in text</b> - e.g. "grilled chicken with rice, 200g"
-📊 <b>Get personalized insights</b> - score 0-10 and tailored advice
-🍽️ <b>Manage your meals</b> - edit, delete, adjust portions, or repeat favorites
+<b>What I can do for you:</b>
+• Analyze food photos and descriptions
+• Track calories, protein, and macros
+• Give personalized nutrition insights
+• Help you hit your goals consistently
 
-📋 <b>Commands:</b>
-/meals - manage your recent meals
-/today - today's nutrition summary
-/goals - view nutrition targets
-/profile - view/edit your profile
-/help - full command reference
+<b>Commands:</b>
+/meals - manage recent meals
+/today - daily nutrition summary  
+/goals - view your targets
+/profile - edit your profile
 
-🚀 <b>Start by sending a photo of your meal!</b>`;
+Ready to track something? Send a photo or describe what you're eating.`;
 
       await sendMessage(chatId, welcomeText, botToken);
     }
@@ -635,38 +635,29 @@ async function handleStartCommand(chatId, userId, userName, botToken, supabaseUr
 }
 
 async function handleHelpCommand(chatId, botToken) {
-  const helpText = `🤖 <b>Soma - Nutrition Assistant</b>
+  const helpText = `<b>Soma - Your Nutrition Assistant</b>
 
-📸 <b>Food Analysis:</b>
-• Send photos of meals/snacks
-• Describe food in text
-• Get calories, macros, fiber analysis
-• Receive personalized nutrition advice
+<b>Food Analysis:</b>
+Send photos or describe your meals to get detailed nutrition breakdowns with portion estimates.
 
-🍽️ <b>Meal Management:</b>
-• View and edit recent meals
-• Delete unwanted entries
-• Adjust portion sizes (25%, 50%, 75%, etc.)
-• Duplicate favorite meals
-• Modify calories and macros
+<b>Meal Management:</b>
+View and manage your recent meals with simple delete functionality.
 
-📋 <b>Commands:</b>
-/start - introduction and setup
-/meals - manage your recent meals
+<b>Commands:</b>
+/start - get started or return home
+/meals - view recent meals
 /today - daily nutrition summary
-/goals - view nutrition targets
-/profile - view/edit your profile
-/reset - reset all your data
-/test - system status check
-/debug - technical information
+/goals - view your targets  
+/profile - manage your profile
+/reset - reset all data
 /help - this reference
 
-💡 <b>Examples:</b>
+<b>Examples:</b>
 "Scrambled eggs with toast"
-"Caesar salad, large portion"
+"Caesar salad, large portion" 
 "Protein shake with banana"
 
-🎯 Track your nutrition to achieve optimal health!`;
+Just send a photo or description to get started.`;
 
   await sendMessage(chatId, helpText, botToken);
 }
@@ -1026,23 +1017,23 @@ async function handleGoalsCommand(chatId, userId, botToken, supabaseUrl, supabas
     
     if (!userCheck.exists || !userCheck.hasProfile) {
       // User doesn't have a complete profile
-      const setupText = `🎯 <b>Nutrition Goals</b>
+      const setupText = `<b>Your Nutrition Goals</b>
 
-⚠️ <b>Profile not set up yet!</b>
+<b>Profile not set up yet</b>
 
-I'm currently using default goals:
-🔥 Calories: 2000 kcal/day
-💪 Protein: 150g/day  
-🧈 Fat: 65g/day
-🍞 Carbs: 250g/day
-🌾 Fiber: 25g/day
+I'm using these default goals for now:
+Calories: 2000 kcal/day
+Protein: 150g/day  
+Fat: 65g/day
+Carbs: 250g/day
+Fiber: 25g/day
 
-💡 <b>Want personalized goals?</b>
-Complete your profile to get targets calculated specifically for your body, goals, and activity level!`;
+<b>Want personalized goals?</b>
+Set up your profile to get targets calculated for your specific body, goals, and activity level.`;
 
       const keyboard = [
         [
-          { text: '🚀 Set Up Profile', callback_data: 'onboarding_start' }
+          { text: 'Set Up Profile', callback_data: 'onboarding_start' }
         ]
       ];
 
@@ -1060,27 +1051,25 @@ Complete your profile to get targets calculated specifically for your body, goal
       user.activity_level
     );
 
-    const goalsText = `🎯 <b>Your Personalized Goals</b>
+    const goalsText = `<b>Your Personalized Goals</b>
 
-📊 <b>Daily Targets:</b>
-🔥 Calories: ${targets.calories} kcal/day
-💪 Protein: ${targets.protein}g/day  
-🧈 Fat: ${targets.fat}g/day
-🍞 Carbs: ${targets.carbs}g/day
-🌾 Fiber: ${targets.fiber}g/day
+<b>Daily Targets:</b>
+Calories: ${targets.calories} kcal/day
+Protein: ${targets.protein}g/day  
+Fat: ${targets.fat}g/day
+Carbs: ${targets.carbs}g/day
+Fiber: ${targets.fiber}g/day
 
-👤 <b>Based on your profile:</b>
-• ${user.age} year old ${user.gender}
-• ${user.height_cm}cm, ${user.weight_kg}kg
-• Goal: ${user.fitness_goal} weight
-• Activity: ${user.activity_level}
+<b>Based on your profile:</b>
+${user.age} year old ${user.gender}, ${user.height_cm}cm, ${user.weight_kg}kg
+Goal: ${user.fitness_goal} weight, Activity: ${user.activity_level}
 
-📊 These personalized goals are used for analysis scoring and advice.`;
+These targets are used for personalized analysis and recommendations.`;
 
     const keyboard = [
       [
-        { text: '✏️ Edit Profile', callback_data: 'profile_edit' },
-        { text: '🔄 Recalculate', callback_data: 'profile_recalculate' }
+        { text: 'Edit Profile', callback_data: 'profile_edit' },
+        { text: 'Recalculate', callback_data: 'profile_recalculate' }
       ]
     ];
 
@@ -1283,7 +1272,7 @@ async function handleMealsCommand(chatId, userId, botToken, supabaseUrl, supabas
     }
 
     // Simple meal list with actions right next to each meal
-    let mealsText = '🍽️ <b>Your Meals</b>\n\n';
+    let mealsText = '<b>Your Recent Meals</b>\n\n';
     const keyboard = [];
 
     entries.forEach((entry, index) => {
@@ -1299,7 +1288,7 @@ async function handleMealsCommand(chatId, userId, botToken, supabaseUrl, supabas
 
       // Only delete button - simple and clear
       keyboard.push([
-        { text: `❌ Delete`, callback_data: `quick_delete_${entry.id}` }
+        { text: `Delete`, callback_data: `quick_delete_${entry.id}` }
       ]);
     });
 
@@ -2127,16 +2116,12 @@ async function confirmSaveAnalysis(chatId, messageId, analysisData, botToken, su
     // Save to database using existing function
     await saveFoodEntry(analysisData.userId, message, analysisData, supabaseUrl, supabaseHeaders);
 
-    const successText = `✅ <b>Added to Diet!</b>
+    const successText = `<b>Added to Diet</b>
 
-🍽️ <b>Saved:</b>
-🔥 ${analysisData.calories} kcal
-🥩 ${analysisData.protein_g}g protein
-🧈 ${analysisData.fat_g}g fat
-🍞 ${analysisData.carbs_g}g carbs
-🌾 ${analysisData.fiber_g}g fiber
+<b>Saved:</b> ${analysisData.food_name || 'Food item'}
+${analysisData.calories} kcal • ${analysisData.protein_g}g protein • ${analysisData.portion_size || 'standard portion'}
 
-📊 Use /today to view daily stats`;
+Use /today to check your daily progress`;
 
     await editMessageWithKeyboard(chatId, messageId, successText, [], botToken);
 
@@ -2149,10 +2134,10 @@ async function confirmSaveAnalysis(chatId, messageId, analysisData, botToken, su
 // Cancel analysis
 async function cancelAnalysis(chatId, messageId, botToken) {
   try {
-    const cancelText = `❌ <b>Analysis Cancelled</b>
+    const cancelText = `<b>Analysis Cancelled</b>
 
-Data was not saved to your diet.
-Send a new photo or food description for analysis.`;
+Nothing was saved to your diet.
+Ready for your next food when you are.`;
 
     await editMessageWithKeyboard(chatId, messageId, cancelText, [], botToken);
 
@@ -2419,18 +2404,18 @@ async function checkUserProfile(userId, supabaseUrl, supabaseHeaders) {
 // Start onboarding flow
 async function startOnboarding(chatId, userId, userName, botToken, supabaseUrl, supabaseHeaders) {
   try {
-    const onboardingText = `🎯 <b>Let's personalize your nutrition goals!</b>
+    const onboardingText = `<b>Let's set up your profile</b>
 
-Hi ${userName}! To give you the most accurate nutrition recommendations, I need to learn a bit about you.
+Hey ${userName}! I'll give you way better nutrition recommendations if I know a bit about you first.
 
-This will take just 2 minutes and will help me calculate your personalized calorie and macro targets.
+This takes like 2 minutes and gets you personalized calorie and macro targets that actually make sense for your goals.
 
-Ready to get started?`;
+Want to set it up now?`;
 
     const keyboard = [
       [
-        { text: '🚀 Let\'s Go!', callback_data: 'onboarding_start' },
-        { text: '⏭️ Skip for now', callback_data: 'onboarding_skip' }
+        { text: 'Let\'s Go', callback_data: 'onboarding_start' },
+        { text: 'Skip for now', callback_data: 'onboarding_skip' }
       ]
     ];
 
@@ -2542,17 +2527,17 @@ function calculateNutritionTargets(weight_kg, height_cm, age, gender, goal, acti
 // Onboarding step 1: Goal selection
 async function onboardingStepGoal(chatId, messageId, userId, botToken) {
   try {
-    const goalText = `🎯 <b>What's your main goal?</b>
+    const goalText = `<b>What's your main goal?</b>
 
-Choose your primary fitness goal so I can calculate the right calorie target for you:`;
+Pick your primary goal so I can calculate the right calorie target:`;
 
     const keyboard = [
       [
-        { text: '📉 Lose Weight', callback_data: 'onboarding_goal_lose' },
-        { text: '⚖️ Maintain Weight', callback_data: 'onboarding_goal_maintain' }
+        { text: 'Lose Weight', callback_data: 'onboarding_goal_lose' },
+        { text: 'Maintain Weight', callback_data: 'onboarding_goal_maintain' }
       ],
       [
-        { text: '📈 Gain Weight/Muscle', callback_data: 'onboarding_goal_gain' }
+        { text: 'Gain Weight/Muscle', callback_data: 'onboarding_goal_gain' }
       ]
     ];
 
@@ -2603,8 +2588,8 @@ async function handleProfileCommand(chatId, userId, botToken, supabaseUrl, supab
 
     const keyboard = [
       [
-        { text: '✏️ Edit Profile', callback_data: 'profile_edit' },
-        { text: '🔄 Recalculate', callback_data: 'profile_recalculate' }
+        { text: 'Edit Profile', callback_data: 'profile_edit' },
+        { text: 'Recalculate', callback_data: 'profile_recalculate' }
       ]
     ];
 
