@@ -338,12 +338,17 @@ async function analyzeTextWithOpenAI(text, openaiKey, userContext) {
   try {
     console.log('Calling OpenAI for text analysis...');
 
+    // Add timeout to prevent 30s Vercel timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 22000);
+
     const openaiResponse = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${openaiKey}`
       },
+      signal: controller.signal,
       body: JSON.stringify({
         model: 'gpt-5-mini',
         input: `Analyze this food description: "${text}"
@@ -384,6 +389,8 @@ Return ONLY a JSON object with exact format:
       })
     });
 
+    clearTimeout(timeoutId);
+
     if (!openaiResponse.ok) {
       const errorText = await openaiResponse.text();
       console.error('OpenAI text API error:', openaiResponse.status, errorText);
@@ -402,6 +409,13 @@ Return ONLY a JSON object with exact format:
     return parseNutritionResponse(content, 'text');
 
   } catch (error) {
+    clearTimeout(timeoutId);
+    
+    if (error.name === 'AbortError') {
+      console.error('OpenAI text analysis timeout after 22 seconds');
+      return getFallbackAnalysis('Analysis timeout - OpenAI took too long to respond');
+    }
+    
     console.error('Text analysis error:', error);
     return getFallbackAnalysis(`Text analysis failed: ${error.message}`);
   }
