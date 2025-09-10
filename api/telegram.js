@@ -64,6 +64,8 @@ export default async function handler(req, res) {
       await handleMealsCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders);
     } else if (text === '/reset') {
       await handleResetCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders);
+    } else if (text === '/profile') {
+      await handleProfileCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders);
     } else if (message.photo || (text && !text.startsWith('/'))) {
       // Handle food analysis
       await handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, supabaseHeaders);
@@ -538,30 +540,36 @@ function getFallbackAnalysis(message) {
 // Command handlers
 async function handleStartCommand(chatId, userId, userName, botToken, supabaseUrl, supabaseHeaders) {
   try {
-    // Ensure user exists in database
-    await ensureUserExists(userId, userName, supabaseUrl, supabaseHeaders);
-
-    const welcomeText = `👋 Welcome ${userName}! I'm Soma - your personal nutrition tracker.
+    // Check if user exists and has completed onboarding
+    const userExists = await checkUserProfile(userId, supabaseUrl, supabaseHeaders);
+    
+    if (!userExists.exists) {
+      // New user - start onboarding
+      await ensureUserExists(userId, userName, supabaseUrl, supabaseHeaders);
+      await startOnboarding(chatId, userId, userName, botToken, supabaseUrl, supabaseHeaders);
+    } else if (!userExists.hasProfile) {
+      // Existing user without profile - start onboarding
+      await startOnboarding(chatId, userId, userName, botToken, supabaseUrl, supabaseHeaders);
+    } else {
+      // Existing user with profile - show welcome back message
+      const welcomeText = `👋 Welcome back ${userName}! I'm Soma - your personal nutrition tracker.
 
 📸 <b>Send food photos</b> - I'll analyze calories, protein, fat, carbs, and fiber
 💬 <b>Describe meals in text</b> - e.g. "grilled chicken with rice, 200g"
 📊 <b>Get personalized insights</b> - score 0-10 and tailored advice
 🍽️ <b>Manage your meals</b> - edit, delete, adjust portions, or repeat favorites
 
-🎯 <b>Your default goals:</b>
-• Calories: 1800 kcal/day
-• Protein: 120g/day
-• Fiber: 25g/day
-
 📋 <b>Commands:</b>
 /meals - manage your recent meals
 /today - today's nutrition summary
 /goals - view nutrition targets
+/profile - view/edit your profile
 /help - full command reference
 
 🚀 <b>Start by sending a photo of your meal!</b>`;
 
-    await sendMessage(chatId, welcomeText, botToken);
+      await sendMessage(chatId, welcomeText, botToken);
+    }
   } catch (error) {
     console.error('Start command error:', error);
     await sendMessage(chatId, '❌ Setup failed. Please try again.', botToken);
@@ -589,6 +597,7 @@ async function handleHelpCommand(chatId, botToken) {
 /meals - manage your recent meals
 /today - daily nutrition summary
 /goals - view nutrition targets
+/profile - view/edit your profile
 /reset - reset all your data
 /test - system status check
 /debug - technical information
@@ -1268,6 +1277,10 @@ async function handleCallbackQuery(callbackQuery, botToken, supabaseUrl, supabas
       await confirmDatabaseReset(chatId, messageId, userId, botToken, supabaseUrl, supabaseHeaders);
     } else if (data === 'cancel_reset') {
       await cancelDatabaseReset(chatId, messageId, botToken);
+    } else if (data.startsWith('onboarding_')) {
+      await handleOnboardingStep(data, chatId, messageId, userId, botToken, supabaseUrl, supabaseHeaders);
+    } else if (data.startsWith('profile_')) {
+      await handleProfileEdit(data, chatId, messageId, userId, botToken, supabaseUrl, supabaseHeaders);
     } else if (data === 'back_to_meals') {
       // Refresh meals list
       await handleMealsCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders);
@@ -2273,7 +2286,258 @@ All your data remains safe.`;
 
   } catch (error) {
     console.error('Cancel database reset error:', error);
-    await sendMessage(chatId, '❌ Ошибка отмены сброса.', botToken);
+    await sendMessage(chatId, '❌ Error cancelling reset.', botToken);
+  }
+}
+
+// Check if user exists and has completed profile
+async function checkUserProfile(userId, supabaseUrl, supabaseHeaders) {
+  try {
+    const userResponse = await fetch(
+      `${supabaseUrl}/rest/v1/users?telegram_user_id=eq.${userId}&select=*`,
+      { headers: supabaseHeaders }
+    );
+
+    if (!userResponse.ok) {
+      return { exists: false, hasProfile: false };
+    }
+
+    const users = await userResponse.json();
+    if (users.length === 0) {
+      return { exists: false, hasProfile: false };
+    }
+
+    const user = users[0];
+    // Check if user has completed profile (has age, weight, height, goal)
+    const hasProfile = user.age && user.weight_kg && user.height_cm && user.fitness_goal;
+    
+    return { exists: true, hasProfile, user };
+  } catch (error) {
+    console.error('Check user profile error:', error);
+    return { exists: false, hasProfile: false };
+  }
+}
+
+// Start onboarding flow
+async function startOnboarding(chatId, userId, userName, botToken, supabaseUrl, supabaseHeaders) {
+  try {
+    const onboardingText = `🎯 <b>Let's personalize your nutrition goals!</b>
+
+Hi ${userName}! To give you the most accurate nutrition recommendations, I need to learn a bit about you.
+
+This will take just 2 minutes and will help me calculate your personalized calorie and macro targets.
+
+Ready to get started?`;
+
+    const keyboard = [
+      [
+        { text: '🚀 Let\'s Go!', callback_data: 'onboarding_start' },
+        { text: '⏭️ Skip for now', callback_data: 'onboarding_skip' }
+      ]
+    ];
+
+    await sendMessageWithKeyboard(chatId, onboardingText, keyboard, botToken);
+
+  } catch (error) {
+    console.error('Start onboarding error:', error);
+    await sendMessage(chatId, '❌ Error starting onboarding.', botToken);
+  }
+}
+
+// Handle onboarding steps
+async function handleOnboardingStep(data, chatId, messageId, userId, botToken, supabaseUrl, supabaseHeaders) {
+  try {
+    const step = data.replace('onboarding_', '');
+
+    switch (step) {
+      case 'start':
+        await onboardingStepGoal(chatId, messageId, userId, botToken);
+        break;
+      case 'skip':
+        await onboardingSkip(chatId, messageId, userId, botToken, supabaseUrl, supabaseHeaders);
+        break;
+      case 'goal_lose':
+      case 'goal_maintain':
+      case 'goal_gain':
+        await onboardingStepGender(chatId, messageId, userId, step.replace('goal_', ''), botToken, supabaseUrl, supabaseHeaders);
+        break;
+      case 'gender_male':
+      case 'gender_female':
+        await onboardingStepAge(chatId, messageId, userId, step.replace('gender_', ''), botToken, supabaseUrl, supabaseHeaders);
+        break;
+      default:
+        if (step.startsWith('age_')) {
+          const age = step.replace('age_', '');
+          await onboardingStepHeight(chatId, messageId, userId, age, botToken, supabaseUrl, supabaseHeaders);
+        } else if (step.startsWith('height_')) {
+          const height = step.replace('height_', '');
+          await onboardingStepWeight(chatId, messageId, userId, height, botToken, supabaseUrl, supabaseHeaders);
+        } else if (step.startsWith('weight_')) {
+          const weight = step.replace('weight_', '');
+          await onboardingStepActivity(chatId, messageId, userId, weight, botToken, supabaseUrl, supabaseHeaders);
+        } else if (step.startsWith('activity_')) {
+          const activity = step.replace('activity_', '');
+          await onboardingComplete(chatId, messageId, userId, activity, botToken, supabaseUrl, supabaseHeaders);
+        }
+        break;
+    }
+
+  } catch (error) {
+    console.error('Onboarding step error:', error);
+    await sendMessage(chatId, '❌ Error in onboarding step.', botToken);
+  }
+}
+
+// Calculate BMR using Mifflin-St Jeor equation
+function calculateBMR(weight_kg, height_cm, age, gender) {
+  if (gender === 'male') {
+    return (10 * weight_kg) + (6.25 * height_cm) - (5 * age) + 5;
+  } else {
+    return (10 * weight_kg) + (6.25 * height_cm) - (5 * age) - 161;
+  }
+}
+
+// Calculate TDEE (Total Daily Energy Expenditure)
+function calculateTDEE(bmr, activityLevel) {
+  const multipliers = {
+    sedentary: 1.2,
+    light: 1.375,
+    moderate: 1.55,
+    very: 1.725,
+    extreme: 1.9
+  };
+  return bmr * (multipliers[activityLevel] || 1.2);
+}
+
+// Calculate nutrition targets
+function calculateNutritionTargets(weight_kg, height_cm, age, gender, goal, activityLevel) {
+  const bmr = calculateBMR(weight_kg, height_cm, age, gender);
+  const tdee = calculateTDEE(bmr, activityLevel);
+  
+  let calories;
+  switch (goal) {
+    case 'lose':
+      calories = Math.round(tdee * 0.8); // 20% deficit
+      break;
+    case 'gain':
+      calories = Math.round(tdee * 1.1); // 10% surplus
+      break;
+    default: // maintain
+      calories = Math.round(tdee);
+  }
+  
+  // Calculate macros
+  const protein = Math.round(weight_kg * 2.2); // 2.2g per kg bodyweight
+  const fat = Math.round(calories * 0.25 / 9); // 25% of calories from fat
+  const carbs = Math.round((calories - (protein * 4) - (fat * 9)) / 4);
+  const fiber = Math.round(calories / 1000 * 14); // 14g per 1000 calories
+  
+  return {
+    calories,
+    protein,
+    fat,
+    carbs,
+    fiber
+  };
+}
+
+// Onboarding step 1: Goal selection
+async function onboardingStepGoal(chatId, messageId, userId, botToken) {
+  try {
+    const goalText = `🎯 <b>What's your main goal?</b>
+
+Choose your primary fitness goal so I can calculate the right calorie target for you:`;
+
+    const keyboard = [
+      [
+        { text: '📉 Lose Weight', callback_data: 'onboarding_goal_lose' },
+        { text: '⚖️ Maintain Weight', callback_data: 'onboarding_goal_maintain' }
+      ],
+      [
+        { text: '📈 Gain Weight/Muscle', callback_data: 'onboarding_goal_gain' }
+      ]
+    ];
+
+    await editMessageWithKeyboard(chatId, messageId, goalText, keyboard, botToken);
+
+  } catch (error) {
+    console.error('Onboarding goal step error:', error);
+    await sendMessage(chatId, '❌ Error in goal selection.', botToken);
+  }
+}
+
+// Handle profile command
+async function handleProfileCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders) {
+  try {
+    const userCheck = await checkUserProfile(userId, supabaseUrl, supabaseHeaders);
+    
+    if (!userCheck.exists || !userCheck.hasProfile) {
+      await startOnboarding(chatId, userId, 'User', botToken, supabaseUrl, supabaseHeaders);
+      return;
+    }
+
+    const user = userCheck.user;
+    const targets = calculateNutritionTargets(
+      user.weight_kg, 
+      user.height_cm, 
+      user.age, 
+      user.gender, 
+      user.fitness_goal, 
+      user.activity_level
+    );
+
+    const profileText = `👤 <b>Your Profile</b>
+
+📊 <b>Personal Info:</b>
+• Age: ${user.age} years
+• Height: ${user.height_cm}cm
+• Weight: ${user.weight_kg}kg
+• Gender: ${user.gender}
+• Goal: ${user.fitness_goal}
+• Activity: ${user.activity_level}
+
+🎯 <b>Your Targets:</b>
+• Calories: ${targets.calories} kcal/day
+• Protein: ${targets.protein}g/day
+• Fat: ${targets.fat}g/day
+• Carbs: ${targets.carbs}g/day
+• Fiber: ${targets.fiber}g/day`;
+
+    const keyboard = [
+      [
+        { text: '✏️ Edit Profile', callback_data: 'profile_edit' },
+        { text: '🔄 Recalculate', callback_data: 'profile_recalculate' }
+      ]
+    ];
+
+    await sendMessageWithKeyboard(chatId, profileText, keyboard, botToken);
+
+  } catch (error) {
+    console.error('Profile command error:', error);
+    await sendMessage(chatId, '❌ Error loading profile.', botToken);
+  }
+}
+
+// Skip onboarding
+async function onboardingSkip(chatId, messageId, userId, botToken, supabaseUrl, supabaseHeaders) {
+  try {
+    const skipText = `⏭️ <b>Onboarding Skipped</b>
+
+No problem! You can set up your profile anytime using /profile.
+
+For now, I'll use default nutrition targets:
+• 2000 calories/day
+• 150g protein/day
+• 25g fiber/day
+
+🚀 <b>Ready to start tracking!</b>
+Send a photo or description of your food to begin.`;
+
+    await editMessageWithKeyboard(chatId, messageId, skipText, [], botToken);
+
+  } catch (error) {
+    console.error('Onboarding skip error:', error);
+    await sendMessage(chatId, '❌ Error skipping onboarding.', botToken);
   }
 }
 
