@@ -142,6 +142,9 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
 
     const responseText = `🍽️ <b>Nutrition Analysis</b>
 
+🥘 <b>Food:</b> ${nutritionData.food_name || 'Mixed Food'}
+📏 <b>Portion:</b> ${nutritionData.portion_size || 'Standard'} (${nutritionData.portion_description || 'medium serving'})
+
 📊 <b>Nutritional Breakdown:</b>
 🔥 Calories: ${nutritionData.calories} kcal
 🥩 Protein: ${nutritionData.protein_g}g
@@ -241,9 +244,12 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
               carbs_g: { type: "number" },
               fiber_g: { type: "number" },
               confidence: { type: "number" },
-              advice_short: { type: "string" }
+              advice_short: { type: "string" },
+              food_name: { type: "string" },
+              portion_size: { type: "string" },
+              portion_description: { type: "string" }
             },
-            required: ["calories", "protein_g", "fat_g", "carbs_g", "fiber_g", "confidence", "advice_short"]
+            required: ["calories", "protein_g", "fat_g", "carbs_g", "fiber_g", "confidence", "advice_short", "food_name", "portion_size", "portion_description"]
           }
         }],
         tool_choice: { type: "function", name: "food_analysis" },
@@ -252,13 +258,26 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
           content: [
             { 
               type: "input_text", 
-              text: `Analyze this food photo and return nutrition data.
-              
+              text: `Analyze this food photo and return detailed nutrition data with portion estimation.
+
 ${caption ? `User description: "${caption}"` : ''}
 
-User context: Daily goals ${userContext.goals.cal_goal} cal, ${userContext.goals.protein_goal_g}g protein, ${userContext.goals.fiber_goal_g}g fiber. Today consumed: ${userContext.todayTotals.calories} cal, ${userContext.todayTotals.protein}g protein, ${userContext.todayTotals.fiber}g fiber. Profile complete: ${userContext.hasProfile ? 'Yes' : 'No'}.
+USER CONTEXT:
+- Daily goals: ${userContext.goals.cal_goal} cal, ${userContext.goals.protein_goal_g}g protein, ${userContext.goals.fiber_goal_g}g fiber
+- Today consumed: ${userContext.todayTotals.calories} cal, ${userContext.todayTotals.protein}g protein, ${userContext.todayTotals.fiber}g fiber
+- Meal #${userContext.mealsToday + 1} today
+- Profile personalized: ${userContext.hasProfile ? 'Yes' : 'No'}
 
-Estimate calories, macronutrients, fiber and provide brief advice. Return JSON per schema.`
+ANALYSIS REQUIREMENTS:
+- Identify the main food items and estimate their individual portions
+- Provide standardized food names (e.g. "Grilled Chicken Breast", "White Rice", "Mixed Vegetables")
+- Estimate portion sizes in grams AND common measures (cups, pieces, palm-sized, etc.)
+- Give visual portion descriptions for user understanding
+- Consider plate/container size as reference for portions
+- Account for cooking methods and added ingredients (oil, butter, sauces)
+- Estimate total nutrition for the complete meal shown
+
+Return JSON with nutrition data, standardized food name, portion estimates, and advice.`
             },
             { 
               type: "input_image", 
@@ -334,13 +353,15 @@ USER CONTEXT:
 - Profile personalized: ${userContext.hasProfile ? 'Yes (goals are calculated for user)' : 'No (using defaults)'}
 
 ANALYSIS REQUIREMENTS:
-- Interpret portion descriptions (small/medium/large, cups, pieces, grams)
-- Consider preparation methods (fried, grilled, steamed, raw)
-- Account for typical cooking additions (oil, butter, sauces)
-- Estimate standard serving sizes when not specified
-- Assess protein quality and completeness
-- Identify fiber sources and estimate content
-- Provide personalized advice based on remaining daily needs
+- Parse and standardize food names (e.g. "chicken" → "Grilled Chicken Breast")
+- Interpret portion descriptions precisely (small/medium/large, cups, pieces, grams, ounces)
+- Estimate actual portion sizes in grams AND common measures
+- Consider preparation methods and cooking additions (oil, butter, sauces, seasonings)
+- Provide visual portion descriptions (palm-sized, deck of cards, tennis ball, etc.)
+- Assess protein quality and completeness for the estimated portion
+- Identify all ingredients and estimate their individual contributions
+- Calculate nutrition for the TOTAL described portion
+- Give actionable advice based on remaining daily needs and portion accuracy
 
 Return ONLY a JSON object with exact format:
 {
@@ -350,7 +371,10 @@ Return ONLY a JSON object with exact format:
   "carbs_g": number (1 decimal place),
   "fiber_g": number (1 decimal place),
   "confidence": number (0-1 based on description detail),
-  "advice_short": "string (actionable advice max 120 chars)"
+  "advice_short": "string (actionable advice max 120 chars)",
+  "food_name": "string (standardized food name, e.g. 'Grilled Chicken Breast')",
+  "portion_size": "string (estimated portion, e.g. '150g', '1 medium', '1 cup')",
+  "portion_description": "string (visual description, e.g. 'palm-sized', 'small bowl', '2 slices')"
 }`,
         reasoning: { effort: "high" },
         text: { verbosity: "low" }
@@ -416,7 +440,10 @@ function parseNutritionResponse(content, type) {
       carbs_g: Math.max(0, Math.min(200, Math.round((parsed.carbs_g || 0) * 10) / 10)),
       fiber_g: Math.max(0, Math.min(50, Math.round((parsed.fiber_g || 0) * 10) / 10)),
       confidence: Math.max(0.1, Math.min(1.0, parsed.confidence)),
-      advice_short: (parsed.advice_short || 'Meal analyzed successfully.').substring(0, 120)
+      advice_short: (parsed.advice_short || 'Meal analyzed successfully.').substring(0, 120),
+      food_name: (parsed.food_name || 'Unknown Food').substring(0, 100),
+      portion_size: (parsed.portion_size || 'Unknown portion').substring(0, 50),
+      portion_description: (parsed.portion_description || 'Standard serving').substring(0, 100)
     };
 
     // Calculate meal score
@@ -561,6 +588,9 @@ function getFallbackAnalysis(message) {
     fiber_g: 3,
     confidence: 0.2,
     advice_short: message,
+    food_name: 'Mixed Food',
+    portion_size: '~200g',
+    portion_description: 'Medium serving',
     score: 5
   };
 }
@@ -802,6 +832,9 @@ async function saveFoodEntry(userId, message, nutritionData, supabaseUrl, supaba
       score_item: nutritionData.score,
       confidence: nutritionData.confidence,
       advice_short: nutritionData.advice_short,
+      food_name: nutritionData.food_name || 'Unknown Food',
+      portion_size: nutritionData.portion_size || 'Unknown portion',
+      portion_description: nutritionData.portion_description || 'Standard serving',
       raw_model_json: nutritionData
     };
 
@@ -1260,8 +1293,9 @@ async function handleMealsCommand(chatId, userId, botToken, supabaseUrl, supabas
         (entry.text.length > 25 ? entry.text.substring(0, 25) + '...' : entry.text) : 
         'Food photo';
       
-      mealsText += `<b>${foodDescription}</b> (${timeStr})\n`;
-      mealsText += `${entry.calories}kcal • ${entry.protein_g}g protein\n\n`;
+      const portionInfo = entry.portion_size ? ` • ${entry.portion_size}` : '';
+      mealsText += `<b>${entry.food_name || foodDescription}</b> (${timeStr})\n`;
+      mealsText += `${entry.calories}kcal • ${entry.protein_g}g protein${portionInfo}\n\n`;
 
       // Only delete button - simple and clear
       keyboard.push([
