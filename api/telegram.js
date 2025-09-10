@@ -558,6 +558,15 @@ function getDefaultUserContext() {
 
 // Calculate meal score with professional dietitian approach
 function calculateMealScore(nutrition, userContext = null) {
+  // Detect beverage/low-calorie items
+  const isLowCalorieBeverage = nutrition.calories <= 50 && nutrition.protein_g <= 2 && nutrition.fat_g <= 1;
+  const isProteinDrink = nutrition.calories <= 200 && nutrition.protein_g >= 15; // protein shake, etc.
+  
+  // Special scoring for beverages
+  if (isLowCalorieBeverage) {
+    return calculateBeverageScore(nutrition, userContext);
+  }
+  
   let score = 0;
   
   // Base scoring if no user context
@@ -570,6 +579,11 @@ function calculateMealScore(nutrition, userContext = null) {
   const targetCaloriesPerMeal = dailyGoals.cal_goal / expectedMealsPerDay;
   const targetProteinPerMeal = dailyGoals.protein_goal_g / expectedMealsPerDay;
   const targetFiberPerMeal = dailyGoals.fiber_goal_g / expectedMealsPerDay;
+  
+  // For protein drinks, adjust expectations
+  if (isProteinDrink) {
+    targetCaloriesPerMeal = targetCaloriesPerMeal * 0.6; // Expect smaller calorie load
+  }
   
   // Protein scoring (0-3 points) - professional standards
   const proteinRatio = nutrition.protein_g / targetProteinPerMeal;
@@ -625,6 +639,40 @@ function calculateMealScore(nutrition, userContext = null) {
   return Math.max(1, Math.min(10, Math.round(score * 10) / 10));
 }
 
+// Special scoring for beverages (coffee, tea, water, etc.)
+function calculateBeverageScore(nutrition, userContext) {
+  const foodName = nutrition.food_name?.toLowerCase() || '';
+  
+  // Healthy zero-calorie beverages
+  if (nutrition.calories <= 10 && (
+    foodName.includes('coffee') || 
+    foodName.includes('tea') || 
+    foodName.includes('water') ||
+    foodName.includes('americano') ||
+    foodName.includes('espresso')
+  )) {
+    return 7.5; // Good choice - hydration without calories
+  }
+  
+  // Low-calorie beverages (10-50 calories)
+  if (nutrition.calories <= 50) {
+    if (nutrition.protein_g >= 5) return 8.0; // Protein drink
+    if (nutrition.calories <= 25) return 7.0; // Very low calorie
+    return 6.0; // Low calorie beverage
+  }
+  
+  // Medium calorie beverages (50-150 calories)
+  if (nutrition.calories <= 150) {
+    if (nutrition.protein_g >= 10) return 7.5; // Good protein drink
+    if (nutrition.protein_g >= 5) return 6.5;  // Some protein
+    if (nutrition.calories <= 100) return 5.5; // Moderate calories
+    return 4.5; // Higher calorie, low nutrition
+  }
+  
+  // High calorie beverages (150+ calories) - treat as snack
+  return calculateBasicMealScore(nutrition);
+}
+
 // Basic meal score for fallback (professional standards)
 function calculateBasicMealScore(nutrition) {
   let score = 0;
@@ -677,6 +725,14 @@ function calculateBasicMealScore(nutrition) {
 // Get professional score explanation 
 function getScoreExplanation(nutrition, userContext) {
   const score = nutrition.score;
+  const isLowCalorieBeverage = nutrition.calories <= 50 && nutrition.protein_g <= 2 && nutrition.fat_g <= 1;
+  
+  // Special explanations for beverages
+  if (isLowCalorieBeverage) {
+    if (score >= 7.0) return '(great beverage choice)';
+    if (score >= 6.0) return '(good hydration option)';
+    return '(adequate beverage)';
+  }
   
   if (!userContext || !userContext.hasProfile) {
     // Basic professional explanation
