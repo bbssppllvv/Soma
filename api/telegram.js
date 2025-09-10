@@ -556,10 +556,9 @@ function getDefaultUserContext() {
   };
 }
 
-// Calculate meal score with personalized targets (more forgiving)
+// Calculate meal score with professional dietitian approach
 function calculateMealScore(nutrition, userContext = null) {
-  // Start with a base of 5 points (neutral/good meal)
-  let score = 5;
+  let score = 0;
   
   // Base scoring if no user context
   if (!userContext) {
@@ -567,32 +566,35 @@ function calculateMealScore(nutrition, userContext = null) {
   }
   
   const dailyGoals = userContext.goals;
-  const expectedMealsPerDay = 3; // Assume 3 meals per day
+  const expectedMealsPerDay = 3;
   const targetCaloriesPerMeal = dailyGoals.cal_goal / expectedMealsPerDay;
   const targetProteinPerMeal = dailyGoals.protein_goal_g / expectedMealsPerDay;
+  const targetFiberPerMeal = dailyGoals.fiber_goal_g / expectedMealsPerDay;
   
-  // Protein bonus/penalty (-2 to +3 points)
+  // Protein scoring (0-3 points) - professional standards
   const proteinRatio = nutrition.protein_g / targetProteinPerMeal;
-  if (proteinRatio >= 1.0) score += 3;       // 100%+ of target = excellent
-  else if (proteinRatio >= 0.6) score += 2;  // 60-100% = very good
-  else if (proteinRatio >= 0.3) score += 1;  // 30-60% = good
-  else if (proteinRatio >= 0.1) score += 0;  // 10-30% = neutral
-  else score -= 1;                           // <10% = slightly low
+  if (proteinRatio >= 1.2) score += 3;       // 120%+ = excellent
+  else if (proteinRatio >= 0.8) score += 2.5; // 80-120% = very good
+  else if (proteinRatio >= 0.5) score += 2;   // 50-80% = good
+  else if (proteinRatio >= 0.25) score += 1;  // 25-50% = acceptable
+  else score += 0.5; // <25% = minimal credit
   
-  // Fiber bonus (0 to +2 points) - only positive
-  const fiberTarget = dailyGoals.fiber_goal_g / expectedMealsPerDay;
-  const fiberRatio = nutrition.fiber_g / fiberTarget;
-  if (fiberRatio >= 0.8) score += 2;         // 80%+ of target = great
-  else if (fiberRatio >= 0.4) score += 1;    // 40-80% = good
-  // No penalty for low fiber - many good foods are naturally low fiber
-  
-  // Calorie appropriateness (-1 to +1 points)
+  // Calorie scoring (0-2.5 points) - realistic portion assessment
   const calorieRatio = nutrition.calories / targetCaloriesPerMeal;
-  if (calorieRatio >= 0.6 && calorieRatio <= 1.4) score += 1; // 60-140% = good range
-  else if (calorieRatio >= 0.4 && calorieRatio <= 1.8) score += 0; // 40-180% = acceptable
-  else score -= 1; // Only penalize extreme portions
+  if (calorieRatio >= 0.7 && calorieRatio <= 1.3) score += 2.5; // 70-130% = optimal
+  else if (calorieRatio >= 0.5 && calorieRatio <= 1.6) score += 2; // 50-160% = good
+  else if (calorieRatio >= 0.3 && calorieRatio <= 2.0) score += 1; // 30-200% = acceptable
+  else score += 0.5; // Extreme portions = minimal credit
   
-  // Macro balance bonus (0 to +1 points) - only positive
+  // Fiber scoring (0-2 points) - realistic expectations
+  const fiberRatio = nutrition.fiber_g / targetFiberPerMeal;
+  if (fiberRatio >= 1.0) score += 2;         // 100%+ = excellent
+  else if (fiberRatio >= 0.5) score += 1.5;  // 50-100% = very good
+  else if (fiberRatio >= 0.25) score += 1;   // 25-50% = good
+  else if (fiberRatio >= 0.1) score += 0.5;  // 10-25% = some credit
+  // No points for very low fiber, but no penalty
+  
+  // Macro balance assessment (0-1.5 points)
   const proteinCal = nutrition.protein_g * 4;
   const fatCal = nutrition.fat_g * 9;
   const carbsCal = nutrition.carbs_g * 4;
@@ -600,81 +602,119 @@ function calculateMealScore(nutrition, userContext = null) {
   
   if (totalMacroCal > 0) {
     const proteinPercent = proteinCal / totalMacroCal;
+    const fatPercent = fatCal / totalMacroCal;
     
-    // Bonus for any reasonable protein content
-    if (proteinPercent >= 0.15) score += 1; // 15%+ protein = bonus
+    // Professional macro distribution standards
+    if (proteinPercent >= 0.25 && fatPercent >= 0.15 && fatPercent <= 0.45) {
+      score += 1.5; // Excellent balance
+    } else if (proteinPercent >= 0.15 && fatPercent >= 0.10 && fatPercent <= 0.50) {
+      score += 1; // Good balance
+    } else if (proteinPercent >= 0.10) {
+      score += 0.5; // Acceptable protein
+    }
   }
   
-  // Confidence boost (positive only)
-  if (nutrition.confidence >= 0.7) score += 0.5; // High confidence bonus
+  // Nutritional density bonus (0-1 points)
+  const nutrientDensity = (nutrition.protein_g + nutrition.fiber_g * 2) / (nutrition.calories / 100);
+  if (nutrientDensity >= 8) score += 1;      // High nutrient density
+  else if (nutrientDensity >= 5) score += 0.5; // Good nutrient density
   
-  return Math.max(3, Math.min(10, Math.round(score * 10) / 10)); // Minimum 3.0, max 10
+  // Apply confidence factor (0.85-1.0 multiplier)
+  score *= (0.85 + nutrition.confidence * 0.15);
+  
+  return Math.max(1, Math.min(10, Math.round(score * 10) / 10));
 }
 
-// Basic meal score for fallback (more forgiving)
+// Basic meal score for fallback (professional standards)
 function calculateBasicMealScore(nutrition) {
-  // Start with base score of 6 (good meal by default)
-  let score = 6;
+  let score = 0;
   
-  // Protein bonus (0 to +2 points)
-  if (nutrition.protein_g >= 25) score += 2;      // Excellent protein
-  else if (nutrition.protein_g >= 15) score += 1; // Good protein
-  else if (nutrition.protein_g >= 8) score += 0;  // Acceptable protein
-  else score -= 1; // Only penalize very low protein
+  // Protein scoring (0-3 points) - professional standards
+  if (nutrition.protein_g >= 25) score += 3;      // Excellent protein
+  else if (nutrition.protein_g >= 18) score += 2.5; // Very good protein
+  else if (nutrition.protein_g >= 12) score += 2;   // Good protein
+  else if (nutrition.protein_g >= 6) score += 1;    // Acceptable protein
+  else score += 0.5; // Minimal protein
   
-  // Fiber bonus (0 to +1.5 points) - only positive
-  if (nutrition.fiber_g >= 8) score += 1.5;       // Great fiber
-  else if (nutrition.fiber_g >= 4) score += 1;    // Good fiber
-  else if (nutrition.fiber_g >= 1) score += 0.5;  // Some fiber
-  // No penalty for low fiber
+  // Calorie scoring (0-2.5 points)
+  if (nutrition.calories >= 250 && nutrition.calories <= 600) score += 2.5; // Optimal meal size
+  else if (nutrition.calories >= 150 && nutrition.calories <= 800) score += 2; // Good meal size
+  else if (nutrition.calories >= 100 && nutrition.calories <= 1000) score += 1; // Acceptable
+  else score += 0.5; // Extreme sizes
   
-  // Calorie reasonableness (0 to +1 points)
-  if (nutrition.calories >= 200 && nutrition.calories <= 800) score += 1; // Normal meal range
-  else if (nutrition.calories >= 100 && nutrition.calories <= 1200) score += 0; // Wide acceptable range
-  else score -= 1; // Only penalize extreme calories
+  // Fiber scoring (0-2 points)
+  if (nutrition.fiber_g >= 8) score += 2;       // Excellent fiber
+  else if (nutrition.fiber_g >= 5) score += 1.5; // Very good fiber
+  else if (nutrition.fiber_g >= 3) score += 1;   // Good fiber
+  else if (nutrition.fiber_g >= 1) score += 0.5; // Some fiber
   
-  // Macro balance bonus (0 to +0.5 points)
+  // Macro balance (0-1.5 points)
   const proteinCal = nutrition.protein_g * 4;
+  const fatCal = nutrition.fat_g * 9;
   const totalCal = nutrition.calories;
   
   if (totalCal > 0) {
     const proteinPercent = proteinCal / totalCal;
-    if (proteinPercent >= 0.12) score += 0.5; // 12%+ protein = bonus
+    const fatPercent = fatCal / totalCal;
+    
+    if (proteinPercent >= 0.20 && fatPercent >= 0.15 && fatPercent <= 0.45) {
+      score += 1.5; // Excellent balance
+    } else if (proteinPercent >= 0.12 && fatPercent >= 0.10 && fatPercent <= 0.50) {
+      score += 1; // Good balance
+    } else if (proteinPercent >= 0.08) {
+      score += 0.5; // Some protein
+    }
   }
   
-  return Math.max(4, Math.min(10, Math.round(score * 10) / 10)); // Minimum 4.0, max 10
+  // Nutritional density (0-1 points)
+  const nutrientDensity = (nutrition.protein_g + nutrition.fiber_g * 2) / (nutrition.calories / 100);
+  if (nutrientDensity >= 6) score += 1;
+  else if (nutrientDensity >= 4) score += 0.5;
+  
+  return Math.max(2, Math.min(10, Math.round(score * 10) / 10)); // Minimum 2.0, max 10
 }
 
-// Get score explanation for user (more encouraging)
+// Get professional score explanation 
 function getScoreExplanation(nutrition, userContext) {
+  const score = nutrition.score;
+  
   if (!userContext || !userContext.hasProfile) {
-    // Basic explanation for users without profile
-    if (nutrition.score >= 8.5) return '(amazing choice!)';
-    if (nutrition.score >= 7.5) return '(really solid meal)';
-    if (nutrition.score >= 6.5) return '(good nutrition)';
-    if (nutrition.score >= 5.5) return '(decent meal)';
-    return '(not bad!)';
+    // Basic professional explanation
+    if (score >= 8.5) return '(excellent nutritional profile)';
+    if (score >= 7.5) return '(very good nutrition)';
+    if (score >= 6.5) return '(good meal choice)';
+    if (score >= 5.5) return '(adequate nutrition)';
+    if (score >= 4.0) return '(below optimal)';
+    return '(needs improvement)';
   }
   
-  // Personalized explanation (more positive)
+  // Personalized professional assessment
   const dailyGoals = userContext.goals;
   const targetProteinPerMeal = dailyGoals.protein_goal_g / 3;
-  const proteinRatio = nutrition.protein_g / targetProteinPerMeal;
+  const targetCaloriesPerMeal = dailyGoals.cal_goal / 3;
+  const targetFiberPerMeal = dailyGoals.fiber_goal_g / 3;
   
-  if (nutrition.score >= 9) {
-    return '(perfect for your goals!)';
-  } else if (nutrition.score >= 8) {
-    return '(excellent choice!)';
-  } else if (nutrition.score >= 7) {
-    return '(great pick!)';
-  } else if (nutrition.score >= 6) {
-    return '(solid meal)';
-  } else if (proteinRatio >= 0.8) {
-    return '(good protein!)';
-  } else if (nutrition.fiber_g >= 5) {
-    return '(nice fiber content)';
+  const proteinRatio = nutrition.protein_g / targetProteinPerMeal;
+  const calorieRatio = nutrition.calories / targetCaloriesPerMeal;
+  const fiberRatio = nutrition.fiber_g / targetFiberPerMeal;
+  
+  // Professional dietitian assessment
+  if (score >= 8.5) {
+    return '(excellent for your goals)';
+  } else if (score >= 7.5) {
+    return '(very good choice)';
+  } else if (score >= 6.5) {
+    return '(good nutrition)';
+  } else if (score >= 5.5) {
+    return '(adequate meal)';
+  } else if (score >= 4.5) {
+    // Identify the main issue professionally
+    if (proteinRatio < 0.4) return '(low protein content)';
+    if (calorieRatio > 1.8) return '(high calorie density)';
+    if (calorieRatio < 0.4) return '(light meal)';
+    return '(unbalanced macros)';
   } else {
-    return '(totally fine)';
+    return '(needs nutritional improvement)';
   }
 }
 
