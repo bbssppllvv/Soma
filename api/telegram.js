@@ -135,23 +135,23 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
     console.log('Analysis result:', nutritionData);
 
     // Don't save yet - show analysis and ask for confirmation
-    const confidenceText = nutritionData.confidence < 0.6 ? '⚠️ <b>Низкая точность анализа</b>\n' : 
-                          nutritionData.confidence > 0.8 ? '✅ <b>Высокая точность анализа</b>\n' : '';
+    const confidenceText = nutritionData.confidence < 0.6 ? '⚠️ <b>Low confidence estimate</b>\n' : 
+                          nutritionData.confidence > 0.8 ? '✅ <b>High confidence analysis</b>\n' : '';
 
-    const responseText = `🍽️ <b>Анализ питания</b>
+    const responseText = `🍽️ <b>Nutrition Analysis</b>
 
-📊 <b>Питательная ценность:</b>
-🔥 Калории: ${nutritionData.calories} ккал
-🥩 Белок: ${nutritionData.protein_g}г
-🧈 Жиры: ${nutritionData.fat_g}г  
-🍞 Углеводы: ${nutritionData.carbs_g}г
-🌾 Клетчатка: ${nutritionData.fiber_g}г
+📊 <b>Nutritional Breakdown:</b>
+🔥 Calories: ${nutritionData.calories} kcal
+🥩 Protein: ${nutritionData.protein_g}g
+🧈 Fat: ${nutritionData.fat_g}g  
+🍞 Carbs: ${nutritionData.carbs_g}g
+🌾 Fiber: ${nutritionData.fiber_g}g
 
-⭐ <b>Оценка блюда:</b> ${nutritionData.score}/10
+⭐ <b>Meal Score:</b> ${nutritionData.score}/10
 
-${confidenceText}💡 <b>Совет:</b> ${nutritionData.advice_short}
+${confidenceText}💡 <b>Advice:</b> ${nutritionData.advice_short}
 
-❓ <b>Добавить в рацион или изменить данные?</b>`;
+❓ <b>Add to diet or modify data?</b>`;
 
     // Store analysis data temporarily with unique ID
     const analysisId = `${userId}_${message.message_id}_${Date.now()}`;
@@ -167,15 +167,15 @@ ${confidenceText}💡 <b>Совет:</b> ${nutritionData.advice_short}
     // Create confirmation keyboard with edit options
     const keyboard = [
       [
-        { text: '✅ Добавить в рацион', callback_data: `confirm_save_${analysisId}` },
-        { text: '❌ Отмена', callback_data: 'cancel_analysis' }
+        { text: '✅ Add to Diet', callback_data: `confirm_save_${analysisId}` },
+        { text: '❌ Cancel', callback_data: 'cancel_analysis' }
       ],
       [
-        { text: '✏️ Изменить калории', callback_data: `edit_analysis_calories_${analysisId}` },
-        { text: '✏️ Изменить белок', callback_data: `edit_analysis_protein_${analysisId}` }
+        { text: '✏️ Edit Calories', callback_data: `edit_analysis_calories_${analysisId}` },
+        { text: '✏️ Edit Protein', callback_data: `edit_analysis_protein_${analysisId}` }
       ],
       [
-        { text: '📊 Изменить порцию', callback_data: `edit_analysis_portion_${analysisId}` }
+        { text: '📊 Edit Portion', callback_data: `edit_analysis_portion_${analysisId}` }
       ]
     ];
 
@@ -1166,22 +1166,22 @@ async function handleMealsCommand(chatId, userId, botToken, supabaseUrl, supabas
     }
 
     // Simple meal list with actions right next to each meal
-    let mealsText = '🍽️ <b>Ваши блюда</b>\n\n';
+    let mealsText = '🍽️ <b>Your Meals</b>\n\n';
     const keyboard = [];
 
     entries.forEach((entry, index) => {
       const date = new Date(entry.timestamp_utc);
-      const timeStr = date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+      const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
       const foodDescription = entry.text ? 
         (entry.text.length > 25 ? entry.text.substring(0, 25) + '...' : entry.text) : 
-        'Фото еды';
+        'Food photo';
       
       mealsText += `<b>${foodDescription}</b> (${timeStr})\n`;
-      mealsText += `${entry.calories}ккал • ${entry.protein_g}г белка\n\n`;
+      mealsText += `${entry.calories}kcal • ${entry.protein_g}g protein\n\n`;
 
       // Only delete button - simple and clear
       keyboard.push([
-        { text: `❌ Удалить`, callback_data: `quick_delete_${entry.id}` }
+        { text: `❌ Delete`, callback_data: `quick_delete_${entry.id}` }
       ]);
     });
 
@@ -2016,32 +2016,32 @@ async function confirmSaveAnalysis(chatId, messageId, analysisData, botToken, su
     // Save to database using existing function
     await saveFoodEntry(analysisData.userId, message, analysisData, supabaseUrl, supabaseHeaders);
 
-    const successText = `✅ <b>Добавлено в рацион!</b>
+    const successText = `✅ <b>Added to Diet!</b>
 
-🍽️ <b>Сохранено:</b>
-🔥 ${analysisData.calories} ккал
-🥩 ${analysisData.protein_g}г белка
-🧈 ${analysisData.fat_g}г жиров
-🍞 ${analysisData.carbs_g}г углеводов
-🌾 ${analysisData.fiber_g}г клетчатки
+🍽️ <b>Saved:</b>
+🔥 ${analysisData.calories} kcal
+🥩 ${analysisData.protein_g}g protein
+🧈 ${analysisData.fat_g}g fat
+🍞 ${analysisData.carbs_g}g carbs
+🌾 ${analysisData.fiber_g}g fiber
 
-📊 Используйте /today для просмотра дневной статистики`;
+📊 Use /today to view daily stats`;
 
     await editMessageWithKeyboard(chatId, messageId, successText, [], botToken);
 
   } catch (error) {
     console.error('Confirm save analysis error:', error);
-    await sendMessage(chatId, '❌ Ошибка при сохранении в рацион.', botToken);
+    await sendMessage(chatId, '❌ Error saving to diet.', botToken);
   }
 }
 
 // Cancel analysis
 async function cancelAnalysis(chatId, messageId, botToken) {
   try {
-    const cancelText = `❌ <b>Анализ отменен</b>
+    const cancelText = `❌ <b>Analysis Cancelled</b>
 
-Данные не были сохранены в рацион.
-Пришлите новое фото или описание еды для анализа.`;
+Data was not saved to your diet.
+Send a new photo or food description for analysis.`;
 
     await editMessageWithKeyboard(chatId, messageId, cancelText, [], botToken);
 
@@ -2054,25 +2054,25 @@ async function cancelAnalysis(chatId, messageId, botToken) {
 // Edit calories in analysis
 async function editAnalysisCalories(chatId, messageId, analysisData, analysisId, botToken, supabaseUrl, supabaseHeaders) {
   try {
-    const editText = `🔥 <b>Изменение калорий</b>
+    const editText = `🔥 <b>Edit Calories</b>
 
-📊 <b>Текущее значение:</b> ${analysisData.calories} ккал
+📊 <b>Current value:</b> ${analysisData.calories} kcal
 
-Выберите новое значение:`;
+Select new value:`;
 
     const keyboard = [
       [
-        { text: '150 ккал', callback_data: `update_calories_${analysisId}_150` },
-        { text: '250 ккал', callback_data: `update_calories_${analysisId}_250` },
-        { text: '350 ккал', callback_data: `update_calories_${analysisId}_350` }
+        { text: '150 kcal', callback_data: `update_calories_${analysisId}_150` },
+        { text: '250 kcal', callback_data: `update_calories_${analysisId}_250` },
+        { text: '350 kcal', callback_data: `update_calories_${analysisId}_350` }
       ],
       [
-        { text: '450 ккал', callback_data: `update_calories_${analysisId}_450` },
-        { text: '550 ккал', callback_data: `update_calories_${analysisId}_550` },
-        { text: '650 ккал', callback_data: `update_calories_${analysisId}_650` }
+        { text: '450 kcal', callback_data: `update_calories_${analysisId}_450` },
+        { text: '550 kcal', callback_data: `update_calories_${analysisId}_550` },
+        { text: '650 kcal', callback_data: `update_calories_${analysisId}_650` }
       ],
       [
-        { text: '🔙 Назад', callback_data: 'cancel_analysis' }
+        { text: '🔙 Back', callback_data: 'cancel_analysis' }
       ]
     ];
 
@@ -2181,23 +2181,23 @@ async function editAnalysisPortion(chatId, messageId, analysisData, botToken, su
 // Handle database reset command
 async function handleResetCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders) {
   try {
-    const resetText = `⚠️ <b>Сброс базы данных</b>
+    const resetText = `⚠️ <b>Database Reset</b>
 
-❗ <b>ВНИМАНИЕ!</b> Это действие удалит:
-• Все ваши записи о еде
-• Всю статистику питания  
-• Дневные итоги
+❗ <b>WARNING!</b> This action will delete:
+• All your food entries
+• All nutrition statistics  
+• Daily summaries
 
-Это действие <b>НЕОБРАТИМО</b>!
+This action is <b>IRREVERSIBLE</b>!
 
-Вы уверены, что хотите сбросить все данные?`;
+Are you sure you want to reset all data?`;
 
     const keyboard = [
       [
-        { text: '🗑️ ДА, удалить ВСЕ данные', callback_data: `confirm_reset_${userId}` }
+        { text: '🗑️ YES, delete ALL data', callback_data: `confirm_reset_${userId}` }
       ],
       [
-        { text: '❌ Отмена', callback_data: 'cancel_reset' }
+        { text: '❌ Cancel', callback_data: 'cancel_reset' }
       ]
     ];
 
@@ -2244,15 +2244,15 @@ async function confirmDatabaseReset(chatId, messageId, userId, botToken, supabas
       }
     );
 
-    const successText = `✅ <b>База данных сброшена</b>
+    const successText = `✅ <b>Database Reset Complete</b>
 
-🗑️ Удалено:
-• Все записи о еде
-• Вся дневная статистика
-• Все данные питания
+🗑️ Deleted:
+• All food entries
+• All daily statistics
+• All nutrition data
 
-🚀 Теперь можете начать заново!
-Пришлите фото или описание еды для анализа.`;
+🚀 You can now start fresh!
+Send a photo or food description for analysis.`;
 
     await editMessageWithKeyboard(chatId, messageId, successText, [], botToken);
 
@@ -2265,9 +2265,9 @@ async function confirmDatabaseReset(chatId, messageId, userId, botToken, supabas
 // Cancel database reset
 async function cancelDatabaseReset(chatId, messageId, botToken) {
   try {
-    const cancelText = `❌ <b>Сброс отменен</b>
+    const cancelText = `❌ <b>Reset Cancelled</b>
 
-Все ваши данные остались в безопасности.`;
+All your data remains safe.`;
 
     await editMessageWithKeyboard(chatId, messageId, cancelText, [], botToken);
 
