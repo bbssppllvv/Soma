@@ -1155,18 +1155,18 @@ async function handleMealsCommand(chatId, userId, botToken, supabaseUrl, supabas
       mealsText += `   📅 ${timeStr}\n`;
       mealsText += `   🔥 ${entry.calories}ккал • 🥩 ${entry.protein_g}г белка • 🌾 ${entry.fiber_g}г клетчатки\n\n`;
 
-      // Add quick management buttons for each meal
+      // Simple action buttons for each meal
       keyboard.push([
-        { text: `❌ #${index + 1}`, callback_data: `quick_delete_${entry.id}` },
-        { text: `½ #${index + 1}`, callback_data: `portion_${entry.id}_0.5` },
-        { text: `📋 #${index + 1}`, callback_data: `duplicate_${entry.id}` }
+        { text: `❌`, callback_data: `quick_delete_${entry.id}` },
+        { text: `½`, callback_data: `portion_${entry.id}_0.5` },
+        { text: `📋`, callback_data: `duplicate_${entry.id}` }
       ]);
     });
 
-    // Add quick action buttons
+    // Simple bottom buttons
     keyboard.push([
-      { text: '🔥 Быстрые калории', callback_data: 'quick_calories' },
-      { text: '🥩 Быстрый белок', callback_data: 'quick_protein' }
+      { text: '🔥 Калории', callback_data: 'quick_calories' },
+      { text: '🥩 Белок', callback_data: 'quick_protein' }
     ]);
 
     await sendMessageWithKeyboard(chatId, mealsText, keyboard, botToken);
@@ -2028,26 +2028,26 @@ async function handleQuickCalories(chatId, messageId, userId, botToken, supabase
       return;
     }
 
-    let caloriesText = '🔥 <b>Быстрое изменение калорий</b>\n\nВыберите блюдо и новое значение:\n\n';
+    let caloriesText = '🔥 <b>Калории</b>\n\n';
     const keyboard = [];
 
     entries.forEach((entry, index) => {
       const foodDescription = entry.text ? 
-        (entry.text.length > 20 ? entry.text.substring(0, 20) + '...' : entry.text) : 
-        'Фото еды';
+        (entry.text.length > 15 ? entry.text.substring(0, 15) + '...' : entry.text) : 
+        'Фото';
       
-      caloriesText += `${index + 1}. ${foodDescription} (${entry.calories}ккал)\n`;
+      caloriesText += `${index + 1}. ${foodDescription} (${entry.calories})\n`;
       
-      // Add quick calorie buttons for each meal
+      // Simple calorie buttons
       keyboard.push([
-        { text: `${index + 1}: 200ккал`, callback_data: `set_calories_${entry.id}_200` },
-        { text: `${index + 1}: 400ккал`, callback_data: `set_calories_${entry.id}_400` },
-        { text: `${index + 1}: 600ккал`, callback_data: `set_calories_${entry.id}_600` }
+        { text: `200`, callback_data: `set_calories_${entry.id}_200` },
+        { text: `400`, callback_data: `set_calories_${entry.id}_400` },
+        { text: `600`, callback_data: `set_calories_${entry.id}_600` }
       ]);
     });
 
     keyboard.push([
-      { text: '🔙 К блюдам', callback_data: 'back_to_meals' }
+      { text: '🔙', callback_data: 'back_to_meals' }
     ]);
 
     await editMessageWithKeyboard(chatId, messageId, caloriesText, keyboard, botToken);
@@ -2087,26 +2087,26 @@ async function handleQuickProtein(chatId, messageId, userId, botToken, supabaseU
       return;
     }
 
-    let proteinText = '🥩 <b>Быстрое изменение белка</b>\n\nВыберите блюдо и новое значение:\n\n';
+    let proteinText = '🥩 <b>Белок</b>\n\n';
     const keyboard = [];
 
     entries.forEach((entry, index) => {
       const foodDescription = entry.text ? 
-        (entry.text.length > 20 ? entry.text.substring(0, 20) + '...' : entry.text) : 
-        'Фото еды';
+        (entry.text.length > 15 ? entry.text.substring(0, 15) + '...' : entry.text) : 
+        'Фото';
       
       proteinText += `${index + 1}. ${foodDescription} (${entry.protein_g}г)\n`;
       
-      // Add quick protein buttons for each meal
+      // Simple protein buttons
       keyboard.push([
-        { text: `${index + 1}: 15г`, callback_data: `set_protein_${entry.id}_15` },
-        { text: `${index + 1}: 25г`, callback_data: `set_protein_${entry.id}_25` },
-        { text: `${index + 1}: 35г`, callback_data: `set_protein_${entry.id}_35` }
+        { text: `15г`, callback_data: `set_protein_${entry.id}_15` },
+        { text: `25г`, callback_data: `set_protein_${entry.id}_25` },
+        { text: `35г`, callback_data: `set_protein_${entry.id}_35` }
       ]);
     });
 
     keyboard.push([
-      { text: '🔙 К блюдам', callback_data: 'back_to_meals' }
+      { text: '🔙', callback_data: 'back_to_meals' }
     ]);
 
     await editMessageWithKeyboard(chatId, messageId, proteinText, keyboard, botToken);
