@@ -1140,34 +1140,34 @@ async function handleMealsCommand(chatId, userId, botToken, supabaseUrl, supabas
       return;
     }
 
-    // Create meal list with inline buttons
-    let mealsText = '🍽️ <b>Your Recent Meals</b>\n\n';
+    // Simple meal list with actions right next to each meal
+    let mealsText = '🍽️ <b>Ваши блюда</b>\n\n';
     const keyboard = [];
 
     entries.forEach((entry, index) => {
       const date = new Date(entry.timestamp_utc);
-      const timeStr = date.toLocaleDateString('ru-RU') + ' ' + date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+      const timeStr = date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
       const foodDescription = entry.text ? 
-        (entry.text.length > 30 ? entry.text.substring(0, 30) + '...' : entry.text) : 
+        (entry.text.length > 25 ? entry.text.substring(0, 25) + '...' : entry.text) : 
         'Фото еды';
       
-      mealsText += `${index + 1}. <b>${foodDescription}</b>\n`;
-      mealsText += `   📅 ${timeStr}\n`;
-      mealsText += `   🔥 ${entry.calories}ккал • 🥩 ${entry.protein_g}г белка • 🌾 ${entry.fiber_g}г клетчатки\n\n`;
+      mealsText += `<b>${foodDescription}</b> (${timeStr})\n`;
+      mealsText += `${entry.calories}ккал • ${entry.protein_g}г белка\n\n`;
 
-      // Simple action buttons for each meal
+      // Main actions for this meal
       keyboard.push([
-        { text: `❌`, callback_data: `quick_delete_${entry.id}` },
-        { text: `½`, callback_data: `portion_${entry.id}_0.5` },
-        { text: `📋`, callback_data: `duplicate_${entry.id}` }
+        { text: `❌ Удалить`, callback_data: `quick_delete_${entry.id}` },
+        { text: `½ Половина`, callback_data: `portion_${entry.id}_0.5` },
+        { text: `📋 Еще раз`, callback_data: `duplicate_${entry.id}` }
+      ]);
+      
+      // Quick edit values
+      keyboard.push([
+        { text: `🔥 ${Math.round(entry.calories * 0.7)}`, callback_data: `set_calories_${entry.id}_${Math.round(entry.calories * 0.7)}` },
+        { text: `🔥 ${Math.round(entry.calories * 1.3)}`, callback_data: `set_calories_${entry.id}_${Math.round(entry.calories * 1.3)}` },
+        { text: `🥩 +5г`, callback_data: `set_protein_${entry.id}_${entry.protein_g + 5}` }
       ]);
     });
-
-    // Simple bottom buttons
-    keyboard.push([
-      { text: '🔥 Калории', callback_data: 'quick_calories' },
-      { text: '🥩 Белок', callback_data: 'quick_protein' }
-    ]);
 
     await sendMessageWithKeyboard(chatId, mealsText, keyboard, botToken);
 
@@ -1244,10 +1244,6 @@ async function handleCallbackQuery(callbackQuery, botToken, supabaseUrl, supabas
       await handlePortionAdjustment(chatId, messageId, userId, botToken, supabaseUrl, supabaseHeaders);
     } else if (data === 'duplicate_meal') {
       await handleMealDuplication(chatId, messageId, userId, botToken, supabaseUrl, supabaseHeaders);
-    } else if (data === 'quick_calories') {
-      await handleQuickCalories(chatId, messageId, userId, botToken, supabaseUrl, supabaseHeaders);
-    } else if (data === 'quick_protein') {
-      await handleQuickProtein(chatId, messageId, userId, botToken, supabaseUrl, supabaseHeaders);
     } else if (data === 'back_to_meals') {
       // Refresh meals list
       await handleMealsCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders);
@@ -1888,17 +1884,8 @@ async function applyCaloriesChange(chatId, messageId, userId, entryId, newCalori
       await updateDailyAggregates(userUuid, today, supabaseUrl, supabaseHeaders);
     }
 
-    const successText = `✅ <b>Калории обновлены</b>
-
-🔥 <b>Новое значение:</b> ${newCalories} ккал
-
-Дневная статистика обновлена.`;
-
-    const keyboard = [
-      [{ text: '🍽️ Вернуться к блюдам', callback_data: 'back_to_meals' }]
-    ];
-
-    await editMessageWithKeyboard(chatId, messageId, successText, keyboard, botToken);
+    // Just refresh the meals list - no confirmation screen
+    await handleMealsCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders);
 
   } catch (error) {
     console.error('Apply calories change error:', error);
@@ -1937,17 +1924,8 @@ async function applyProteinChange(chatId, messageId, userId, entryId, newProtein
       await updateDailyAggregates(userUuid, today, supabaseUrl, supabaseHeaders);
     }
 
-    const successText = `✅ <b>Белок обновлен</b>
-
-🥩 <b>Новое значение:</b> ${newProtein}г
-
-Дневная статистика обновлена.`;
-
-    const keyboard = [
-      [{ text: '🍽️ Вернуться к блюдам', callback_data: 'back_to_meals' }]
-    ];
-
-    await editMessageWithKeyboard(chatId, messageId, successText, keyboard, botToken);
+    // Just refresh the meals list - no confirmation screen
+    await handleMealsCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders);
 
   } catch (error) {
     console.error('Apply protein change error:', error);
@@ -1999,120 +1977,3 @@ async function quickDeleteMeal(chatId, messageId, userId, entryId, botToken, sup
   }
 }
 
-// Quick calories editing - show recent meals with quick calorie options
-async function handleQuickCalories(chatId, messageId, userId, botToken, supabaseUrl, supabaseHeaders) {
-  try {
-    // Get user's recent meals
-    const userResponse = await fetch(
-      `${supabaseUrl}/rest/v1/users?telegram_user_id=eq.${userId}&select=id`,
-      { headers: supabaseHeaders }
-    );
-
-    const users = await userResponse.json();
-    if (users.length === 0) {
-      await sendMessage(chatId, '❌ Пользователь не найден.', botToken);
-      return;
-    }
-
-    const userUuid = users[0].id;
-
-    const entriesResponse = await fetch(
-      `${supabaseUrl}/rest/v1/entries?user_id=eq.${userUuid}&select=*&order=timestamp_utc.desc&limit=5`,
-      { headers: supabaseHeaders }
-    );
-
-    const entries = await entriesResponse.json();
-
-    if (entries.length === 0) {
-      await sendMessage(chatId, 'У вас нет блюд для изменения калорий.', botToken);
-      return;
-    }
-
-    let caloriesText = '🔥 <b>Калории</b>\n\n';
-    const keyboard = [];
-
-    entries.forEach((entry, index) => {
-      const foodDescription = entry.text ? 
-        (entry.text.length > 15 ? entry.text.substring(0, 15) + '...' : entry.text) : 
-        'Фото';
-      
-      caloriesText += `${index + 1}. ${foodDescription} (${entry.calories})\n`;
-      
-      // Simple calorie buttons
-      keyboard.push([
-        { text: `200`, callback_data: `set_calories_${entry.id}_200` },
-        { text: `400`, callback_data: `set_calories_${entry.id}_400` },
-        { text: `600`, callback_data: `set_calories_${entry.id}_600` }
-      ]);
-    });
-
-    keyboard.push([
-      { text: '🔙', callback_data: 'back_to_meals' }
-    ]);
-
-    await editMessageWithKeyboard(chatId, messageId, caloriesText, keyboard, botToken);
-
-  } catch (error) {
-    console.error('Quick calories error:', error);
-    await sendMessage(chatId, '❌ Ошибка при изменении калорий.', botToken);
-  }
-}
-
-// Quick protein editing - show recent meals with quick protein options
-async function handleQuickProtein(chatId, messageId, userId, botToken, supabaseUrl, supabaseHeaders) {
-  try {
-    // Get user's recent meals
-    const userResponse = await fetch(
-      `${supabaseUrl}/rest/v1/users?telegram_user_id=eq.${userId}&select=id`,
-      { headers: supabaseHeaders }
-    );
-
-    const users = await userResponse.json();
-    if (users.length === 0) {
-      await sendMessage(chatId, '❌ Пользователь не найден.', botToken);
-      return;
-    }
-
-    const userUuid = users[0].id;
-
-    const entriesResponse = await fetch(
-      `${supabaseUrl}/rest/v1/entries?user_id=eq.${userUuid}&select=*&order=timestamp_utc.desc&limit=5`,
-      { headers: supabaseHeaders }
-    );
-
-    const entries = await entriesResponse.json();
-
-    if (entries.length === 0) {
-      await sendMessage(chatId, 'У вас нет блюд для изменения белка.', botToken);
-      return;
-    }
-
-    let proteinText = '🥩 <b>Белок</b>\n\n';
-    const keyboard = [];
-
-    entries.forEach((entry, index) => {
-      const foodDescription = entry.text ? 
-        (entry.text.length > 15 ? entry.text.substring(0, 15) + '...' : entry.text) : 
-        'Фото';
-      
-      proteinText += `${index + 1}. ${foodDescription} (${entry.protein_g}г)\n`;
-      
-      // Simple protein buttons
-      keyboard.push([
-        { text: `15г`, callback_data: `set_protein_${entry.id}_15` },
-        { text: `25г`, callback_data: `set_protein_${entry.id}_25` },
-        { text: `35г`, callback_data: `set_protein_${entry.id}_35` }
-      ]);
-    });
-
-    keyboard.push([
-      { text: '🔙', callback_data: 'back_to_meals' }
-    ]);
-
-    await editMessageWithKeyboard(chatId, messageId, proteinText, keyboard, botToken);
-
-  } catch (error) {
-    console.error('Quick protein error:', error);
-    await sendMessage(chatId, '❌ Ошибка при изменении белка.', botToken);
-  }
-}
