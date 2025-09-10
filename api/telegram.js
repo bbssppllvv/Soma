@@ -712,12 +712,22 @@ async function ensureUserExists(userId, userName, supabaseUrl, supabaseHeaders) 
         telegram_user_id: userId,
         display_name: userName,
         timezone: 'Europe/Madrid',
-        cal_goal: 1800,
-        protein_goal_g: 120,
+        cal_goal: 2000, // Default for users without profile
+        protein_goal_g: 150,
         fiber_goal_g: 25,
+        fat_goal_g: 65,
+        carbs_goal_g: 250,
         daily_digest_time: '21:30',
         first_seen_utc: new Date().toISOString(),
-        last_seen_utc: new Date().toISOString()
+        last_seen_utc: new Date().toISOString(),
+        // Profile fields - will be filled during onboarding
+        age: null,
+        gender: null,
+        height_cm: null,
+        weight_kg: null,
+        fitness_goal: null,
+        activity_level: null,
+        profile_completed_at: null
       };
 
       const createResponse = await fetch(`${supabaseUrl}/rest/v1/users`, {
