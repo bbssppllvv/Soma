@@ -1288,7 +1288,7 @@ async function handleCallbackQuery(callbackQuery, botToken, supabaseUrl, supabas
     console.log(`Callback query from ${userId}: ${data}`);
 
     // Answer the callback query first
-    await answerCallbackQuery(callbackQuery.id, 'Обработка...', botToken);
+    await answerCallbackQuery(callbackQuery.id, 'Processing...', botToken);
 
     if (data.startsWith('quick_delete_')) {
       const entryId = data.replace('quick_delete_', '');
@@ -1301,18 +1301,7 @@ async function handleCallbackQuery(callbackQuery, botToken, supabaseUrl, supabas
       await confirmDeleteMeal(chatId, messageId, userId, entryId, botToken, supabaseUrl, supabaseHeaders);
     } else if (data.startsWith('cancel_delete_')) {
       await cancelDelete(chatId, messageId, userId, botToken, supabaseUrl, supabaseHeaders);
-    } else if (data.startsWith('edit_meal_')) {
-      const entryId = data.replace('edit_meal_', '');
-      await handleEditMeal(chatId, messageId, userId, entryId, botToken, supabaseUrl, supabaseHeaders);
-    } else if (data.startsWith('edit_calories_')) {
-      const entryId = data.replace('edit_calories_', '');
-      await handleEditCalories(chatId, messageId, userId, entryId, botToken, supabaseUrl, supabaseHeaders);
-    } else if (data.startsWith('edit_protein_')) {
-      const entryId = data.replace('edit_protein_', '');
-      await handleEditProtein(chatId, messageId, userId, entryId, botToken, supabaseUrl, supabaseHeaders);
-    } else if (data.startsWith('edit_portion_')) {
-      const entryId = data.replace('edit_portion_', '');
-      await handleEditPortion(chatId, messageId, userId, entryId, botToken, supabaseUrl, supabaseHeaders);
+    // Removed unused edit handlers - simplified interface only uses delete now
     } else if (data.startsWith('confirm_save_')) {
       const analysisId = data.replace('confirm_save_', '');
       const analysisData = global.tempAnalysisData?.[analysisId];
@@ -1363,7 +1352,7 @@ async function handleCallbackQuery(callbackQuery, botToken, supabaseUrl, supabas
 
   } catch (error) {
     console.error('Callback query error:', error);
-    await answerCallbackQuery(callbackQuery.id, 'Ошибка обработки запроса', botToken);
+    await answerCallbackQuery(callbackQuery.id, 'Request processing error', botToken);
   }
 }
 
@@ -1377,34 +1366,34 @@ async function handleDeleteMeal(chatId, messageId, userId, entryId, botToken, su
     );
 
     if (!entryResponse.ok) {
-      await sendMessage(chatId, '❌ Блюдо не найдено.', botToken);
+      await sendMessage(chatId, '❌ Meal not found.', botToken);
       return;
     }
 
     const entries = await entryResponse.json();
     if (entries.length === 0) {
-      await sendMessage(chatId, '❌ Блюдо не найдено.', botToken);
+      await sendMessage(chatId, '❌ Meal not found.', botToken);
       return;
     }
 
     const entry = entries[0];
     const date = new Date(entry.timestamp_utc);
-    const timeStr = date.toLocaleDateString('ru-RU') + ' ' + date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    const foodDescription = entry.text || 'Фото еды';
+    const timeStr = date.toLocaleDateString('en-US') + ' ' + date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    const foodDescription = entry.text || 'Food photo';
 
-    const confirmText = `⚠️ <b>Подтверждение удаления</b>
+    const confirmText = `⚠️ <b>Delete Confirmation</b>
 
-🍽️ <b>Блюдо:</b> ${foodDescription}
-📅 <b>Время:</b> ${timeStr}
-🔥 <b>Калории:</b> ${entry.calories} ккал
-🥩 <b>Белок:</b> ${entry.protein_g}г
+🍽️ <b>Meal:</b> ${foodDescription}
+📅 <b>Time:</b> ${timeStr}
+🔥 <b>Calories:</b> ${entry.calories} kcal
+🥩 <b>Protein:</b> ${entry.protein_g}g
 
-❗ Это действие нельзя отменить. Удалить блюдо?`;
+❗ This action cannot be undone. Delete meal?`;
 
     const keyboard = [
       [
-        { text: '✅ Да, удалить', callback_data: `confirm_delete_${entryId}` },
-        { text: '❌ Отмена', callback_data: `cancel_delete_${entryId}` }
+        { text: '✅ Yes, delete', callback_data: `confirm_delete_${entryId}` },
+        { text: '❌ Cancel', callback_data: `cancel_delete_${entryId}` }
       ]
     ];
 
@@ -1412,7 +1401,7 @@ async function handleDeleteMeal(chatId, messageId, userId, entryId, botToken, su
 
   } catch (error) {
     console.error('Delete meal error:', error);
-    await sendMessage(chatId, '❌ Ошибка при удалении блюда.', botToken);
+    await sendMessage(chatId, '❌ Error deleting meal.', botToken);
   }
 }
 
@@ -1427,7 +1416,7 @@ async function confirmDeleteMeal(chatId, messageId, userId, entryId, botToken, s
 
     const users = await userResponse.json();
     if (users.length === 0) {
-      await sendMessage(chatId, '❌ Пользователь не найден.', botToken);
+      await sendMessage(chatId, '❌ User not found.', botToken);
       return;
     }
 
@@ -1443,7 +1432,7 @@ async function confirmDeleteMeal(chatId, messageId, userId, entryId, botToken, s
     );
 
     if (!deleteResponse.ok) {
-      await sendMessage(chatId, '❌ Не удалось удалить блюдо.', botToken);
+      await sendMessage(chatId, '❌ Failed to delete meal.', botToken);
       return;
     }
 
@@ -1451,41 +1440,41 @@ async function confirmDeleteMeal(chatId, messageId, userId, entryId, botToken, s
     const today = new Date().toISOString().split('T')[0];
     await updateDailyAggregates(userUuid, today, supabaseUrl, supabaseHeaders);
 
-    const successText = `✅ <b>Блюдо удалено</b>
+    const successText = `✅ <b>Meal Deleted</b>
 
-Блюдо успешно удалено из вашего дневника питания.
-Дневная статистика обновлена.
+Meal successfully removed from your nutrition diary.
+Daily statistics updated.
 
-Используйте /today для просмотра обновленной статистики.`;
+Use /today to view updated statistics.`;
 
     const keyboard = [
-      [{ text: '🍽️ Вернуться к блюдам', callback_data: 'back_to_meals' }]
+      [{ text: '🍽️ Back to Meals', callback_data: 'back_to_meals' }]
     ];
 
     await editMessageWithKeyboard(chatId, messageId, successText, keyboard, botToken);
 
   } catch (error) {
     console.error('Confirm delete error:', error);
-    await sendMessage(chatId, '❌ Ошибка при удалении блюда.', botToken);
+    await sendMessage(chatId, '❌ Error deleting meal.', botToken);
   }
 }
 
 // Cancel deletion
 async function cancelDelete(chatId, messageId, userId, botToken, supabaseUrl, supabaseHeaders) {
   try {
-    const cancelText = `❌ <b>Удаление отменено</b>
+    const cancelText = `❌ <b>Deletion Cancelled</b>
 
-Блюдо не было удалено.`;
+Meal was not deleted.`;
 
     const keyboard = [
-      [{ text: '🍽️ Вернуться к блюдам', callback_data: 'back_to_meals' }]
+      [{ text: '🍽️ Back to Meals', callback_data: 'back_to_meals' }]
     ];
 
     await editMessageWithKeyboard(chatId, messageId, cancelText, keyboard, botToken);
 
   } catch (error) {
     console.error('Cancel delete error:', error);
-    await sendMessage(chatId, '❌ Ошибка отмены.', botToken);
+    await sendMessage(chatId, '❌ Cancel error.', botToken);
   }
 }
 
@@ -1499,32 +1488,32 @@ async function handleEditMeal(chatId, messageId, userId, entryId, botToken, supa
     );
 
     if (!entryResponse.ok) {
-      await sendMessage(chatId, '❌ Блюдо не найдено.', botToken);
+      await sendMessage(chatId, '❌ Meal not found.', botToken);
       return;
     }
 
     const entries = await entryResponse.json();
     if (entries.length === 0) {
-      await sendMessage(chatId, '❌ Блюдо не найдено.', botToken);
+      await sendMessage(chatId, '❌ Meal not found.', botToken);
       return;
     }
 
     const entry = entries[0];
     const date = new Date(entry.timestamp_utc);
-    const timeStr = date.toLocaleDateString('ru-RU') + ' ' + date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    const foodDescription = entry.text || 'Фото еды';
+    const timeStr = date.toLocaleDateString('en-US') + ' ' + date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    const foodDescription = entry.text || 'Food photo';
 
-    const editText = `✏️ <b>Редактирование блюда</b>
+    const editText = `✏️ <b>Edit Meal</b>
 
-🍽️ <b>Блюдо:</b> ${foodDescription}
-📅 <b>Время:</b> ${timeStr}
+🍽️ <b>Meal:</b> ${foodDescription}
+📅 <b>Time:</b> ${timeStr}
 
-📊 <b>Текущие значения:</b>
-🔥 Калории: ${entry.calories} ккал
-🥩 Белок: ${entry.protein_g}г
-🧈 Жиры: ${entry.fat_g}г
-🍞 Углеводы: ${entry.carbs_g}г
-🌾 Клетчатка: ${entry.fiber_g}г
+📊 <b>Current values:</b>
+🔥 Калории: ${entry.calories} kcal
+🥩 Белок: ${entry.protein_g}g
+🧈 Жиры: ${entry.fat_g}g
+🍞 Уgлеводы: ${entry.carbs_g}g
+🌾 Клетчатка: ${entry.fiber_g}g
 
 Что хотите изменить?`;
 
@@ -1538,7 +1527,7 @@ async function handleEditMeal(chatId, messageId, userId, entryId, botToken, supa
         { text: '📋 Дублировать', callback_data: `duplicate_${entryId}` }
       ],
       [
-        { text: '🔙 Назад к блюдам', callback_data: 'back_to_meals' }
+        { text: '🔙 Back к блюдам', callback_data: 'back_to_meals' }
       ]
     ];
 
@@ -1570,7 +1559,7 @@ async function handleEditPortion(chatId, messageId, userId, entryId, botToken, s
       ],
       [
         { text: '200% (двойная порция)', callback_data: `portion_${entryId}_2.0` },
-        { text: '🔙 Назад', callback_data: `edit_meal_${entryId}` }
+        { text: '🔙 Back', callback_data: `edit_meal_${entryId}` }
       ]
     ];
 
@@ -1578,7 +1567,7 @@ async function handleEditPortion(chatId, messageId, userId, entryId, botToken, s
 
   } catch (error) {
     console.error('Edit portion error:', error);
-    await sendMessage(chatId, '❌ Ошибка при изменении порции.', botToken);
+    await sendMessage(chatId, '❌ Error editing portion.', botToken);
   }
 }
 
@@ -1593,7 +1582,7 @@ async function applyPortionAdjustment(chatId, messageId, userId, entryId, multip
 
     const entries = await entryResponse.json();
     if (entries.length === 0) {
-      await sendMessage(chatId, '❌ Блюдо не найдено.', botToken);
+      await sendMessage(chatId, '❌ Meal not found.', botToken);
       return;
     }
 
@@ -1619,7 +1608,7 @@ async function applyPortionAdjustment(chatId, messageId, userId, entryId, multip
     );
 
     if (!updateResponse.ok) {
-      await sendMessage(chatId, '❌ Не удалось обновить блюдо.', botToken);
+      await sendMessage(chatId, '❌ Failed to update meal.', botToken);
       return;
     }
 
@@ -1642,23 +1631,23 @@ async function applyPortionAdjustment(chatId, messageId, userId, entryId, multip
 📊 <b>Новый размер:</b> ${percentText}% от исходной порции
 
 📈 <b>Обновленные значения:</b>
-🔥 Калории: ${newValues.calories} ккал
-🥩 Белок: ${newValues.protein_g}г
-🧈 Жиры: ${newValues.fat_g}г
-🍞 Углеводы: ${newValues.carbs_g}г
-🌾 Клетчатка: ${newValues.fiber_g}г
+🔥 Калории: ${newValues.calories} kcal
+🥩 Белок: ${newValues.protein_g}g
+🧈 Жиры: ${newValues.fat_g}g
+🍞 Уgлеводы: ${newValues.carbs_g}g
+🌾 Клетчатка: ${newValues.fiber_g}g
 
-Дневная статистика обновлена.`;
+Daily statistics updated.`;
 
     const keyboard = [
-      [{ text: '🍽️ Вернуться к блюдам', callback_data: 'back_to_meals' }]
+      [{ text: '🍽️ Back to Meals', callback_data: 'back_to_meals' }]
     ];
 
     await editMessageWithKeyboard(chatId, messageId, successText, keyboard, botToken);
 
   } catch (error) {
     console.error('Apply portion adjustment error:', error);
-    await sendMessage(chatId, '❌ Ошибка при изменении порции.', botToken);
+    await sendMessage(chatId, '❌ Error editing portion.', botToken);
   }
 }
 
@@ -1673,7 +1662,7 @@ async function handleDuplicateMeal(chatId, messageId, userId, entryId, botToken,
 
     const users = await userResponse.json();
     if (users.length === 0) {
-      await sendMessage(chatId, '❌ Пользователь не найден.', botToken);
+      await sendMessage(chatId, '❌ User not found.', botToken);
       return;
     }
 
@@ -1687,7 +1676,7 @@ async function handleDuplicateMeal(chatId, messageId, userId, entryId, botToken,
 
     const entries = await entryResponse.json();
     if (entries.length === 0) {
-      await sendMessage(chatId, '❌ Блюдо не найдено.', botToken);
+      await sendMessage(chatId, '❌ Meal not found.', botToken);
       return;
     }
 
@@ -1733,14 +1722,14 @@ async function handleDuplicateMeal(chatId, messageId, userId, entryId, botToken,
 
 🍽️ <b>Добавлено:</b> ${foodDescription}
 📊 <b>Питательная ценность:</b>
-🔥 ${originalEntry.calories} ккал
-🥩 ${originalEntry.protein_g}г белка
-🌾 ${originalEntry.fiber_g}г клетчатки
+🔥 ${originalEntry.calories} kcal
+🥩 ${originalEntry.protein_g}g protein
+🌾 ${originalEntry.fiber_g}g fiber
 
-Блюдо добавлено в сегодняшний дневник питания.`;
+Блюдо добавлено в сеgодняшний дневник питания.`;
 
     const keyboard = [
-      [{ text: '🍽️ Вернуться к блюдам', callback_data: 'back_to_meals' }]
+      [{ text: '🍽️ Back to Meals', callback_data: 'back_to_meals' }]
     ];
 
     await editMessageWithKeyboard(chatId, messageId, successText, keyboard, botToken);
@@ -1762,7 +1751,7 @@ async function handlePortionAdjustment(chatId, messageId, userId, botToken, supa
 
     const users = await userResponse.json();
     if (users.length === 0) {
-      await sendMessage(chatId, '❌ Пользователь не найден.', botToken);
+      await sendMessage(chatId, '❌ User not found.', botToken);
       return;
     }
 
@@ -1785,12 +1774,12 @@ async function handlePortionAdjustment(chatId, messageId, userId, botToken, supa
 
     entries.forEach((entry, index) => {
       const date = new Date(entry.timestamp_utc);
-      const timeStr = date.toLocaleDateString('ru-RU') + ' ' + date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+      const timeStr = date.toLocaleDateString('en-US') + ' ' + date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
       const foodDescription = entry.text ? 
         (entry.text.length > 25 ? entry.text.substring(0, 25) + '...' : entry.text) : 
         'Фото еды';
       
-      portionText += `${index + 1}. ${foodDescription}\n   📅 ${timeStr} • 🔥 ${entry.calories}ккал\n\n`;
+      portionText += `${index + 1}. ${foodDescription}\n   📅 ${timeStr} • 🔥 ${entry.calories}kcal\n\n`;
       
       keyboard.push([
         { text: `📊 Порция #${index + 1}`, callback_data: `edit_portion_${entry.id}` }
@@ -1798,14 +1787,14 @@ async function handlePortionAdjustment(chatId, messageId, userId, botToken, supa
     });
 
     keyboard.push([
-      { text: '🔙 Назад к блюдам', callback_data: 'back_to_meals' }
+      { text: '🔙 Back к блюдам', callback_data: 'back_to_meals' }
     ]);
 
     await editMessageWithKeyboard(chatId, messageId, portionText, keyboard, botToken);
 
   } catch (error) {
     console.error('Portion adjustment error:', error);
-    await sendMessage(chatId, '❌ Ошибка при изменении порции.', botToken);
+    await sendMessage(chatId, '❌ Error editing portion.', botToken);
   }
 }
 
@@ -1820,7 +1809,7 @@ async function handleMealDuplication(chatId, messageId, userId, botToken, supaba
 
     const users = await userResponse.json();
     if (users.length === 0) {
-      await sendMessage(chatId, '❌ Пользователь не найден.', botToken);
+      await sendMessage(chatId, '❌ User not found.', botToken);
       return;
     }
 
@@ -1843,12 +1832,12 @@ async function handleMealDuplication(chatId, messageId, userId, botToken, supaba
 
     entries.forEach((entry, index) => {
       const date = new Date(entry.timestamp_utc);
-      const timeStr = date.toLocaleDateString('ru-RU') + ' ' + date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+      const timeStr = date.toLocaleDateString('en-US') + ' ' + date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
       const foodDescription = entry.text ? 
         (entry.text.length > 25 ? entry.text.substring(0, 25) + '...' : entry.text) : 
         'Фото еды';
       
-      duplicateText += `${index + 1}. ${foodDescription}\n   📅 ${timeStr} • 🔥 ${entry.calories}ккал\n\n`;
+      duplicateText += `${index + 1}. ${foodDescription}\n   📅 ${timeStr} • 🔥 ${entry.calories}kcal\n\n`;
       
       keyboard.push([
         { text: `📋 Повторить #${index + 1}`, callback_data: `duplicate_${entry.id}` }
@@ -1856,7 +1845,7 @@ async function handleMealDuplication(chatId, messageId, userId, botToken, supaba
     });
 
     keyboard.push([
-      { text: '🔙 Назад к блюдам', callback_data: 'back_to_meals' }
+      { text: '🔙 Back к блюдам', callback_data: 'back_to_meals' }
     ]);
 
     await editMessageWithKeyboard(chatId, messageId, duplicateText, keyboard, botToken);
@@ -1878,33 +1867,33 @@ async function handleEditCalories(chatId, messageId, userId, entryId, botToken, 
 
     const entries = await entryResponse.json();
     if (entries.length === 0) {
-      await sendMessage(chatId, '❌ Блюдо не найдено.', botToken);
+      await sendMessage(chatId, '❌ Meal not found.', botToken);
       return;
     }
 
     const entry = entries[0];
-    const foodDescription = entry.text || 'Фото еды';
+    const foodDescription = entry.text || 'Food photo';
 
     const caloriesText = `🔥 <b>Изменение калорийности</b>
 
-🍽️ <b>Блюдо:</b> ${foodDescription}
-📊 <b>Текущие калории:</b> ${entry.calories} ккал
+🍽️ <b>Meal:</b> ${foodDescription}
+📊 <b>Текущие калории:</b> ${entry.calories} kcal
 
 Выберите новое значение калорий:`;
 
     const keyboard = [
       [
-        { text: '150 ккал', callback_data: `set_calories_${entryId}_150` },
-        { text: '200 ккал', callback_data: `set_calories_${entryId}_200` },
-        { text: '300 ккал', callback_data: `set_calories_${entryId}_300` }
+        { text: '150 kcal', callback_data: `set_calories_${entryId}_150` },
+        { text: '200 kcal', callback_data: `set_calories_${entryId}_200` },
+        { text: '300 kcal', callback_data: `set_calories_${entryId}_300` }
       ],
       [
-        { text: '400 ккал', callback_data: `set_calories_${entryId}_400` },
-        { text: '500 ккал', callback_data: `set_calories_${entryId}_500` },
-        { text: '600 ккал', callback_data: `set_calories_${entryId}_600` }
+        { text: '400 kcal', callback_data: `set_calories_${entryId}_400` },
+        { text: '500 kcal', callback_data: `set_calories_${entryId}_500` },
+        { text: '600 kcal', callback_data: `set_calories_${entryId}_600` }
       ],
       [
-        { text: '🔙 Назад', callback_data: `edit_meal_${entryId}` }
+        { text: '🔙 Back', callback_data: `edit_meal_${entryId}` }
       ]
     ];
 
@@ -1912,7 +1901,7 @@ async function handleEditCalories(chatId, messageId, userId, entryId, botToken, 
 
   } catch (error) {
     console.error('Edit calories error:', error);
-    await sendMessage(chatId, '❌ Ошибка при изменении калорий.', botToken);
+    await sendMessage(chatId, '❌ Error editing calories.', botToken);
   }
 }
 
@@ -1927,33 +1916,33 @@ async function handleEditProtein(chatId, messageId, userId, entryId, botToken, s
 
     const entries = await entryResponse.json();
     if (entries.length === 0) {
-      await sendMessage(chatId, '❌ Блюдо не найдено.', botToken);
+      await sendMessage(chatId, '❌ Meal not found.', botToken);
       return;
     }
 
     const entry = entries[0];
-    const foodDescription = entry.text || 'Фото еды';
+    const foodDescription = entry.text || 'Food photo';
 
     const proteinText = `🥩 <b>Изменение белка</b>
 
-🍽️ <b>Блюдо:</b> ${foodDescription}
-📊 <b>Текущий белок:</b> ${entry.protein_g}г
+🍽️ <b>Meal:</b> ${foodDescription}
+📊 <b>Текущий белок:</b> ${entry.protein_g}g
 
 Выберите новое значение белка:`;
 
     const keyboard = [
       [
-        { text: '10г', callback_data: `set_protein_${entryId}_10` },
-        { text: '15г', callback_data: `set_protein_${entryId}_15` },
-        { text: '20г', callback_data: `set_protein_${entryId}_20` }
+        { text: '10g', callback_data: `set_protein_${entryId}_10` },
+        { text: '15g', callback_data: `set_protein_${entryId}_15` },
+        { text: '20g', callback_data: `set_protein_${entryId}_20` }
       ],
       [
-        { text: '25г', callback_data: `set_protein_${entryId}_25` },
-        { text: '30г', callback_data: `set_protein_${entryId}_30` },
-        { text: '40г', callback_data: `set_protein_${entryId}_40` }
+        { text: '25g', callback_data: `set_protein_${entryId}_25` },
+        { text: '30g', callback_data: `set_protein_${entryId}_30` },
+        { text: '40g', callback_data: `set_protein_${entryId}_40` }
       ],
       [
-        { text: '🔙 Назад', callback_data: `edit_meal_${entryId}` }
+        { text: '🔙 Back', callback_data: `edit_meal_${entryId}` }
       ]
     ];
 
@@ -1961,7 +1950,7 @@ async function handleEditProtein(chatId, messageId, userId, entryId, botToken, s
 
   } catch (error) {
     console.error('Edit protein error:', error);
-    await sendMessage(chatId, '❌ Ошибка при изменении белка.', botToken);
+    await sendMessage(chatId, '❌ Error editing protein.', botToken);
   }
 }
 
@@ -1979,7 +1968,7 @@ async function applyCaloriesChange(chatId, messageId, userId, entryId, newCalori
     );
 
     if (!updateResponse.ok) {
-      await sendMessage(chatId, '❌ Не удалось обновить калории.', botToken);
+      await sendMessage(chatId, '❌ Failed to update calories.', botToken);
       return;
     }
 
@@ -2001,7 +1990,7 @@ async function applyCaloriesChange(chatId, messageId, userId, entryId, newCalori
 
   } catch (error) {
     console.error('Apply calories change error:', error);
-    await sendMessage(chatId, '❌ Ошибка при изменении калорий.', botToken);
+    await sendMessage(chatId, '❌ Error editing calories.', botToken);
   }
 }
 
@@ -2019,7 +2008,7 @@ async function applyProteinChange(chatId, messageId, userId, entryId, newProtein
     );
 
     if (!updateResponse.ok) {
-      await sendMessage(chatId, '❌ Не удалось обновить белок.', botToken);
+      await sendMessage(chatId, '❌ Failed to update protein.', botToken);
       return;
     }
 
@@ -2041,7 +2030,7 @@ async function applyProteinChange(chatId, messageId, userId, entryId, newProtein
 
   } catch (error) {
     console.error('Apply protein change error:', error);
-    await sendMessage(chatId, '❌ Ошибка при изменении белка.', botToken);
+    await sendMessage(chatId, '❌ Error editing protein.', botToken);
   }
 }
 
@@ -2056,7 +2045,7 @@ async function quickDeleteMeal(chatId, messageId, userId, entryId, botToken, sup
 
     const users = await userResponse.json();
     if (users.length === 0) {
-      await answerCallbackQuery(messageId, '❌ Пользователь не найден', botToken);
+      await answerCallbackQuery(messageId, '❌ User not found', botToken);
       return;
     }
 
@@ -2072,7 +2061,7 @@ async function quickDeleteMeal(chatId, messageId, userId, entryId, botToken, sup
     );
 
     if (!deleteResponse.ok) {
-      await answerCallbackQuery(messageId, '❌ Не удалось удалить', botToken);
+      await answerCallbackQuery(messageId, '❌ Delete failed', botToken);
       return;
     }
 
@@ -2085,7 +2074,7 @@ async function quickDeleteMeal(chatId, messageId, userId, entryId, botToken, sup
 
   } catch (error) {
     console.error('Quick delete error:', error);
-    await answerCallbackQuery(messageId, '❌ Ошибка удаления', botToken);
+    await answerCallbackQuery(messageId, '❌ Delete error', botToken);
   }
 }
 
@@ -2135,7 +2124,7 @@ Send a new photo or food description for analysis.`;
 
   } catch (error) {
     console.error('Cancel analysis error:', error);
-    await sendMessage(chatId, '❌ Ошибка отмены.', botToken);
+    await sendMessage(chatId, '❌ Cancel error.', botToken);
   }
 }
 
@@ -2168,7 +2157,7 @@ Select new value:`;
 
   } catch (error) {
     console.error('Edit analysis calories error:', error);
-    await sendMessage(chatId, '❌ Ошибка при изменении калорий.', botToken);
+    await sendMessage(chatId, '❌ Error editing calories.', botToken);
   }
 }
 
@@ -2177,23 +2166,23 @@ async function editAnalysisProtein(chatId, messageId, analysisData, botToken, su
   try {
     const editText = `🥩 <b>Изменение белка</b>
 
-📊 <b>Текущее значение:</b> ${analysisData.protein_g}г
+📊 <b>Текущее значение:</b> ${analysisData.protein_g}g
 
 Выберите новое значение:`;
 
     const keyboard = [
       [
-        { text: '10г', callback_data: `save_edited_${JSON.stringify({...analysisData, protein_g: 10})}` },
-        { text: '20г', callback_data: `save_edited_${JSON.stringify({...analysisData, protein_g: 20})}` },
-        { text: '30г', callback_data: `save_edited_${JSON.stringify({...analysisData, protein_g: 30})}` }
+        { text: '10g', callback_data: `save_edited_${JSON.stringify({...analysisData, protein_g: 10})}` },
+        { text: '20g', callback_data: `save_edited_${JSON.stringify({...analysisData, protein_g: 20})}` },
+        { text: '30g', callback_data: `save_edited_${JSON.stringify({...analysisData, protein_g: 30})}` }
       ],
       [
-        { text: '40г', callback_data: `save_edited_${JSON.stringify({...analysisData, protein_g: 40})}` },
-        { text: '50г', callback_data: `save_edited_${JSON.stringify({...analysisData, protein_g: 50})}` },
-        { text: '60г', callback_data: `save_edited_${JSON.stringify({...analysisData, protein_g: 60})}` }
+        { text: '40g', callback_data: `save_edited_${JSON.stringify({...analysisData, protein_g: 40})}` },
+        { text: '50g', callback_data: `save_edited_${JSON.stringify({...analysisData, protein_g: 50})}` },
+        { text: '60g', callback_data: `save_edited_${JSON.stringify({...analysisData, protein_g: 60})}` }
       ],
       [
-        { text: '🔙 Назад', callback_data: 'cancel_analysis' }
+        { text: '🔙 Back', callback_data: 'cancel_analysis' }
       ]
     ];
 
@@ -2201,7 +2190,7 @@ async function editAnalysisProtein(chatId, messageId, analysisData, botToken, su
 
   } catch (error) {
     console.error('Edit analysis protein error:', error);
-    await sendMessage(chatId, '❌ Ошибка при изменении белка.', botToken);
+    await sendMessage(chatId, '❌ Error editing protein.', botToken);
   }
 }
 
@@ -2211,8 +2200,8 @@ async function editAnalysisPortion(chatId, messageId, analysisData, botToken, su
     const editText = `📊 <b>Изменение размера порции</b>
 
 📋 <b>Текущие значения:</b>
-🔥 ${analysisData.calories} ккал
-🥩 ${analysisData.protein_g}г белка
+🔥 ${analysisData.calories} kcal
+🥩 ${analysisData.protein_g}g protein
 
 Выберите размер порции:`;
 
@@ -2254,7 +2243,7 @@ async function editAnalysisPortion(chatId, messageId, analysisData, botToken, su
         })}` }
       ],
       [
-        { text: '🔙 Назад', callback_data: 'cancel_analysis' }
+        { text: '🔙 Back', callback_data: 'cancel_analysis' }
       ]
     ];
 
@@ -2262,7 +2251,7 @@ async function editAnalysisPortion(chatId, messageId, analysisData, botToken, su
 
   } catch (error) {
     console.error('Edit analysis portion error:', error);
-    await sendMessage(chatId, '❌ Ошибка при изменении порции.', botToken);
+    await sendMessage(chatId, '❌ Error editing portion.', botToken);
   }
 }
 
@@ -2308,7 +2297,7 @@ async function confirmDatabaseReset(chatId, messageId, userId, botToken, supabas
 
     const users = await userResponse.json();
     if (users.length === 0) {
-      await sendMessage(chatId, '❌ Пользователь не найден.', botToken);
+      await sendMessage(chatId, '❌ User not found.', botToken);
       return;
     }
 
