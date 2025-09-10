@@ -62,6 +62,8 @@ export default async function handler(req, res) {
       await handleDebugCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders);
     } else if (text === '/meals') {
       await handleMealsCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders);
+    } else if (text === '/reset') {
+      await handleResetCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders);
     } else if (message.photo || (text && !text.startsWith('/'))) {
       // Handle food analysis
       await handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, supabaseHeaders);
@@ -132,30 +134,52 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
 
     console.log('Analysis result:', nutritionData);
 
-    // Save to database
-    await saveFoodEntry(userId, message, nutritionData, supabaseUrl, supabaseHeaders);
+    // Don't save yet - show analysis and ask for confirmation
+    const confidenceText = nutritionData.confidence < 0.6 ? '⚠️ <b>Низкая точность анализа</b>\n' : 
+                          nutritionData.confidence > 0.8 ? '✅ <b>Высокая точность анализа</b>\n' : '';
 
-    // Format response
-    const confidenceText = nutritionData.confidence < 0.6 ? '⚠️ <b>Low confidence estimate</b>\n' : 
-                          nutritionData.confidence > 0.8 ? '✅ <b>High confidence analysis</b>\n' : '';
+    const responseText = `🍽️ <b>Анализ питания</b>
 
-    const responseText = `🍽️ <b>Nutrition Analysis Complete</b>
+📊 <b>Питательная ценность:</b>
+🔥 Калории: ${nutritionData.calories} ккал
+🥩 Белок: ${nutritionData.protein_g}г
+🧈 Жиры: ${nutritionData.fat_g}г  
+🍞 Углеводы: ${nutritionData.carbs_g}г
+🌾 Клетчатка: ${nutritionData.fiber_g}г
 
-📊 <b>Nutritional Breakdown:</b>
-• Calories: ~${nutritionData.calories} kcal
-• Protein: ${nutritionData.protein_g}g
-• Fat: ${nutritionData.fat_g}g  
-• Carbs: ${nutritionData.carbs_g}g
-• Fiber: ${nutritionData.fiber_g}g
+⭐ <b>Оценка блюда:</b> ${nutritionData.score}/10
 
-⭐ <b>Meal Score:</b> ${nutritionData.score}/10
+${confidenceText}💡 <b>Совет:</b> ${nutritionData.advice_short}
 
-${confidenceText}💡 <b>Advice:</b> ${nutritionData.advice_short}
+❓ <b>Добавить в рацион или изменить данные?</b>`;
 
-📈 <b>Progress:</b> Use /today to see daily totals
-🎯 <b>Goals:</b> 1800 cal, 120g protein, 25g fiber daily`;
+    // Store analysis data temporarily with unique ID
+    const analysisId = `${userId}_${message.message_id}_${Date.now()}`;
+    global.tempAnalysisData = global.tempAnalysisData || {};
+    global.tempAnalysisData[analysisId] = {
+      ...nutritionData, 
+      messageId: message.message_id, 
+      chatId, 
+      userId,
+      originalText: message.text || message.caption
+    };
 
-    await sendMessage(chatId, responseText, botToken);
+    // Create confirmation keyboard with edit options
+    const keyboard = [
+      [
+        { text: '✅ Добавить в рацион', callback_data: `confirm_save_${analysisId}` },
+        { text: '❌ Отмена', callback_data: 'cancel_analysis' }
+      ],
+      [
+        { text: '✏️ Изменить калории', callback_data: `edit_analysis_calories_${analysisId}` },
+        { text: '✏️ Изменить белок', callback_data: `edit_analysis_protein_${analysisId}` }
+      ],
+      [
+        { text: '📊 Изменить порцию', callback_data: `edit_analysis_portion_${analysisId}` }
+      ]
+    ];
+
+    await sendMessageWithKeyboard(chatId, responseText, keyboard, botToken);
 
   } catch (error) {
     console.error('Food analysis error:', error);
@@ -565,6 +589,7 @@ async function handleHelpCommand(chatId, botToken) {
 /meals - manage your recent meals
 /today - daily nutrition summary
 /goals - view nutrition targets
+/reset - reset all your data
 /test - system status check
 /debug - technical information
 /help - this reference
@@ -1204,6 +1229,45 @@ async function handleCallbackQuery(callbackQuery, botToken, supabaseUrl, supabas
     } else if (data.startsWith('edit_portion_')) {
       const entryId = data.replace('edit_portion_', '');
       await handleEditPortion(chatId, messageId, userId, entryId, botToken, supabaseUrl, supabaseHeaders);
+    } else if (data.startsWith('confirm_save_')) {
+      const analysisId = data.replace('confirm_save_', '');
+      const analysisData = global.tempAnalysisData?.[analysisId];
+      if (analysisData) {
+        await confirmSaveAnalysis(chatId, messageId, analysisData, botToken, supabaseUrl, supabaseHeaders);
+        delete global.tempAnalysisData[analysisId];
+      }
+    } else if (data === 'cancel_analysis') {
+      await cancelAnalysis(chatId, messageId, botToken);
+    } else if (data.startsWith('edit_analysis_calories_')) {
+      const analysisId = data.replace('edit_analysis_calories_', '');
+      const analysisData = global.tempAnalysisData?.[analysisId];
+      if (analysisData) {
+        await editAnalysisCalories(chatId, messageId, analysisData, analysisId, botToken, supabaseUrl, supabaseHeaders);
+      }
+    } else if (data.startsWith('edit_analysis_protein_')) {
+      const analysisId = data.replace('edit_analysis_protein_', '');
+      const analysisData = global.tempAnalysisData?.[analysisId];
+      if (analysisData) {
+        await editAnalysisProtein(chatId, messageId, analysisData, analysisId, botToken, supabaseUrl, supabaseHeaders);
+      }
+    } else if (data.startsWith('edit_analysis_portion_')) {
+      const analysisId = data.replace('edit_analysis_portion_', '');
+      const analysisData = global.tempAnalysisData?.[analysisId];
+      if (analysisData) {
+        await editAnalysisPortion(chatId, messageId, analysisData, analysisId, botToken, supabaseUrl, supabaseHeaders);
+      }
+    } else if (data.startsWith('save_edited_')) {
+      const analysisId = data.replace('save_edited_', '');
+      const analysisData = global.tempAnalysisData?.[analysisId];
+      if (analysisData) {
+        await confirmSaveAnalysis(chatId, messageId, analysisData, botToken, supabaseUrl, supabaseHeaders);
+        delete global.tempAnalysisData[analysisId];
+      }
+    } else if (data.startsWith('confirm_reset_')) {
+      const userId = data.replace('confirm_reset_', '');
+      await confirmDatabaseReset(chatId, messageId, userId, botToken, supabaseUrl, supabaseHeaders);
+    } else if (data === 'cancel_reset') {
+      await cancelDatabaseReset(chatId, messageId, botToken);
     } else if (data === 'back_to_meals') {
       // Refresh meals list
       await handleMealsCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders);
@@ -1934,6 +1998,282 @@ async function quickDeleteMeal(chatId, messageId, userId, entryId, botToken, sup
   } catch (error) {
     console.error('Quick delete error:', error);
     await answerCallbackQuery(messageId, '❌ Ошибка удаления', botToken);
+  }
+}
+
+// Confirm and save analysis to database
+async function confirmSaveAnalysis(chatId, messageId, analysisData, botToken, supabaseUrl, supabaseHeaders) {
+  try {
+    // Reconstruct message object for saving
+    const message = {
+      chat: { id: chatId },
+      message_id: analysisData.messageId,
+      from: { id: analysisData.userId, first_name: 'User' },
+      text: null, // Will be handled in saveFoodEntry
+      photo: null // Will be handled in saveFoodEntry
+    };
+
+    // Save to database using existing function
+    await saveFoodEntry(analysisData.userId, message, analysisData, supabaseUrl, supabaseHeaders);
+
+    const successText = `✅ <b>Добавлено в рацион!</b>
+
+🍽️ <b>Сохранено:</b>
+🔥 ${analysisData.calories} ккал
+🥩 ${analysisData.protein_g}г белка
+🧈 ${analysisData.fat_g}г жиров
+🍞 ${analysisData.carbs_g}г углеводов
+🌾 ${analysisData.fiber_g}г клетчатки
+
+📊 Используйте /today для просмотра дневной статистики`;
+
+    await editMessageWithKeyboard(chatId, messageId, successText, [], botToken);
+
+  } catch (error) {
+    console.error('Confirm save analysis error:', error);
+    await sendMessage(chatId, '❌ Ошибка при сохранении в рацион.', botToken);
+  }
+}
+
+// Cancel analysis
+async function cancelAnalysis(chatId, messageId, botToken) {
+  try {
+    const cancelText = `❌ <b>Анализ отменен</b>
+
+Данные не были сохранены в рацион.
+Пришлите новое фото или описание еды для анализа.`;
+
+    await editMessageWithKeyboard(chatId, messageId, cancelText, [], botToken);
+
+  } catch (error) {
+    console.error('Cancel analysis error:', error);
+    await sendMessage(chatId, '❌ Ошибка отмены.', botToken);
+  }
+}
+
+// Edit calories in analysis
+async function editAnalysisCalories(chatId, messageId, analysisData, analysisId, botToken, supabaseUrl, supabaseHeaders) {
+  try {
+    const editText = `🔥 <b>Изменение калорий</b>
+
+📊 <b>Текущее значение:</b> ${analysisData.calories} ккал
+
+Выберите новое значение:`;
+
+    const keyboard = [
+      [
+        { text: '150 ккал', callback_data: `update_calories_${analysisId}_150` },
+        { text: '250 ккал', callback_data: `update_calories_${analysisId}_250` },
+        { text: '350 ккал', callback_data: `update_calories_${analysisId}_350` }
+      ],
+      [
+        { text: '450 ккал', callback_data: `update_calories_${analysisId}_450` },
+        { text: '550 ккал', callback_data: `update_calories_${analysisId}_550` },
+        { text: '650 ккал', callback_data: `update_calories_${analysisId}_650` }
+      ],
+      [
+        { text: '🔙 Назад', callback_data: 'cancel_analysis' }
+      ]
+    ];
+
+    await editMessageWithKeyboard(chatId, messageId, editText, keyboard, botToken);
+
+  } catch (error) {
+    console.error('Edit analysis calories error:', error);
+    await sendMessage(chatId, '❌ Ошибка при изменении калорий.', botToken);
+  }
+}
+
+// Edit protein in analysis
+async function editAnalysisProtein(chatId, messageId, analysisData, botToken, supabaseUrl, supabaseHeaders) {
+  try {
+    const editText = `🥩 <b>Изменение белка</b>
+
+📊 <b>Текущее значение:</b> ${analysisData.protein_g}г
+
+Выберите новое значение:`;
+
+    const keyboard = [
+      [
+        { text: '10г', callback_data: `save_edited_${JSON.stringify({...analysisData, protein_g: 10})}` },
+        { text: '20г', callback_data: `save_edited_${JSON.stringify({...analysisData, protein_g: 20})}` },
+        { text: '30г', callback_data: `save_edited_${JSON.stringify({...analysisData, protein_g: 30})}` }
+      ],
+      [
+        { text: '40г', callback_data: `save_edited_${JSON.stringify({...analysisData, protein_g: 40})}` },
+        { text: '50г', callback_data: `save_edited_${JSON.stringify({...analysisData, protein_g: 50})}` },
+        { text: '60г', callback_data: `save_edited_${JSON.stringify({...analysisData, protein_g: 60})}` }
+      ],
+      [
+        { text: '🔙 Назад', callback_data: 'cancel_analysis' }
+      ]
+    ];
+
+    await editMessageWithKeyboard(chatId, messageId, editText, keyboard, botToken);
+
+  } catch (error) {
+    console.error('Edit analysis protein error:', error);
+    await sendMessage(chatId, '❌ Ошибка при изменении белка.', botToken);
+  }
+}
+
+// Edit portion in analysis
+async function editAnalysisPortion(chatId, messageId, analysisData, botToken, supabaseUrl, supabaseHeaders) {
+  try {
+    const editText = `📊 <b>Изменение размера порции</b>
+
+📋 <b>Текущие значения:</b>
+🔥 ${analysisData.calories} ккал
+🥩 ${analysisData.protein_g}г белка
+
+Выберите размер порции:`;
+
+    const keyboard = [
+      [
+        { text: '25% (четверть)', callback_data: `save_edited_${JSON.stringify({
+          ...analysisData, 
+          calories: Math.round(analysisData.calories * 0.25),
+          protein_g: Math.round(analysisData.protein_g * 0.25 * 10) / 10,
+          fat_g: Math.round(analysisData.fat_g * 0.25 * 10) / 10,
+          carbs_g: Math.round(analysisData.carbs_g * 0.25 * 10) / 10,
+          fiber_g: Math.round(analysisData.fiber_g * 0.25 * 10) / 10
+        })}` },
+        { text: '50% (половина)', callback_data: `save_edited_${JSON.stringify({
+          ...analysisData,
+          calories: Math.round(analysisData.calories * 0.5),
+          protein_g: Math.round(analysisData.protein_g * 0.5 * 10) / 10,
+          fat_g: Math.round(analysisData.fat_g * 0.5 * 10) / 10,
+          carbs_g: Math.round(analysisData.carbs_g * 0.5 * 10) / 10,
+          fiber_g: Math.round(analysisData.fiber_g * 0.5 * 10) / 10
+        })}` }
+      ],
+      [
+        { text: '75% (три четверти)', callback_data: `save_edited_${JSON.stringify({
+          ...analysisData,
+          calories: Math.round(analysisData.calories * 0.75),
+          protein_g: Math.round(analysisData.protein_g * 0.75 * 10) / 10,
+          fat_g: Math.round(analysisData.fat_g * 0.75 * 10) / 10,
+          carbs_g: Math.round(analysisData.carbs_g * 0.75 * 10) / 10,
+          fiber_g: Math.round(analysisData.fiber_g * 0.75 * 10) / 10
+        })}` },
+        { text: '150% (полторы)', callback_data: `save_edited_${JSON.stringify({
+          ...analysisData,
+          calories: Math.round(analysisData.calories * 1.5),
+          protein_g: Math.round(analysisData.protein_g * 1.5 * 10) / 10,
+          fat_g: Math.round(analysisData.fat_g * 1.5 * 10) / 10,
+          carbs_g: Math.round(analysisData.carbs_g * 1.5 * 10) / 10,
+          fiber_g: Math.round(analysisData.fiber_g * 1.5 * 10) / 10
+        })}` }
+      ],
+      [
+        { text: '🔙 Назад', callback_data: 'cancel_analysis' }
+      ]
+    ];
+
+    await editMessageWithKeyboard(chatId, messageId, editText, keyboard, botToken);
+
+  } catch (error) {
+    console.error('Edit analysis portion error:', error);
+    await sendMessage(chatId, '❌ Ошибка при изменении порции.', botToken);
+  }
+}
+
+// Handle database reset command
+async function handleResetCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders) {
+  try {
+    const resetText = `⚠️ <b>Сброс базы данных</b>
+
+❗ <b>ВНИМАНИЕ!</b> Это действие удалит:
+• Все ваши записи о еде
+• Всю статистику питания  
+• Дневные итоги
+
+Это действие <b>НЕОБРАТИМО</b>!
+
+Вы уверены, что хотите сбросить все данные?`;
+
+    const keyboard = [
+      [
+        { text: '🗑️ ДА, удалить ВСЕ данные', callback_data: `confirm_reset_${userId}` }
+      ],
+      [
+        { text: '❌ Отмена', callback_data: 'cancel_reset' }
+      ]
+    ];
+
+    await sendMessageWithKeyboard(chatId, resetText, keyboard, botToken);
+
+  } catch (error) {
+    console.error('Reset command error:', error);
+    await sendMessage(chatId, '❌ Ошибка команды сброса.', botToken);
+  }
+}
+
+// Confirm database reset
+async function confirmDatabaseReset(chatId, messageId, userId, botToken, supabaseUrl, supabaseHeaders) {
+  try {
+    // Get user UUID
+    const userResponse = await fetch(
+      `${supabaseUrl}/rest/v1/users?telegram_user_id=eq.${userId}&select=id`,
+      { headers: supabaseHeaders }
+    );
+
+    const users = await userResponse.json();
+    if (users.length === 0) {
+      await sendMessage(chatId, '❌ Пользователь не найден.', botToken);
+      return;
+    }
+
+    const userUuid = users[0].id;
+
+    // Delete all entries for this user
+    const deleteEntriesResponse = await fetch(
+      `${supabaseUrl}/rest/v1/entries?user_id=eq.${userUuid}`,
+      {
+        method: 'DELETE',
+        headers: supabaseHeaders
+      }
+    );
+
+    // Delete all daily records for this user
+    const deleteDailyResponse = await fetch(
+      `${supabaseUrl}/rest/v1/daily?user_id=eq.${userUuid}`,
+      {
+        method: 'DELETE',
+        headers: supabaseHeaders
+      }
+    );
+
+    const successText = `✅ <b>База данных сброшена</b>
+
+🗑️ Удалено:
+• Все записи о еде
+• Вся дневная статистика
+• Все данные питания
+
+🚀 Теперь можете начать заново!
+Пришлите фото или описание еды для анализа.`;
+
+    await editMessageWithKeyboard(chatId, messageId, successText, [], botToken);
+
+  } catch (error) {
+    console.error('Confirm database reset error:', error);
+    await sendMessage(chatId, '❌ Ошибка при сбросе базы данных.', botToken);
+  }
+}
+
+// Cancel database reset
+async function cancelDatabaseReset(chatId, messageId, botToken) {
+  try {
+    const cancelText = `❌ <b>Сброс отменен</b>
+
+Все ваши данные остались в безопасности.`;
+
+    await editMessageWithKeyboard(chatId, messageId, cancelText, [], botToken);
+
+  } catch (error) {
+    console.error('Cancel database reset error:', error);
+    await sendMessage(chatId, '❌ Ошибка отмены сброса.', botToken);
   }
 }
 
