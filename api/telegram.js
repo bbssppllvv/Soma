@@ -1509,8 +1509,8 @@ async function handleEditMeal(chatId, messageId, userId, entryId, botToken, supa
 📅 <b>Time:</b> ${timeStr}
 
 📊 <b>Current values:</b>
-🔥 Калории: ${entry.calories} kcal
-🥩 Белок: ${entry.protein_g}g
+🔥 Calories: ${entry.calories} kcal
+🥩 Protein: ${entry.protein_g}g
 🧈 Жиры: ${entry.fat_g}g
 🍞 Уgлеводы: ${entry.carbs_g}g
 🌾 Клетчатка: ${entry.fiber_g}g
@@ -1631,8 +1631,8 @@ async function applyPortionAdjustment(chatId, messageId, userId, entryId, multip
 📊 <b>Новый размер:</b> ${percentText}% от исходной порции
 
 📈 <b>Обновленные значения:</b>
-🔥 Калории: ${newValues.calories} kcal
-🥩 Белок: ${newValues.protein_g}g
+🔥 Calories: ${newValues.calories} kcal
+🥩 Protein: ${newValues.protein_g}g
 🧈 Жиры: ${newValues.fat_g}g
 🍞 Уgлеводы: ${newValues.carbs_g}g
 🌾 Клетчатка: ${newValues.fiber_g}g
