@@ -140,6 +140,9 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
     const confidenceText = nutritionData.confidence < 0.6 ? 'Low confidence estimate\n' : 
                           nutritionData.confidence > 0.8 ? 'High confidence analysis\n' : '';
 
+    // Calculate score explanation
+    const scoreExplanation = getScoreExplanation(nutritionData, userContext);
+    
     const responseText = `<b>Nutrition Analysis</b>
 
 <b>Food:</b> ${nutritionData.food_name || 'Mixed Food'}
@@ -152,7 +155,7 @@ Fat: ${nutritionData.fat_g}g
 Carbs: ${nutritionData.carbs_g}g
 Fiber: ${nutritionData.fiber_g}g
 
-<b>Meal Score:</b> ${nutritionData.score}/10
+<b>Meal Score:</b> ${nutritionData.score}/10 ${scoreExplanation}
 
 ${confidenceText}<b>Advice:</b> ${nutritionData.advice_short}
 
@@ -318,8 +321,8 @@ Return JSON with nutrition data, standardized food name, portion estimates, and 
     // Parse function arguments as JSON
     const parsed = JSON.parse(functionArgs);
     
-    // Add meal score
-    parsed.score = calculateMealScore(parsed);
+    // Add meal score with user context
+    parsed.score = calculateMealScore(parsed, userContext);
     
     console.log('Final parsed result:', parsed);
     return parsed;
@@ -446,8 +449,8 @@ function parseNutritionResponse(content, type) {
       portion_description: (parsed.portion_description || 'Standard serving').substring(0, 100)
     };
 
-    // Calculate meal score
-    result.score = calculateMealScore(result);
+    // Calculate meal score with user context (not available in parseNutritionResponse)
+    result.score = calculateBasicMealScore(result);
 
     console.log('Final result:', result);
     return result;
@@ -553,8 +556,66 @@ function getDefaultUserContext() {
   };
 }
 
-// Calculate meal score
-function calculateMealScore(nutrition) {
+// Calculate meal score with personalized targets
+function calculateMealScore(nutrition, userContext = null) {
+  let score = 0;
+  
+  // Base scoring if no user context
+  if (!userContext) {
+    return calculateBasicMealScore(nutrition);
+  }
+  
+  const dailyGoals = userContext.goals;
+  const mealsToday = userContext.mealsToday || 0;
+  const expectedMealsPerDay = 3; // Assume 3 meals per day
+  const targetCaloriesPerMeal = dailyGoals.cal_goal / expectedMealsPerDay;
+  const targetProteinPerMeal = dailyGoals.protein_goal_g / expectedMealsPerDay;
+  
+  // Protein score (0-4 points) - relative to daily needs
+  const proteinRatio = nutrition.protein_g / targetProteinPerMeal;
+  if (proteinRatio >= 1.2) score += 4;      // 120%+ of target
+  else if (proteinRatio >= 0.8) score += 3; // 80-120% of target  
+  else if (proteinRatio >= 0.5) score += 2; // 50-80% of target
+  else if (proteinRatio >= 0.2) score += 1; // 20-50% of target
+  
+  // Fiber score (0-3 points) - relative to daily needs
+  const fiberTarget = dailyGoals.fiber_goal_g / expectedMealsPerDay;
+  const fiberRatio = nutrition.fiber_g / fiberTarget;
+  if (fiberRatio >= 1.0) score += 3;        // 100%+ of target
+  else if (fiberRatio >= 0.6) score += 2;   // 60-100% of target
+  else if (fiberRatio >= 0.3) score += 1;   // 30-60% of target
+  
+  // Calorie appropriateness (0-3 points) - relative to meal target
+  const calorieRatio = nutrition.calories / targetCaloriesPerMeal;
+  if (calorieRatio >= 0.7 && calorieRatio <= 1.3) score += 3; // 70-130% of target
+  else if (calorieRatio >= 0.5 && calorieRatio <= 1.6) score += 2; // 50-160% of target
+  else if (calorieRatio >= 0.3 && calorieRatio <= 2.0) score += 1; // 30-200% of target
+  
+  // Macro balance bonus (0-1 points)
+  const proteinCal = nutrition.protein_g * 4;
+  const fatCal = nutrition.fat_g * 9;
+  const carbsCal = nutrition.carbs_g * 4;
+  const totalMacroCal = proteinCal + fatCal + carbsCal;
+  
+  if (totalMacroCal > 0) {
+    const proteinPercent = proteinCal / totalMacroCal;
+    const fatPercent = fatCal / totalMacroCal;
+    
+    // Good macro distribution: 20-35% protein, 20-35% fat
+    if (proteinPercent >= 0.2 && proteinPercent <= 0.35 && 
+        fatPercent >= 0.2 && fatPercent <= 0.35) {
+      score += 1;
+    }
+  }
+  
+  // Confidence multiplier
+  score *= (0.8 + nutrition.confidence * 0.2);
+  
+  return Math.max(0, Math.min(10, Math.round(score * 10) / 10));
+}
+
+// Basic meal score for fallback
+function calculateBasicMealScore(nutrition) {
   let score = 0;
   
   // Protein score (0-4 points)
@@ -577,6 +638,39 @@ function calculateMealScore(nutrition) {
   score *= (0.7 + nutrition.confidence * 0.3);
   
   return Math.max(0, Math.min(10, Math.round(score * 10) / 10));
+}
+
+// Get score explanation for user
+function getScoreExplanation(nutrition, userContext) {
+  if (!userContext || !userContext.hasProfile) {
+    // Basic explanation for users without profile
+    if (nutrition.score >= 8) return '(excellent nutrition)';
+    if (nutrition.score >= 6) return '(good balance)';
+    if (nutrition.score >= 4) return '(decent choice)';
+    return '(could be better)';
+  }
+  
+  // Personalized explanation
+  const dailyGoals = userContext.goals;
+  const targetCaloriesPerMeal = dailyGoals.cal_goal / 3;
+  const targetProteinPerMeal = dailyGoals.protein_goal_g / 3;
+  
+  const proteinRatio = nutrition.protein_g / targetProteinPerMeal;
+  const calorieRatio = nutrition.calories / targetCaloriesPerMeal;
+  
+  if (nutrition.score >= 8) {
+    return '(hits your targets perfectly)';
+  } else if (nutrition.score >= 6) {
+    return '(solid choice for your goals)';
+  } else if (proteinRatio < 0.5) {
+    return '(could use more protein)';
+  } else if (calorieRatio > 1.5) {
+    return '(pretty high in calories)';
+  } else if (nutrition.fiber_g < 2) {
+    return '(low in fiber)';
+  } else {
+    return '(room for improvement)';
+  }
 }
 
 function getFallbackAnalysis(message) {
