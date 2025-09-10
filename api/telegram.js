@@ -256,7 +256,7 @@ async function analyzePhotoWithOpenAI(photos, caption, openaiKey, userContext) {
               
 ${caption ? `User description: "${caption}"` : ''}
 
-User context: Daily goals ${userContext.goals.cal_goal} cal, ${userContext.goals.protein_goal_g}g protein, ${userContext.goals.fiber_goal_g}g fiber. Today consumed: ${userContext.todayTotals.calories} cal, ${userContext.todayTotals.protein}g protein, ${userContext.todayTotals.fiber}g fiber.
+User context: Daily goals ${userContext.goals.cal_goal} cal, ${userContext.goals.protein_goal_g}g protein, ${userContext.goals.fiber_goal_g}g fiber. Today consumed: ${userContext.todayTotals.calories} cal, ${userContext.todayTotals.protein}g protein, ${userContext.todayTotals.fiber}g fiber. Profile complete: ${userContext.hasProfile ? 'Yes' : 'No'}.
 
 Estimate calories, macronutrients, fiber and provide brief advice. Return JSON per schema.`
             },
@@ -331,6 +331,7 @@ USER CONTEXT:
 - Today's progress: ${userContext.todayTotals.calories} calories, ${userContext.todayTotals.protein}g protein, ${userContext.todayTotals.fiber}g fiber consumed
 - This is meal #${userContext.mealsToday + 1} today
 - Remaining needs: ${userContext.goals.cal_goal - userContext.todayTotals.calories} calories, ${userContext.goals.protein_goal_g - userContext.todayTotals.protein}g protein, ${userContext.goals.fiber_goal_g - userContext.todayTotals.fiber}g fiber
+- Profile personalized: ${userContext.hasProfile ? 'Yes (goals are calculated for user)' : 'No (using defaults)'}
 
 ANALYSIS REQUIREMENTS:
 - Interpret portion descriptions (small/medium/large, cups, pieces, grams)
@@ -474,14 +475,34 @@ async function getUserContext(userId, supabaseUrl, supabaseHeaders) {
       }), { calories: 0, protein: 0, fiber: 0 });
     }
 
-    return {
-      goals: {
+    // Use personalized goals if profile is complete, otherwise defaults
+    const hasProfile = user.age && user.weight_kg && user.height_cm && user.fitness_goal;
+    let goals;
+    
+    if (hasProfile) {
+      goals = {
         cal_goal: user.cal_goal || 1800,
         protein_goal_g: user.protein_goal_g || 120,
-        fiber_goal_g: user.fiber_goal_g || 25
-      },
+        fiber_goal_g: user.fiber_goal_g || 25,
+        fat_goal_g: user.fat_goal_g || 60,
+        carbs_goal_g: user.carbs_goal_g || 200
+      };
+    } else {
+      // Default goals for users without complete profile
+      goals = {
+        cal_goal: 2000,
+        protein_goal_g: 150,
+        fiber_goal_g: 25,
+        fat_goal_g: 65,
+        carbs_goal_g: 250
+      };
+    }
+
+    return {
+      goals,
       todayTotals,
-      mealsToday
+      mealsToday,
+      hasProfile
     };
 
   } catch (error) {
@@ -492,9 +513,16 @@ async function getUserContext(userId, supabaseUrl, supabaseHeaders) {
 
 function getDefaultUserContext() {
   return {
-    goals: { cal_goal: 1800, protein_goal_g: 120, fiber_goal_g: 25 },
+    goals: { 
+      cal_goal: 2000, 
+      protein_goal_g: 150, 
+      fiber_goal_g: 25,
+      fat_goal_g: 65,
+      carbs_goal_g: 250
+    },
     todayTotals: { calories: 0, protein: 0, fiber: 0 },
-    mealsToday: 0
+    mealsToday: 0,
+    hasProfile: false
   };
 }
 
@@ -951,32 +979,69 @@ async function handleTodayCommand(chatId, userId, botToken, supabaseUrl, supabas
 
 async function handleGoalsCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders) {
   try {
-    const userResponse = await fetch(
-      `${supabaseUrl}/rest/v1/users?telegram_user_id=eq.${userId}&select=*`,
-      { headers: supabaseHeaders }
+    const userCheck = await checkUserProfile(userId, supabaseUrl, supabaseHeaders);
+    
+    if (!userCheck.exists || !userCheck.hasProfile) {
+      // User doesn't have a complete profile
+      const setupText = `🎯 <b>Nutrition Goals</b>
+
+⚠️ <b>Profile not set up yet!</b>
+
+I'm currently using default goals:
+🔥 Calories: 2000 kcal/day
+💪 Protein: 150g/day  
+🧈 Fat: 65g/day
+🍞 Carbs: 250g/day
+🌾 Fiber: 25g/day
+
+💡 <b>Want personalized goals?</b>
+Complete your profile to get targets calculated specifically for your body, goals, and activity level!`;
+
+      const keyboard = [
+        [
+          { text: '🚀 Set Up Profile', callback_data: 'onboarding_start' }
+        ]
+      ];
+
+      await sendMessageWithKeyboard(chatId, setupText, keyboard, botToken);
+      return;
+    }
+
+    const user = userCheck.user;
+    const targets = calculateNutritionTargets(
+      user.weight_kg,
+      user.height_cm,
+      user.age,
+      user.gender,
+      user.fitness_goal,
+      user.activity_level
     );
 
-    const users = await userResponse.json();
-    const user = users[0] || {
-      cal_goal: 1800,
-      protein_goal_g: 120,
-      fiber_goal_g: 25,
-      timezone: 'Europe/Madrid',
-      daily_digest_time: '21:30'
-    };
+    const goalsText = `🎯 <b>Your Personalized Goals</b>
 
-    const goalsText = `🎯 <b>Your Nutrition Goals</b>
+📊 <b>Daily Targets:</b>
+🔥 Calories: ${targets.calories} kcal/day
+💪 Protein: ${targets.protein}g/day  
+🧈 Fat: ${targets.fat}g/day
+🍞 Carbs: ${targets.carbs}g/day
+🌾 Fiber: ${targets.fiber}g/day
 
-🔥 <b>Calories:</b> ${user.cal_goal} kcal/day
-💪 <b>Protein:</b> ${user.protein_goal_g}g/day  
-🌾 <b>Fiber:</b> ${user.fiber_goal_g}g/day
-🌍 <b>Timezone:</b> ${user.timezone}
+👤 <b>Based on your profile:</b>
+• ${user.age} year old ${user.gender}
+• ${user.height_cm}cm, ${user.weight_kg}kg
+• Goal: ${user.fitness_goal} weight
+• Activity: ${user.activity_level}
 
-📊 These goals are used for analysis scoring and advice.
+📊 These personalized goals are used for analysis scoring and advice.`;
 
-💡 Goal customization will be added in the next version.`;
+    const keyboard = [
+      [
+        { text: '✏️ Edit Profile', callback_data: 'profile_edit' },
+        { text: '🔄 Recalculate', callback_data: 'profile_recalculate' }
+      ]
+    ];
 
-    await sendMessage(chatId, goalsText, botToken);
+    await sendMessageWithKeyboard(chatId, goalsText, keyboard, botToken);
 
   } catch (error) {
     console.error('Goals command error:', error);
@@ -2538,6 +2603,320 @@ Send a photo or description of your food to begin.`;
   } catch (error) {
     console.error('Onboarding skip error:', error);
     await sendMessage(chatId, '❌ Error skipping onboarding.', botToken);
+  }
+}
+
+// Onboarding step 2: Gender selection
+async function onboardingStepGender(chatId, messageId, userId, goal, botToken, supabaseUrl, supabaseHeaders) {
+  try {
+    // Store goal temporarily
+    global.tempOnboardingData = global.tempOnboardingData || {};
+    global.tempOnboardingData[userId] = { goal };
+
+    const genderText = `👤 <b>What's your gender?</b>
+
+This helps me calculate your metabolic rate more accurately:`;
+
+    const keyboard = [
+      [
+        { text: '👨 Male', callback_data: 'onboarding_gender_male' },
+        { text: '👩 Female', callback_data: 'onboarding_gender_female' }
+      ]
+    ];
+
+    await editMessageWithKeyboard(chatId, messageId, genderText, keyboard, botToken);
+
+  } catch (error) {
+    console.error('Onboarding gender step error:', error);
+    await sendMessage(chatId, '❌ Error in gender selection.', botToken);
+  }
+}
+
+// Onboarding step 3: Age selection
+async function onboardingStepAge(chatId, messageId, userId, gender, botToken, supabaseUrl, supabaseHeaders) {
+  try {
+    // Store gender
+    global.tempOnboardingData[userId].gender = gender;
+
+    const ageText = `🎂 <b>What's your age?</b>
+
+Select your age range:`;
+
+    const keyboard = [
+      [
+        { text: '18-25', callback_data: 'onboarding_age_22' },
+        { text: '26-35', callback_data: 'onboarding_age_30' },
+        { text: '36-45', callback_data: 'onboarding_age_40' }
+      ],
+      [
+        { text: '46-55', callback_data: 'onboarding_age_50' },
+        { text: '56-65', callback_data: 'onboarding_age_60' },
+        { text: '65+', callback_data: 'onboarding_age_70' }
+      ]
+    ];
+
+    await editMessageWithKeyboard(chatId, messageId, ageText, keyboard, botToken);
+
+  } catch (error) {
+    console.error('Onboarding age step error:', error);
+    await sendMessage(chatId, '❌ Error in age selection.', botToken);
+  }
+}
+
+// Onboarding step 4: Height selection
+async function onboardingStepHeight(chatId, messageId, userId, age, botToken, supabaseUrl, supabaseHeaders) {
+  try {
+    // Store age
+    global.tempOnboardingData[userId].age = parseInt(age);
+
+    const heightText = `📏 <b>What's your height?</b>
+
+Select your height:`;
+
+    const keyboard = [
+      [
+        { text: '150cm (4\'11")', callback_data: 'onboarding_height_150' },
+        { text: '160cm (5\'3")', callback_data: 'onboarding_height_160' },
+        { text: '170cm (5\'7")', callback_data: 'onboarding_height_170' }
+      ],
+      [
+        { text: '180cm (5\'11")', callback_data: 'onboarding_height_180' },
+        { text: '190cm (6\'3")', callback_data: 'onboarding_height_190' },
+        { text: '200cm (6\'7")', callback_data: 'onboarding_height_200' }
+      ]
+    ];
+
+    await editMessageWithKeyboard(chatId, messageId, heightText, keyboard, botToken);
+
+  } catch (error) {
+    console.error('Onboarding height step error:', error);
+    await sendMessage(chatId, '❌ Error in height selection.', botToken);
+  }
+}
+
+// Onboarding step 5: Weight selection
+async function onboardingStepWeight(chatId, messageId, userId, height, botToken, supabaseUrl, supabaseHeaders) {
+  try {
+    // Store height
+    global.tempOnboardingData[userId].height_cm = parseInt(height);
+
+    const weightText = `⚖️ <b>What's your current weight?</b>
+
+Select your weight range:`;
+
+    const keyboard = [
+      [
+        { text: '50kg (110lbs)', callback_data: 'onboarding_weight_50' },
+        { text: '60kg (132lbs)', callback_data: 'onboarding_weight_60' },
+        { text: '70kg (154lbs)', callback_data: 'onboarding_weight_70' }
+      ],
+      [
+        { text: '80kg (176lbs)', callback_data: 'onboarding_weight_80' },
+        { text: '90kg (198lbs)', callback_data: 'onboarding_weight_90' },
+        { text: '100kg (220lbs)', callback_data: 'onboarding_weight_100' }
+      ],
+      [
+        { text: '110kg+ (242lbs+)', callback_data: 'onboarding_weight_110' }
+      ]
+    ];
+
+    await editMessageWithKeyboard(chatId, messageId, weightText, keyboard, botToken);
+
+  } catch (error) {
+    console.error('Onboarding weight step error:', error);
+    await sendMessage(chatId, '❌ Error in weight selection.', botToken);
+  }
+}
+
+// Onboarding step 6: Activity level
+async function onboardingStepActivity(chatId, messageId, userId, weight, botToken, supabaseUrl, supabaseHeaders) {
+  try {
+    // Store weight
+    global.tempOnboardingData[userId].weight_kg = parseInt(weight);
+
+    const activityText = `🏃 <b>What's your activity level?</b>
+
+This helps calculate your daily calorie needs:`;
+
+    const keyboard = [
+      [
+        { text: '😴 Sedentary (desk job)', callback_data: 'onboarding_activity_sedentary' }
+      ],
+      [
+        { text: '🚶 Light (1-3 days/week)', callback_data: 'onboarding_activity_light' }
+      ],
+      [
+        { text: '🏃 Moderate (3-5 days/week)', callback_data: 'onboarding_activity_moderate' }
+      ],
+      [
+        { text: '💪 Very Active (6-7 days/week)', callback_data: 'onboarding_activity_very' }
+      ],
+      [
+        { text: '🔥 Extremely Active (2x/day)', callback_data: 'onboarding_activity_extreme' }
+      ]
+    ];
+
+    await editMessageWithKeyboard(chatId, messageId, activityText, keyboard, botToken);
+
+  } catch (error) {
+    console.error('Onboarding activity step error:', error);
+    await sendMessage(chatId, '❌ Error in activity selection.', botToken);
+  }
+}
+
+// Complete onboarding and save profile
+async function onboardingComplete(chatId, messageId, userId, activity, botToken, supabaseUrl, supabaseHeaders) {
+  try {
+    // Store final activity level
+    global.tempOnboardingData[userId].activity_level = activity;
+    const userData = global.tempOnboardingData[userId];
+
+    // Calculate nutrition targets
+    const targets = calculateNutritionTargets(
+      userData.weight_kg,
+      userData.height_cm,
+      userData.age,
+      userData.gender,
+      userData.goal,
+      userData.activity_level
+    );
+
+    // Save to database
+    await updateUserProfile(userId, userData, targets, supabaseUrl, supabaseHeaders);
+
+    // Clean up temp data
+    delete global.tempOnboardingData[userId];
+
+    const completeText = `🎉 <b>Profile Complete!</b>
+
+✅ <b>Your personalized nutrition targets:</b>
+🔥 Calories: ${targets.calories} kcal/day
+🥩 Protein: ${targets.protein}g/day
+🧈 Fat: ${targets.fat}g/day
+🍞 Carbs: ${targets.carbs}g/day
+🌾 Fiber: ${targets.fiber}g/day
+
+📊 <b>Based on your profile:</b>
+• ${userData.age} year old ${userData.gender}
+• ${userData.height_cm}cm, ${userData.weight_kg}kg
+• Goal: ${userData.goal} weight
+• Activity: ${userData.activity_level}
+
+🚀 <b>Ready to start tracking!</b>
+Send a photo or description of your food to begin.`;
+
+    await editMessageWithKeyboard(chatId, messageId, completeText, [], botToken);
+
+  } catch (error) {
+    console.error('Onboarding complete error:', error);
+    await sendMessage(chatId, '❌ Error completing onboarding.', botToken);
+  }
+}
+
+// Update user profile in database
+async function updateUserProfile(userId, userData, targets, supabaseUrl, supabaseHeaders) {
+  try {
+    const profileUpdate = {
+      age: userData.age,
+      gender: userData.gender,
+      height_cm: userData.height_cm,
+      weight_kg: userData.weight_kg,
+      fitness_goal: userData.goal,
+      activity_level: userData.activity_level,
+      cal_goal: targets.calories,
+      protein_goal_g: targets.protein,
+      fat_goal_g: targets.fat,
+      carbs_goal_g: targets.carbs,
+      fiber_goal_g: targets.fiber,
+      profile_completed_at: new Date().toISOString()
+    };
+
+    const updateResponse = await fetch(
+      `${supabaseUrl}/rest/v1/users?telegram_user_id=eq.${userId}`,
+      {
+        method: 'PATCH',
+        headers: supabaseHeaders,
+        body: JSON.stringify(profileUpdate)
+      }
+    );
+
+    if (!updateResponse.ok) {
+      const errorText = await updateResponse.text();
+      console.error('Failed to update user profile:', errorText);
+      throw new Error('Failed to update user profile');
+    }
+
+    console.log(`Profile updated for user ${userId}`);
+
+  } catch (error) {
+    console.error('Update user profile error:', error);
+    throw error;
+  }
+}
+
+// Handle profile editing
+async function handleProfileEdit(data, chatId, messageId, userId, botToken, supabaseUrl, supabaseHeaders) {
+  try {
+    const action = data.replace('profile_', '');
+    
+    if (action === 'edit') {
+      // Show profile edit options
+      const editText = `✏️ <b>Edit Profile</b>
+
+What would you like to change?`;
+
+      const keyboard = [
+        [
+          { text: '🎯 Goal', callback_data: 'profile_edit_goal' },
+          { text: '⚖️ Weight', callback_data: 'profile_edit_weight' }
+        ],
+        [
+          { text: '🏃 Activity Level', callback_data: 'profile_edit_activity' },
+          { text: '🔄 Complete Setup Again', callback_data: 'onboarding_start' }
+        ],
+        [
+          { text: '🔙 Back to Profile', callback_data: 'profile_view' }
+        ]
+      ];
+
+      await editMessageWithKeyboard(chatId, messageId, editText, keyboard, botToken);
+      
+    } else if (action === 'recalculate') {
+      // Recalculate targets and update
+      const userCheck = await checkUserProfile(userId, supabaseUrl, supabaseHeaders);
+      if (userCheck.hasProfile) {
+        const user = userCheck.user;
+        const targets = calculateNutritionTargets(
+          user.weight_kg,
+          user.height_cm,
+          user.age,
+          user.gender,
+          user.fitness_goal,
+          user.activity_level
+        );
+
+        // Update targets in database
+        await updateUserProfile(userId, user, targets, supabaseUrl, supabaseHeaders);
+
+        const recalcText = `🔄 <b>Targets Recalculated!</b>
+
+🎯 <b>Updated nutrition targets:</b>
+🔥 Calories: ${targets.calories} kcal/day
+🥩 Protein: ${targets.protein}g/day
+🧈 Fat: ${targets.fat}g/day
+🍞 Carbs: ${targets.carbs}g/day
+🌾 Fiber: ${targets.fiber}g/day`;
+
+        await editMessageWithKeyboard(chatId, messageId, recalcText, [], botToken);
+      }
+    } else if (action === 'view') {
+      // Show profile again
+      await handleProfileCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders);
+    }
+
+  } catch (error) {
+    console.error('Profile edit error:', error);
+    await sendMessage(chatId, '❌ Error editing profile.', botToken);
   }
 }
 
