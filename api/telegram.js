@@ -1154,18 +1154,9 @@ async function handleMealsCommand(chatId, userId, botToken, supabaseUrl, supabas
       mealsText += `<b>${foodDescription}</b> (${timeStr})\n`;
       mealsText += `${entry.calories}ккал • ${entry.protein_g}г белка\n\n`;
 
-      // Main actions for this meal
+      // Only delete button - simple and clear
       keyboard.push([
-        { text: `❌ Удалить`, callback_data: `quick_delete_${entry.id}` },
-        { text: `½ Половина`, callback_data: `portion_${entry.id}_0.5` },
-        { text: `📋 Еще раз`, callback_data: `duplicate_${entry.id}` }
-      ]);
-      
-      // Quick edit values
-      keyboard.push([
-        { text: `🔥 ${Math.round(entry.calories * 0.7)}`, callback_data: `set_calories_${entry.id}_${Math.round(entry.calories * 0.7)}` },
-        { text: `🔥 ${Math.round(entry.calories * 1.3)}`, callback_data: `set_calories_${entry.id}_${Math.round(entry.calories * 1.3)}` },
-        { text: `🥩 +5г`, callback_data: `set_protein_${entry.id}_${entry.protein_g + 5}` }
+        { text: `❌ Удалить`, callback_data: `quick_delete_${entry.id}` }
       ]);
     });
 
@@ -1213,37 +1204,6 @@ async function handleCallbackQuery(callbackQuery, botToken, supabaseUrl, supabas
     } else if (data.startsWith('edit_portion_')) {
       const entryId = data.replace('edit_portion_', '');
       await handleEditPortion(chatId, messageId, userId, entryId, botToken, supabaseUrl, supabaseHeaders);
-    } else if (data.startsWith('duplicate_')) {
-      const entryId = data.replace('duplicate_', '');
-      await handleDuplicateMeal(chatId, messageId, userId, entryId, botToken, supabaseUrl, supabaseHeaders);
-    } else if (data.startsWith('portion_')) {
-      // Handle portion adjustment: portion_ENTRY_ID_MULTIPLIER
-      const parts = data.split('_');
-      if (parts.length === 3) {
-        const entryId = parts[1];
-        const multiplier = parseFloat(parts[2]);
-        await applyPortionAdjustment(chatId, messageId, userId, entryId, multiplier, botToken, supabaseUrl, supabaseHeaders);
-      }
-    } else if (data.startsWith('set_calories_')) {
-      // Handle calories setting: set_calories_ENTRY_ID_VALUE
-      const parts = data.split('_');
-      if (parts.length === 4) {
-        const entryId = parts[2];
-        const calories = parts[3];
-        await applyCaloriesChange(chatId, messageId, userId, entryId, calories, botToken, supabaseUrl, supabaseHeaders);
-      }
-    } else if (data.startsWith('set_protein_')) {
-      // Handle protein setting: set_protein_ENTRY_ID_VALUE
-      const parts = data.split('_');
-      if (parts.length === 4) {
-        const entryId = parts[2];
-        const protein = parts[3];
-        await applyProteinChange(chatId, messageId, userId, entryId, protein, botToken, supabaseUrl, supabaseHeaders);
-      }
-    } else if (data === 'adjust_portion') {
-      await handlePortionAdjustment(chatId, messageId, userId, botToken, supabaseUrl, supabaseHeaders);
-    } else if (data === 'duplicate_meal') {
-      await handleMealDuplication(chatId, messageId, userId, botToken, supabaseUrl, supabaseHeaders);
     } else if (data === 'back_to_meals') {
       // Refresh meals list
       await handleMealsCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders);
