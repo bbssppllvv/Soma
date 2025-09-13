@@ -3,9 +3,9 @@
 
 import { sendMessage, sendMessageWithKeyboard, answerCallbackQuery, editMessageWithKeyboard } from './modules/telegram-helpers.js';
 import { analyzeWithGPT5, getFallbackAnalysis } from './modules/ai-analysis.js';
-import { getUserContext, saveFoodEntry, ensureUserExists } from './modules/database.js';
+import { getUserContext, saveFoodEntry, ensureUserExists, updateDailyAggregates } from './modules/database.js';
 import { calculateMealScore, getScoreExplanation } from './modules/utils.js';
-import { handleHelpCommand, handleTestCommand } from './modules/commands.js';
+import { handleHelpCommand, handleTestCommand, handleMealsCommand, handleTodayCommand } from './modules/commands.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -289,7 +289,46 @@ async function handleProfileCommand(chatId, userId, botToken, supabaseUrl, supab
 }
 
 async function quickDeleteMeal(chatId, messageId, userId, entryId, botToken, supabaseUrl, supabaseHeaders) {
-  await sendMessage(chatId, 'Delete meal - to be implemented', botToken);
+  try {
+    // Get user UUID
+    const userResponse = await fetch(
+      `${supabaseUrl}/rest/v1/users?telegram_user_id=eq.${userId}&select=id`,
+      { headers: supabaseHeaders }
+    );
+
+    const users = await userResponse.json();
+    if (users.length === 0) {
+      await sendMessage(chatId, 'User not found.', botToken);
+      return;
+    }
+
+    const userUuid = users[0].id;
+
+    // Delete the entry immediately
+    const deleteResponse = await fetch(
+      `${supabaseUrl}/rest/v1/entries?id=eq.${entryId}`,
+      {
+        method: 'DELETE',
+        headers: supabaseHeaders
+      }
+    );
+
+    if (!deleteResponse.ok) {
+      await sendMessage(chatId, 'Failed to delete meal.', botToken);
+      return;
+    }
+
+    // Update daily aggregates
+    const today = new Date().toISOString().split('T')[0];
+    await updateDailyAggregates(userUuid, today, supabaseUrl, supabaseHeaders);
+
+    // Refresh the meals list immediately
+    await handleMealsCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders);
+
+  } catch (error) {
+    console.error('Quick delete error:', error);
+    await sendMessage(chatId, 'Error deleting meal.', botToken);
+  }
 }
 
 // Smart fallback for common foods when GPT-5 times out
