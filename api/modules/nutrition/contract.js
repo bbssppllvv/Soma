@@ -13,9 +13,9 @@ export const GPT_NUTRITION_SCHEMA = {
           name:            { type: "string",  maxLength: 80 },
           portion:         { type: "number",  minimum: 0 },
           unit:            { type: "string",  maxLength: 16 },
-          brand:           { type: "string",  maxLength: 64,  nullable: true },
-          upc:             { type: "string",  maxLength: 22,  nullable: true },
-          cooking_method:  { type: "string",  maxLength: 24,  nullable: true },
+          brand:           { type: ["string", "null"],  maxLength: 64 },
+          upc:             { type: ["string", "null"],  maxLength: 22 },
+          cooking_method:  { type: ["string", "null"],  maxLength: 24 },
           confidence:      { type: "number",  minimum: 0, maximum: 1 },
           occluded:        { type: "boolean" }
         },

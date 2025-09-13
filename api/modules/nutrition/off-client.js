@@ -59,11 +59,12 @@ export async function getByBarcode(barcode, { signal } = {}) {
   return json.product;
 }
 
-export async function searchByName({ query, brand, page_size = 10 }, { signal } = {}) {
+export async function searchByName({ query, brand, page_size = 24 }, { signal } = {}) {
   const u = new URL(`${BASE}/api/v2/search`);
   u.searchParams.set('fields', FIELDS);
   u.searchParams.set('page_size', String(page_size));
   u.searchParams.set('sort_by', 'unique_scans_n');
+  u.searchParams.set('search_simple', '1');
   if (query) u.searchParams.set('search_terms', query);
   if (brand) u.searchParams.set('brands_tags', brand.toLowerCase());
 

@@ -1,6 +1,15 @@
 import { resolveOneItemOFF, scalePerPortionOFF } from './off-resolver.js';
 import { toGrams } from './units.js';
 
+function ensureGramsFallback(it) {
+  // 100 g/ml — универсальный дефолт; не нужен ни список продуктов, ни плотности
+  if (!it.unit || !Number.isFinite(it.portion)) {
+    return it.name?.match(/\b(ml|литр|l)\b/i) ? 100 : 100; // по умолчанию 100 g
+  }
+  const g = toGrams(it.portion, it.unit, it.name);
+  return Number.isFinite(g) ? g : 100; // дефолт 100 g
+}
+
 export async function resolveItemsWithOFF(items, { signal } = {}) {
   // Фильтруем и ограничиваем items для OFF
   const candidates = items
@@ -14,7 +23,7 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
   
   // Обрабатываем кандидатов через OFF
   for (const it of candidates) {
-    const grams = toGrams(it.portion, it.unit, it.name);
+    const grams = ensureGramsFallback(it);
     const matched = grams ? await resolveOneItemOFF(it, { signal }).catch(()=>null) : null;
 
     if (!matched || !grams) {
@@ -37,7 +46,7 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
   
   // Добавляем отфильтрованные как нерезолвленные
   for (const it of filtered) {
-    const grams = toGrams(it.portion, it.unit, it.name);
+    const grams = ensureGramsFallback(it);
     out.push({ ...it, grams: grams || null, resolved: null, nutrients: null,
                confidence: Math.min(it.confidence ?? 0.6, 0.4), needs_clarification: true });
   }

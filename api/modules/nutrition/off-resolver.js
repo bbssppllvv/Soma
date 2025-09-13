@@ -5,9 +5,18 @@ function scoreProduct(p, { query, brand }) {
   let s = 0;
   const name = (p.product_name || '').toLowerCase();
   const b    = (p.brands || '').toLowerCase();
-  if (brand && b.includes(brand.toLowerCase())) s += 0.25;
-  if (query && name.includes(query.toLowerCase())) s += 0.45;
-  if (p.code) s += 0.30;
+  
+  // Лексическое пересечение токенов (+0.5 максимум)
+  if (query) {
+    const queryTokens = query.toLowerCase().split(/\s+/);
+    const nameTokens = name.split(/\s+/);
+    const intersection = queryTokens.filter(qt => nameTokens.some(nt => nt.includes(qt) || qt.includes(nt)));
+    s += Math.min(0.5, intersection.length / queryTokens.length * 0.5);
+  }
+  
+  // Наличие полезных нутриентов (+0.5)
+  if (hasUsefulNutriments(p)) s += 0.5;
+  
   return s;
 }
 
@@ -39,12 +48,12 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       if (prod && hasUsefulNutriments(prod)) return { product: prod, score: 1.0 };
     }
   }
-  const p1 = await searchByName({ query: item.name, brand: item.brand, page_size: 8 }, { signal });
-  let best = pickBest(p1, p => scoreProduct(p, { query: item.name, brand: item.brand }), 0.60); // понижен с 0.80
+  const p1 = await searchByName({ query: item.name, brand: item.brand, page_size: 24 }, { signal });
+  let best = pickBest(p1, p => scoreProduct(p, { query: item.name, brand: item.brand }), 0.5);
   if (best && hasUsefulNutriments(best.product)) return best;
 
-  const p2 = await searchByName({ query: item.name, page_size: 10 }, { signal });
-  best = pickBest(p2, p => scoreProduct(p, { query: item.name }), 0.50); // понижен с 0.70
+  const p2 = await searchByName({ query: item.name, page_size: 24 }, { signal });
+  best = pickBest(p2, p => scoreProduct(p, { query: item.name }), 0.5);
   
   console.log(`[OFF] Search results for "${item.name}":`, {
     p1_count: p1?.length || 0,
