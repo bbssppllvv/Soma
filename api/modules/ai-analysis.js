@@ -83,84 +83,89 @@ async function getPhotoAsBase64(photos, openaiKey) {
   return Buffer.from(photoBuffer).toString('base64');
 }
 
-// Create photo analysis request
+// Create photo analysis request - following GPT-5 best practices
 function createPhotoAnalysisRequest(base64Image, caption, userContext) {
   return {
     model: 'gpt-5-mini',
-    reasoning: { effort: "minimal" },
-    text: { verbosity: "low" },
-    tools: [{
-      type: "function",
-      name: "food_analysis",
-      description: "Return nutrition estimation for the photo",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          calories: { type: "integer" },
-          protein_g: { type: "number" },
-          fat_g: { type: "number" },
-          carbs_g: { type: "number" },
-          fiber_g: { type: "number" },
-          confidence: { type: "number" },
-          advice_short: { type: "string" },
-          food_name: { type: "string" },
-          portion_size: { type: "string" },
-          portion_description: { type: "string" }
-        },
-        required: ["calories", "protein_g", "fat_g", "carbs_g", "fiber_g", "confidence", "advice_short", "food_name", "portion_size", "portion_description"]
-      }
-    }],
-    tool_choice: { type: "function", name: "food_analysis" },
+    instructions: "Extract detailed nutrition data from the food image. Analyze the complete meal shown.",
     input: [{
       role: "user",
       content: [
         { 
           type: "input_text", 
-          text: `Analyze this food photo AND the user's description together.
-
-${caption ? `User description: "${caption}"` : 'No description provided - analyze what you see in the photo.'}
+          text: `${caption ? `User says: "${caption}"` : 'Analyze what you see in the photo.'}
 
 User needs ${userContext.goals.cal_goal - userContext.todayTotals.calories} cal, ${userContext.goals.protein_goal_g - userContext.todayTotals.protein}g protein today.
 
-IMPORTANT: Analyze the COMPLETE MEAL shown in the photo. If user description mentions only part of it (like "two eggs"), still analyze EVERYTHING visible in the photo.
-
-Return JSON:
-{
-  "calories": number,
-  "protein_g": number,
-  "fat_g": number,
-  "carbs_g": number,
-  "fiber_g": number,
-  "confidence": number,
-  "advice_short": "string",
-  "food_name": "string",
-  "portion_size": "string",
-  "portion_description": "string"
-}`
+Analyze ALL food visible in the photo, not just what user mentions.`
         },
         { 
           type: "input_image", 
-          image_url: `data:image/jpeg;base64,${base64Image}`
+          image_url: `data:image/jpeg;base64,${base64Image}`,
+          detail: "auto"
         }
       ]
     }],
-    max_output_tokens: 400
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "nutrition_analysis",
+        schema: {
+          type: "object",
+          properties: {
+            calories: { type: "integer" },
+            protein_g: { type: "number" },
+            fat_g: { type: "number" },
+            carbs_g: { type: "number" },
+            fiber_g: { type: "number" },
+            confidence: { type: "number", minimum: 0, maximum: 1 },
+            advice_short: { type: "string", maxLength: 120 },
+            food_name: { type: "string", maxLength: 100 },
+            portion_size: { type: "string", maxLength: 50 },
+            portion_description: { type: "string", maxLength: 100 }
+          },
+          required: ["calories", "protein_g", "fat_g", "carbs_g", "fiber_g", "confidence", "advice_short", "food_name", "portion_size", "portion_description"]
+        }
+      }
+    },
+    reasoning: { effort: "minimal" },
+    text: { verbosity: "low" },
+    max_output_tokens: 300
   };
 }
 
-// Create text analysis request - simplified for reliability
+// Create text analysis request - following GPT-5 best practices
 function createTextAnalysisRequest(text, userContext) {
   return {
     model: 'gpt-5-mini',
     input: `Analyze food: "${text}"
 
-User needs ${userContext.goals.cal_goal - userContext.todayTotals.calories} cal, ${userContext.goals.protein_goal_g - userContext.todayTotals.protein}g protein today.
-
-Return ONLY JSON (no markdown):
-{"calories": number, "protein_g": number, "fat_g": number, "carbs_g": number, "fiber_g": number, "confidence": number, "advice_short": "string", "food_name": "string", "portion_size": "string", "portion_description": "string"}`,
+User needs ${userContext.goals.cal_goal - userContext.todayTotals.calories} cal, ${userContext.goals.protein_goal_g - userContext.todayTotals.protein}g protein today.`,
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "nutrition_analysis",
+        schema: {
+          type: "object",
+          properties: {
+            calories: { type: "integer" },
+            protein_g: { type: "number" },
+            fat_g: { type: "number" },
+            carbs_g: { type: "number" },
+            fiber_g: { type: "number" },
+            confidence: { type: "number", minimum: 0, maximum: 1 },
+            advice_short: { type: "string", maxLength: 120 },
+            food_name: { type: "string", maxLength: 100 },
+            portion_size: { type: "string", maxLength: 50 },
+            portion_description: { type: "string", maxLength: 100 }
+          },
+          required: ["calories", "protein_g", "fat_g", "carbs_g", "fiber_g", "confidence", "advice_short", "food_name", "portion_size", "portion_description"]
+        }
+      }
+    },
     reasoning: { effort: "minimal" },
-    text: { verbosity: "low" }
+    text: { verbosity: "low" },
+    max_output_tokens: 300
   };
 }
 
@@ -185,46 +190,28 @@ Return JSON:
 }`;
 }
 
-// Parse GPT-5 response (universal)
+// Parse GPT-5 response (universal) - following best practices
 function parseGPT5Response(openaiData, userContext) {
-  console.log('GPT-5 raw response:', JSON.stringify(openaiData, null, 2));
-  
-  // Handle function call response (photo)
-  const functionCall = openaiData.output?.find(o => o.type === "function_call");
-  if (functionCall?.arguments) {
-    const parsed = JSON.parse(functionCall.arguments);
-    parsed.score = calculateMealScore(parsed, userContext);
-    return cleanNutritionData(parsed);
-  }
-  
-  // Handle text response
+  // With JSON Schema, response should be in output_text as clean JSON
   if (openaiData.output_text) {
-    return parseTextResponse(openaiData.output_text, userContext);
+    try {
+      const parsed = JSON.parse(openaiData.output_text);
+      parsed.score = calculateMealScore(parsed, userContext);
+      return cleanNutritionData(parsed);
+    } catch (jsonError) {
+      console.error('Failed to parse JSON from output_text:', openaiData.output_text);
+      throw new Error('GPT-5 returned invalid JSON format');
+    }
   }
   
   // Log what we actually got to debug
   console.error('GPT-5 response structure:', Object.keys(openaiData));
-  console.error('Output array:', openaiData.output);
   console.error('Output text:', openaiData.output_text);
   
-  throw new Error(`GPT-5 returned unexpected format. Keys: ${Object.keys(openaiData).join(', ')}`);
+  throw new Error(`GPT-5 returned no output_text. Keys: ${Object.keys(openaiData).join(', ')}`);
 }
 
-// Parse text response
-function parseTextResponse(content, userContext) {
-  // Extract JSON from text response
-  let jsonString = content.trim();
-  jsonString = jsonString.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-  
-  const jsonMatch = jsonString.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error('No JSON found in response');
-  }
-
-  const parsed = JSON.parse(jsonMatch[0]);
-  parsed.score = calculateMealScore(parsed, userContext);
-  return cleanNutritionData(parsed);
-}
+// Text response parsing no longer needed - JSON Schema ensures clean JSON in output_text
 
 // Clean and validate nutrition data
 function cleanNutritionData(parsed) {
