@@ -358,15 +358,10 @@ async function maybeResolveWithOFFIfEnabled(norm, userContext) {
     // Логируем OFF-хиты для метрик
     if (result) {
       const hits = result.items.filter(x => x.resolved?.source === 'off');
-      const failed = result.items.filter(x => !x.resolved);
       const status = hits.length > 0 ? 'USED' : 'FALLBACK';
-      const reasons = failed.map(x => ({ 
-        name: x.name, 
-        reason: x.grams ? 'no_hits' : 'no_grams' 
-      }));
       
       console.log(`OFF resolved ${hits.length}/${result.items.length} in ${duration}ms [${status}]`, {
-        reasons,
+        reasons: result.reasons || [],
         off_ms: duration
       });
       

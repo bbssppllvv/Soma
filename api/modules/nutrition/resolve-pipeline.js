@@ -61,8 +61,14 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
             });
           }
         } else {
-          // Не резолвлен - добавляем причину
-          reasons.push({ name: originals[0].name, canonical, reason: result.reason });
+          // Не резолвлен - добавляем реальную причину из резолвера
+          reasons.push({ 
+            name: originals[0].name, 
+            canonical, 
+            reason: result.reason,
+            score: result.score,
+            error: result.error
+          });
           for (const it of originals) {
             const grams = ensureGramsFallback(it);
             results.push({ ...it, grams, resolved: null, nutrients: null,
@@ -71,7 +77,12 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
         }
       } catch (e) {
         const isAbort = e?.name === 'AbortError';
-        reasons.push({ name: originals[0].name, canonical, reason: isAbort ? 'timeout' : 'http_or_json_error', error: e.message });
+        reasons.push({ 
+          name: originals[0].name, 
+          canonical, 
+          reason: isAbort ? 'timeout' : 'http_or_json_error', 
+          error: e.message 
+        });
         for (const it of originals) {
           const grams = ensureGramsFallback(it);
           results.push({ ...it, grams, resolved: null, nutrients: null,
