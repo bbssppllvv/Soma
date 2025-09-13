@@ -106,7 +106,7 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
     if (openaiKey && (message.photo || text)) {
       try {
         // Universal GPT-5 pipeline for both photo and text
-        nutritionData = await analyzeWithGPT5(message, openaiKey, userContext);
+        nutritionData = await analyzeWithGPT5(message, openaiKey, userContext, botToken);
       } catch (analysisError) {
         console.error('GPT-5 analysis failed:', analysisError.message);
         

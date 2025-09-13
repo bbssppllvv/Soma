@@ -1,9 +1,10 @@
 // AI Analysis Module - Universal GPT-5 pipeline for all food analysis
 
-// Universal GPT-5 analysis with two-tier strategy
-export async function analyzeWithGPT5(message, openaiKey, userContext) {
+// Universal GPT-5 analysis with two-tier strategy and user feedback
+export async function analyzeWithGPT5(message, openaiKey, userContext, botToken) {
   const text = message.text || message.caption || '';
   const hasPhoto = message.photo && message.photo.length > 0;
+  const chatId = message.chat.id;
   
   try {
     // Step 1: Try fast gpt-5-mini first
@@ -13,6 +14,10 @@ export async function analyzeWithGPT5(message, openaiKey, userContext) {
     // Check if escalation to full GPT-5 is needed
     if (shouldEscalate(miniResult, text, hasPhoto)) {
       console.log('Escalating to full GPT-5 for better accuracy...');
+      
+      // Inform user about extended analysis
+      await updateMessage(chatId, 'Getting more detailed analysis...', botToken);
+      
       try {
         const fullResult = await tryAnalysis(message, openaiKey, userContext, 'gpt-5', 'high');
         return fullResult; // Use full model result if successful
@@ -27,6 +32,24 @@ export async function analyzeWithGPT5(message, openaiKey, userContext) {
   } catch (error) {
     console.error('GPT-5 analysis error:', error);
     throw error;
+  }
+}
+
+// Update user message for better UX
+async function updateMessage(chatId, text, botToken) {
+  try {
+    await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: text,
+        parse_mode: 'HTML'
+      })
+    });
+  } catch (error) {
+    // Don't throw - this is just UX improvement
+    console.error('Failed to update user message:', error);
   }
 }
 
