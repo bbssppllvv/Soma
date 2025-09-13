@@ -149,12 +149,17 @@ Return JSON:
   };
 }
 
-// Create text analysis request
+// Create text analysis request - simplified for reliability
 function createTextAnalysisRequest(text, userContext) {
   return {
     model: 'gpt-5-mini',
-    input: createAnalysisPrompt(text, userContext),
-    reasoning: { effort: "high" },
+    input: `Analyze food: "${text}"
+
+User needs ${userContext.goals.cal_goal - userContext.todayTotals.calories} cal, ${userContext.goals.protein_goal_g - userContext.todayTotals.protein}g protein today.
+
+Return ONLY JSON (no markdown):
+{"calories": number, "protein_g": number, "fat_g": number, "carbs_g": number, "fiber_g": number, "confidence": number, "advice_short": "string", "food_name": "string", "portion_size": "string", "portion_description": "string"}`,
+    reasoning: { effort: "minimal" },
     text: { verbosity: "low" }
   };
 }
@@ -182,6 +187,8 @@ Return JSON:
 
 // Parse GPT-5 response (universal)
 function parseGPT5Response(openaiData, userContext) {
+  console.log('GPT-5 raw response:', JSON.stringify(openaiData, null, 2));
+  
   // Handle function call response (photo)
   const functionCall = openaiData.output?.find(o => o.type === "function_call");
   if (functionCall?.arguments) {
@@ -195,7 +202,12 @@ function parseGPT5Response(openaiData, userContext) {
     return parseTextResponse(openaiData.output_text, userContext);
   }
   
-  throw new Error('No valid response from GPT-5');
+  // Log what we actually got to debug
+  console.error('GPT-5 response structure:', Object.keys(openaiData));
+  console.error('Output array:', openaiData.output);
+  console.error('Output text:', openaiData.output_text);
+  
+  throw new Error(`GPT-5 returned unexpected format. Keys: ${Object.keys(openaiData).join(', ')}`);
 }
 
 // Parse text response

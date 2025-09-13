@@ -108,9 +108,11 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
         // Universal GPT-5 pipeline for both photo and text
         nutritionData = await analyzeWithGPT5(message, openaiKey, userContext);
       } catch (analysisError) {
-        // console.log('GPT-5 failed, using fallback:', analysisError.message);
-        // When GPT-5 fails (timeout or error), give user a smart result anyway
-        nutritionData = getSmartFallback(text, 'GPT-5 analysis timed out - using smart estimates');
+        console.error('GPT-5 analysis failed:', analysisError.message);
+        
+        // Don't show useless fallback - tell user to try again
+        await sendMessage(chatId, `Analysis failed: ${analysisError.message}\n\nPlease try again with a clearer description or different photo.`, botToken);
+        return; // Exit without showing fallback
       }
     } else {
       // console.log('No OpenAI key - using fallback');
