@@ -79,6 +79,13 @@ export async function searchByName({ query, page_size = 24 }, { signal } = {}) {
   url.searchParams.set('page_size', String(page_size));
   url.searchParams.set('sort_by', 'unique_scans_n'); // самые популярные сверху
 
-  const json = await fetchWithBackoff(url.toString(), { signal });
-  return Array.isArray(json?.products) ? json.products : [];
+  const res = await fetchWithBackoff(url.toString(), { signal });
+
+  // 🔎 Диагностика: видим count/hits из ответа
+  try {
+    const count = Array.isArray(res?.products) ? res.products.length : 0;
+    console.log(`[OFF] V1 hits for "${q}":`, { count, count_field: res?.count, page_size });
+  } catch {}
+
+  return res;
 }

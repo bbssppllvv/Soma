@@ -1,21 +1,19 @@
 import { getByBarcode, searchByName, canonicalizeQuery } from './off-client.js';
 import { mapOFFProductToPer100g } from './off-map.js';
 
-function scoreProduct(p, { query, brand }) {
+// 🏷️ простой скоринг (универсальный, без хардкодов)
+function scoreProduct(query, product) {
+  const qTok = canonicalizeQuery(query).split(' ').filter(Boolean);
+  const name = (product.product_name || '').toLowerCase();
   let s = 0;
-  const name = (p.product_name || '').toLowerCase();
-  const b    = (p.brands || '').toLowerCase();
   
-  // Лексическое пересечение токенов (+0.5 максимум)
-  if (query) {
-    const queryTokens = query.toLowerCase().split(/\s+/);
-    const nameTokens = name.split(/\s+/);
-    const intersection = queryTokens.filter(qt => nameTokens.some(nt => nt.includes(qt) || qt.includes(nt)));
-    s += Math.min(0.5, intersection.length / queryTokens.length * 0.5);
-  }
+  // пересечение токенов
+  const hit = qTok.filter(t => name.includes(t)).length;
+  s += Math.min(0.5, (hit / Math.max(1, qTok.length)) * 0.5);
   
-  // Наличие полезных нутриентов (+0.5)
-  if (hasUsefulNutriments(p)) s += 0.5;
+  // бонус за нутриенты
+  const n = product.nutriments || {};
+  if (n['energy-kcal_100g'] != null || n['protein_100g'] != null) s += 0.5;
   
   return s;
 }
@@ -57,17 +55,37 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
   }
 
   // V1 полнотекстовый поиск с канонической строкой
-  const products = await searchByName({ query: item.name, page_size: 24 }, { signal });
-  const best = pickBest(products, p => scoreProduct(p, { query: canonicalQuery }), 0.5);
-  
-  console.log(`[OFF] Search results for "${canonicalQuery}":`, {
-    hits: products?.length || 0,
-    best_score: best?.score,
-    best_name: best?.product?.product_name
+  const res = await searchByName({ query: item.name, page_size: 24 }, { signal });
+  const products = Array.isArray(res?.products) ? res.products : [];
+
+  if (products.length === 0) {
+    console.log(`[OFF] No hits for "${canonicalQuery}"`);
+    return null; // пометили как неразрешённый — дальше fallback на модель
+  }
+
+  // ⚖️ базовая пригодность: есть хоть один пер-100г нутриент
+  const useful = products.filter(p => {
+    const n = p?.nutriments || {};
+    return n['energy-kcal_100g'] != null || n['protein_100g'] != null ||
+           n['fat_100g'] != null || n['carbohydrates_100g'] != null || n['fiber_100g'] != null;
   });
-  
-  if (best && !hasUsefulNutriments(best.product)) return null;
-  return best; // может быть null
+
+  if (useful.length === 0) {
+    console.log(`[OFF] No useful nutrients for "${canonicalQuery}" (${products.length} products found)`);
+    return null;
+  }
+
+  const best = useful
+    .map(p => ({ p, s: scoreProduct(item.name, p) }))
+    .sort((a,b) => b.s - a.s)[0];
+
+  if (!best || best.s < 0.5) {
+    console.log(`[OFF] Low score for "${canonicalQuery}": ${best?.s ?? 'null'} (${useful.length} useful products)`);
+    return null;
+  }
+
+  console.log(`[OFF] Success for "${canonicalQuery}": ${best.p.product_name} (score: ${best.s.toFixed(2)})`);
+  return { product: best.p, score: best.s };
 }
 
 export function scalePerPortionOFF(prod, grams) {

@@ -302,14 +302,34 @@ function allZeroAgg(a){
          (a.fat_g||0)===0 && (a.carbs_g||0)===0 && (a.fiber_g||0)===0;
 }
 
-function extractFirstJson(s) {
-  let depth = 0, start = -1;
+function extractFirstBalancedJson(s) {
+  if (!s || typeof s !== 'string') return null;
+  let depth = 0, inStr = false, esc = false, start = -1;
+
   for (let i = 0; i < s.length; i++) {
     const ch = s[i];
-    if (ch === '{') { if (depth === 0) start = i; depth++; }
-    else if (ch === '}') { depth--; if (depth === 0 && start !== -1) return s.slice(start, i + 1); }
+
+    if (inStr) {
+      if (esc) { esc = false; continue; }
+      if (ch === '\\') { esc = true; continue; }
+      if (ch === '"') inStr = false;
+      continue;
+    }
+
+    if (ch === '"') { inStr = true; continue; }
+
+    if (ch === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        const candidate = s.slice(start, i + 1);
+        try { return JSON.parse(candidate); } catch { /* попробуем дальше */ }
+      }
+    }
   }
-  return s;
+  return null;
 }
 
 const OFF_ENABLED = String(process.env.OFF_ENABLED || 'false').toLowerCase() === 'true';
@@ -376,9 +396,15 @@ async function parseGPT5Response(openaiData, userContext) {
   }
   
   if (textPayload) {
-    try {
-      const payload = extractFirstJson(textPayload);
-      const parsed = JSON.parse(payload);
+    // 1) прямая попытка
+    let parsed = (() => { try { return JSON.parse(textPayload); } catch {} })();
+    
+    // 2) балансный экстрактор для обрезанных строк
+    if (!parsed) {
+      parsed = extractFirstBalancedJson(textPayload);
+    }
+    
+    if (parsed) {
       const norm = normalizeAnalysisPayload(parsed);
       
       // Дебаг: логируем items от GPT
@@ -438,17 +464,74 @@ async function parseGPT5Response(openaiData, userContext) {
 
       final.score = calculateMealScore(final, userContext);
       return final;
-    } catch (jsonError) {
-      console.error('Failed to parse JSON:', textPayload);
-      throw new Error('GPT-5 returned invalid JSON format');
     }
+    
+    // Не удалось распарсить
+    console.error('GPT-5 response structure:', Object.keys(openaiData || {}));
+    console.error('Output text (start):', String(textPayload || '').slice(0, 400));
+    throw new Error('GPT-5 returned invalid JSON format');
   }
   
-  // Log for debugging
-  console.error('GPT-5 response structure:', Object.keys(openaiData));
-  console.error('Output text:', openaiData.output_text);
-  console.error('Output array:', openaiData.output);
-  
+  // 3) fallback из output[]
+  if (Array.isArray(openaiData.output)) {
+    const parts = openaiData.output
+      .flatMap(o => o.content?.map(c => c?.text).filter(Boolean) || []);
+    const joined = parts.join('');
+    const parsed = (() => { try { return JSON.parse(joined); } catch {} })()
+                || extractFirstBalancedJson(joined);
+    if (parsed) {
+      const norm = normalizeAnalysisPayload(parsed);
+      // Дальше та же логика...
+      const off = await maybeResolveWithOFFIfEnabled(norm, userContext);
+      const hasResolvedItems = off && Array.isArray(off.items) &&
+                               off.items.some(x => x?.resolved?.source === 'off');
+      
+      const final = hasResolvedItems
+        ? {
+            calories: Math.round(off.aggregates.calories),
+            protein_g: round(off.aggregates.protein_g, 1),
+            fat_g: round(off.aggregates.fat_g, 1),
+            carbs_g: round(off.aggregates.carbs_g, 1),
+            fiber_g: round(off.aggregates.fiber_g, 1),
+            items: off.items,
+            advice_short: norm.advice_short,
+            needs_clarification: off.items.some(x => x.needs_clarification),
+            confidence: clamp(avg(off.items.map(x => x.confidence)), 0.1, 1.0),
+            assumptions: norm.assumptions,
+            food_name: (parsed.food_name || 'Unknown Food').substring(0, 100),
+            portion_size: (parsed.portion_size || 'Standard').substring(0, 50),
+            portion_description: (parsed.portion_description || 'Medium serving').substring(0, 100)
+          }
+        : {
+            calories: Math.max(1, Math.min(2000, Math.round(norm.aggregates.calories))),
+            protein_g: Math.max(0, Math.min(100, round(norm.aggregates.protein_g, 1))),
+            fat_g:     Math.max(0, Math.min(100, round(norm.aggregates.fat_g, 1))),
+            carbs_g:   Math.max(0, Math.min(200, round(norm.aggregates.carbs_g, 1))),
+            fiber_g:   Math.max(0, Math.min(50,  round(norm.aggregates.fiber_g, 1))),
+            items: norm.items,
+            advice_short: norm.advice_short,
+            needs_clarification: norm.needs_clarification,
+            confidence: clamp(parsed.confidence ?? avgItemConf(norm.items) ?? 0.7, 0.1, 1.0),
+            assumptions: norm.assumptions,
+            food_name: (parsed.food_name || 'Unknown Food').substring(0, 100),
+            portion_size: (parsed.portion_size || 'Standard').substring(0, 50),
+            portion_description: (parsed.portion_description || 'Medium serving').substring(0, 100)
+          };
+
+      if (allZeroAgg(final)) {
+        final.needs_clarification = true;
+        final.advice_short = final.advice_short || "Уточните порцию (например: 100 g или 1 cup).";
+        final.score = 0;
+        return final;
+      }
+
+      final.score = calculateMealScore(final, userContext);
+      return final;
+    }
+  }
+
+  console.error('GPT-5 response structure:', Object.keys(openaiData || {}));
+  console.error('Output text (start):', String(openaiData.output_text || '').slice(0, 400));
   throw new Error(`GPT-5 returned no parseable content. Keys: ${Object.keys(openaiData).join(', ')}`);
 }
 
