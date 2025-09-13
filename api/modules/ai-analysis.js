@@ -5,6 +5,7 @@ import { resolveItemsWithOFF } from './nutrition/resolve-pipeline.js';
 
 // Universal GPT-5 analysis with two-tier strategy and user feedback
 export async function analyzeWithGPT5(message, openaiKey, userContext, botToken) {
+  const startTime = Date.now();
   const text = message.text || message.caption || '';
   const hasPhoto = message.photo && message.photo.length > 0;
   const chatId = message.chat.id;
@@ -14,8 +15,11 @@ export async function analyzeWithGPT5(message, openaiKey, userContext, botToken)
     console.log('Starting GPT-5-mini analysis...');
     const miniResult = await tryAnalysis(message, openaiKey, userContext, 'gpt-5-mini', 'low');
     
-    // Check if escalation to full GPT-5 is needed
-    if (shouldEscalate(miniResult, text, hasPhoto)) {
+    // Check if escalation to full GPT-5 is needed AND we have time budget
+    const elapsed = Date.now() - startTime;
+    const canEscalate = elapsed < 15000; // максимум 15s на весь анализ
+    
+    if (shouldEscalate(miniResult, text, hasPhoto) && canEscalate) {
       console.log('Escalating to full GPT-5 for better accuracy...');
       
       // Inform user about extended analysis

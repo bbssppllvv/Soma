@@ -11,13 +11,15 @@ function buildHeaders() {
 }
 
 // Нормализация свободного текста для поиска (универсально)
-export function canonicalizeQuery(name = '') {
-  return name
+export function canonicalizeQuery(raw = '') {
+  return raw
     .toLowerCase()
-    .replace(/\(.*?\)/g, ' ')                          // убираем скобки: "(plain cooked)"
-    .replace(/\b(plain|boiled|cooked|baked|grilled|roasted|fried)\b/g, ' ')
+    .replace(/\(.*?\)/g, ' ')                                  // (plain cooked) → ''
+    .replace(/\b(plain|boiled|cooked|baked|grilled|roasted|fried|raw|fresh)\b/g, ' ')
+    .replace(/\b(slices?|slice|wedges?|sticks?|sprinkled)\b/g, ' ') // формы и нарезки
     .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .replace(/\s+/g, ' ')
+    .replace(/\b(\w+)s\b/g, '$1')                              // plural → singular (грубо)
     .trim();
 }
 
@@ -69,35 +71,26 @@ export async function getByBarcode(barcode, { signal } = {}) {
 }
 
 // V1 полнотекстовый поиск (стабильный)
-export async function searchByName({ query, page_size = 24 }, { signal } = {}) {
-  const q = canonicalizeQuery(query);
-  const qs = new URLSearchParams({
-    action: 'process',
-    search_terms: q,
-    search_simple: '1',
-    json: '1',
-    page_size: String(page_size),
-    fields: 'code,product_name,brands,nutriments,serving_size'
-  });
-  const url = `${BASE}/cgi/search.pl?${qs}`;
+export async function searchByNameV1(query, { signal } = {}) {
+  const base = process.env.OFF_BASE_URL || 'https://world.openfoodfacts.org';
+  const url = `${base}/cgi/search.pl?action=process&search_terms=${encodeURIComponent(query)}&search_simple=1&json=1&page_size=24`;
 
   const r = await fetch(url, {
     headers: {
       'Accept': 'application/json',
-      'User-Agent': UA
+      'User-Agent': process.env.OFF_USER_AGENT || 'SomaDietTracker/1.0 (support@yourdomain.com)'
     },
     signal
   });
-  
+
   if (!r.ok) throw new Error(`OFF ${r.status}`);
-  const data = await r.json();               // ← ВАЖНО: возвращаем уже JSON
-
-  // 🔎 Диагностика: видим count/hits из ответа
-  console.log(`[OFF] V1 hits for "${q}":`, {
-    count: data.count, 
-    products_len: data.products?.length, 
-    page_size: data.page_size
+  const data = await r.json();                         // ← ВАЖНО: именно JSON
+  
+  console.log(`[OFF] V1 hits for "${query}":`, {
+    count: data?.count, 
+    products_len: data?.products?.length, 
+    page_size: data?.page_size
   });
-
-  return data;                               // { count, page, page_size, products: [...] }
+  
+  return data;                                         // {count, products: [...]}
 }
