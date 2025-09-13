@@ -117,7 +117,27 @@ function createPhotoAnalysisRequest(base64Image, caption, userContext) {
       content: [
         { 
           type: "input_text", 
-          text: createAnalysisPrompt(caption, userContext)
+          text: `Analyze this food photo AND the user's description together.
+
+${caption ? `User description: "${caption}"` : 'No description provided - analyze what you see in the photo.'}
+
+User needs ${userContext.goals.cal_goal - userContext.todayTotals.calories} cal, ${userContext.goals.protein_goal_g - userContext.todayTotals.protein}g protein today.
+
+IMPORTANT: Analyze the COMPLETE MEAL shown in the photo. If user description mentions only part of it (like "two eggs"), still analyze EVERYTHING visible in the photo.
+
+Return JSON:
+{
+  "calories": number,
+  "protein_g": number,
+  "fat_g": number,
+  "carbs_g": number,
+  "fiber_g": number,
+  "confidence": number,
+  "advice_short": "string",
+  "food_name": "string",
+  "portion_size": "string",
+  "portion_description": "string"
+}`
         },
         { 
           type: "input_image", 
