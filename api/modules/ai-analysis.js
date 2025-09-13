@@ -330,7 +330,8 @@ async function maybeResolveWithOFFIfEnabled(norm, userContext) {
     if (result) {
       const hits = result.items.filter(x => x.resolved?.source === 'off');
       const coverage = hits.length / result.items.length;
-      console.log(`OFF resolved ${hits.length}/${result.items.length} items (${(coverage*100).toFixed(1)}%) in ${duration}ms`);
+      const status = hits.length > 0 ? 'USED' : 'FALLBACK';
+      console.log(`OFF resolved ${hits.length}/${result.items.length} items (${(coverage*100).toFixed(1)}%) in ${duration}ms - ${status}`);
       hits.forEach(h => {
         if (h.resolved) {
           console.log(`  - ${h.name}: ${h.resolved.product_code} (score: ${h.resolved.score.toFixed(2)})`);
@@ -368,8 +369,11 @@ async function parseGPT5Response(openaiData, userContext) {
       
       const off = await maybeResolveWithOFFIfEnabled(norm, userContext);
 
-      const final = off
-        // если OFF сработал — используем детерминированные агрегаты
+      // Используем OFF агрегаты только если есть успешно резолвленные items
+      const hasResolvedItems = off && off.items.some(x => x.resolved?.source === 'off');
+      
+      const final = hasResolvedItems
+        // если OFF сработал И есть резолвленные items — используем детерминированные агрегаты
         ? {
             calories: Math.round(off.aggregates.calories),
             protein_g: round(off.aggregates.protein_g, 1),
