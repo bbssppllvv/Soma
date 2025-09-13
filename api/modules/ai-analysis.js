@@ -111,26 +111,27 @@ Analyze ALL food visible in the photo, not just what user mentions.`
       verbosity: "low",
       format: {
         type: "json_schema",
+        name: "nutrition_analysis",
+        strict: true,
         json_schema: {
-          name: "nutrition_analysis",
-          strict: true,
-          schema: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              calories: { type: "integer" },
-              protein_g: { type: "number" },
-              fat_g: { type: "number" },
-              carbs_g: { type: "number" },
-              fiber_g: { type: "number" },
-              confidence: { type: "number", minimum: 0, maximum: 1 },
-              advice_short: { type: "string", maxLength: 120 },
-              food_name: { type: "string", maxLength: 100 },
-              portion_size: { type: "string", maxLength: 50 },
-              portion_description: { type: "string", maxLength: 100 }
-            },
-            required: ["calories", "protein_g", "fat_g", "carbs_g", "fiber_g", "confidence", "advice_short", "food_name", "portion_size", "portion_description"]
-          }
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            calories: { type: "integer" },
+            protein_g: { type: "number" },
+            fat_g: { type: "number" },
+            carbs_g: { type: "number" },
+            fiber_g: { type: "number" },
+            confidence: { type: "number", minimum: 0, maximum: 1 },
+            advice_short: { type: "string", maxLength: 120 },
+            food_name: { type: "string", maxLength: 100 },
+            portion_size: { type: "string", maxLength: 50 },
+            portion_description: { type: "string", maxLength: 100 }
+          },
+          required: [
+            "calories", "protein_g", "fat_g", "carbs_g", "fiber_g",
+            "confidence", "advice_short", "food_name", "portion_size", "portion_description"
+          ]
         }
       }
     },
@@ -150,26 +151,27 @@ User needs ${userContext.goals.cal_goal - userContext.todayTotals.calories} cal,
       verbosity: "low",
       format: {
         type: "json_schema",
+        name: "nutrition_analysis",
+        strict: true,
         json_schema: {
-          name: "nutrition_analysis",
-          strict: true,
-          schema: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              calories: { type: "integer" },
-              protein_g: { type: "number" },
-              fat_g: { type: "number" },
-              carbs_g: { type: "number" },
-              fiber_g: { type: "number" },
-              confidence: { type: "number", minimum: 0, maximum: 1 },
-              advice_short: { type: "string", maxLength: 120 },
-              food_name: { type: "string", maxLength: 100 },
-              portion_size: { type: "string", maxLength: 50 },
-              portion_description: { type: "string", maxLength: 100 }
-            },
-            required: ["calories", "protein_g", "fat_g", "carbs_g", "fiber_g", "confidence", "advice_short", "food_name", "portion_size", "portion_description"]
-          }
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            calories: { type: "integer" },
+            protein_g: { type: "number" },
+            fat_g: { type: "number" },
+            carbs_g: { type: "number" },
+            fiber_g: { type: "number" },
+            confidence: { type: "number", minimum: 0, maximum: 1 },
+            advice_short: { type: "string", maxLength: 120 },
+            food_name: { type: "string", maxLength: 100 },
+            portion_size: { type: "string", maxLength: 50 },
+            portion_description: { type: "string", maxLength: 100 }
+          },
+          required: [
+            "calories", "protein_g", "fat_g", "carbs_g", "fiber_g",
+            "confidence", "advice_short", "food_name", "portion_size", "portion_description"
+          ]
         }
       }
     },
