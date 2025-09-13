@@ -244,3 +244,187 @@ Fiber: ${Math.round(totals.fiber * 10) / 10} / ${goals.fiber}g (${Math.round((to
     await sendMessage(chatId, 'Failed to fetch today\'s summary.', botToken);
   }
 }
+
+// Handle /start command with onboarding
+export async function handleStartCommand(chatId, userId, userName, botToken, supabaseUrl, supabaseHeaders) {
+  try {
+    // Ensure user exists in database
+    await ensureUserExists(userId, userName, supabaseUrl, supabaseHeaders);
+
+    const welcomeText = `Hey ${userName}! Welcome to Soma.
+
+<b>What I can do for you:</b>
+• Analyze food photos and descriptions
+• Track calories, protein, and macros
+• Give personalized nutrition insights
+• Help you hit your goals consistently
+
+<b>Commands:</b>
+/meals - manage recent meals
+/today - daily nutrition summary  
+/goals - view your targets
+/profile - edit your profile
+
+Ready to track something? Send a photo or describe what you're eating.`;
+
+    await sendMessage(chatId, welcomeText, botToken);
+  } catch (error) {
+    console.error('Start command error:', error);
+    await sendMessage(chatId, 'Setup failed. Please try again.', botToken);
+  }
+}
+
+// Handle /goals command
+export async function handleGoalsCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders) {
+  try {
+    const userResponse = await fetch(
+      `${supabaseUrl}/rest/v1/users?telegram_user_id=eq.${userId}&select=*`,
+      { headers: supabaseHeaders }
+    );
+
+    if (!userResponse.ok) {
+      await sendMessage(chatId, 'User not found. Send /start to register.', botToken);
+      return;
+    }
+
+    const users = await userResponse.json();
+    if (users.length === 0) {
+      await sendMessage(chatId, 'User not found. Send /start to register.', botToken);
+      return;
+    }
+
+    const user = users[0];
+    const hasProfile = user.age && user.weight_kg && user.height_cm && user.fitness_goal;
+    
+    if (!hasProfile) {
+      // User doesn't have a complete profile
+      const setupText = `<b>Your Nutrition Goals</b>
+
+<b>Profile not set up yet</b>
+
+I'm using these default goals for now:
+Calories: 2000 kcal/day
+Protein: 150g/day  
+Fat: 65g/day
+Carbs: 250g/day
+Fiber: 25g/day
+
+<b>Want personalized goals?</b>
+Set up your profile to get targets calculated for your specific body, goals, and activity level.`;
+
+      const keyboard = [
+        [
+          { text: 'Set Up Profile', callback_data: 'onboarding_start' }
+        ]
+      ];
+
+      await sendMessageWithKeyboard(chatId, setupText, keyboard, botToken);
+      return;
+    }
+
+    // Show personalized goals
+    const goalsText = `<b>Your Personalized Goals</b>
+
+<b>Daily Targets:</b>
+Calories: ${user.cal_goal || 2000} kcal/day
+Protein: ${user.protein_goal_g || 150}g/day  
+Fat: ${user.fat_goal_g || 65}g/day
+Carbs: ${user.carbs_goal_g || 250}g/day
+Fiber: ${user.fiber_goal_g || 25}g/day
+
+<b>Based on your profile:</b>
+${user.age} year old ${user.gender}, ${user.height_cm}cm, ${user.weight_kg}kg
+Goal: ${user.fitness_goal} weight, Activity: ${user.activity_level}
+
+These targets are used for personalized analysis and recommendations.`;
+
+    const keyboard = [
+      [
+        { text: 'Edit Profile', callback_data: 'profile_edit' },
+        { text: 'Recalculate', callback_data: 'profile_recalculate' }
+      ]
+    ];
+
+    await sendMessageWithKeyboard(chatId, goalsText, keyboard, botToken);
+
+  } catch (error) {
+    console.error('Goals command error:', error);
+    await sendMessage(chatId, 'Failed to fetch goals.', botToken);
+  }
+}
+
+// Handle /profile command
+export async function handleProfileCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders) {
+  try {
+    const userResponse = await fetch(
+      `${supabaseUrl}/rest/v1/users?telegram_user_id=eq.${userId}&select=*`,
+      { headers: supabaseHeaders }
+    );
+
+    if (!userResponse.ok) {
+      await sendMessage(chatId, 'User not found. Send /start to register.', botToken);
+      return;
+    }
+
+    const users = await userResponse.json();
+    if (users.length === 0) {
+      await sendMessage(chatId, 'User not found. Send /start to register.', botToken);
+      return;
+    }
+
+    const user = users[0];
+    const hasProfile = user.age && user.weight_kg && user.height_cm && user.fitness_goal;
+    
+    if (!hasProfile) {
+      // Start onboarding
+      const onboardingText = `<b>Let's set up your profile</b>
+
+Hey! I'll give you way better nutrition recommendations if I know a bit about you first.
+
+This takes like 2 minutes and gets you personalized calorie and macro targets that actually make sense for your goals.
+
+Want to set it up now?`;
+
+      const keyboard = [
+        [
+          { text: 'Let\'s Go', callback_data: 'onboarding_start' },
+          { text: 'Skip for now', callback_data: 'onboarding_skip' }
+        ]
+      ];
+
+      await sendMessageWithKeyboard(chatId, onboardingText, keyboard, botToken);
+      return;
+    }
+
+    // Show existing profile
+    const profileText = `<b>Your Profile</b>
+
+<b>Personal Info:</b>
+Age: ${user.age} years
+Height: ${user.height_cm}cm
+Weight: ${user.weight_kg}kg
+Gender: ${user.gender}
+Goal: ${user.fitness_goal}
+Activity: ${user.activity_level}
+
+<b>Your Targets:</b>
+Calories: ${user.cal_goal} kcal/day
+Protein: ${user.protein_goal_g}g/day
+Fat: ${user.fat_goal_g}g/day
+Carbs: ${user.carbs_goal_g}g/day
+Fiber: ${user.fiber_goal_g}g/day`;
+
+    const keyboard = [
+      [
+        { text: 'Edit Profile', callback_data: 'profile_edit' },
+        { text: 'Recalculate', callback_data: 'profile_recalculate' }
+      ]
+    ];
+
+    await sendMessageWithKeyboard(chatId, profileText, keyboard, botToken);
+
+  } catch (error) {
+    console.error('Profile command error:', error);
+    await sendMessage(chatId, 'Error loading profile.', botToken);
+  }
+}

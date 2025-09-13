@@ -5,7 +5,7 @@ import { sendMessage, sendMessageWithKeyboard, answerCallbackQuery, editMessageW
 import { analyzeWithGPT5, getFallbackAnalysis } from './modules/ai-analysis.js';
 import { getUserContext, saveFoodEntry, ensureUserExists, updateDailyAggregates } from './modules/database.js';
 import { calculateMealScore, getScoreExplanation } from './modules/utils.js';
-import { handleHelpCommand, handleTestCommand, handleMealsCommand, handleTodayCommand } from './modules/commands.js';
+import { handleHelpCommand, handleTestCommand, handleMealsCommand, handleTodayCommand, handleStartCommand, handleGoalsCommand, handleProfileCommand } from './modules/commands.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -51,7 +51,7 @@ export default async function handler(req, res) {
     const userId = message.from.id;
     const userName = message.from.first_name || 'User';
     
-    console.log(`Message from ${userName} (${userId}): ${text}`);
+    // console.log(`Message from ${userName} (${userId}): ${text}`);
 
     // Handle commands
     if (text === '/start') {
@@ -108,16 +108,16 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
         // Universal GPT-5 pipeline for both photo and text
         nutritionData = await analyzeWithGPT5(message, openaiKey, userContext);
       } catch (analysisError) {
-        console.log('GPT-5 failed, using fallback:', analysisError.message);
+        // console.log('GPT-5 failed, using fallback:', analysisError.message);
         // When GPT-5 fails (timeout or error), give user a smart result anyway
         nutritionData = getSmartFallback(text, 'GPT-5 analysis timed out - using smart estimates');
       }
     } else {
-      console.log('No OpenAI key - using fallback');
+      // console.log('No OpenAI key - using fallback');
       nutritionData = getFallbackAnalysis('OpenAI not configured');
     }
 
-    console.log('Analysis result:', nutritionData);
+    // console.log('Analysis result:', nutritionData);
 
     // Don't save yet - show analysis and ask for confirmation
     const confidenceText = nutritionData.confidence < 0.6 ? 'Low confidence estimate\n' : 
@@ -187,7 +187,7 @@ async function handleCallbackQuery(callbackQuery, botToken, supabaseUrl, supabas
     const userId = callbackQuery.from.id;
     const data = callbackQuery.data;
 
-    console.log(`Callback query from ${userId}: ${data}`);
+    // console.log(`Callback query from ${userId}: ${data}`);
 
     // Answer the callback query first
     await answerCallbackQuery(callbackQuery.id, 'Processing...', botToken);
@@ -259,33 +259,13 @@ Ready for your next food when you are.`;
   }
 }
 
-// Placeholder for other command handlers
-async function handleStartCommand(chatId, userId, userName, botToken, supabaseUrl, supabaseHeaders) {
-  await sendMessage(chatId, 'Start command - to be implemented', botToken);
-}
-
-async function handleTodayCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders) {
-  await sendMessage(chatId, 'Today command - to be implemented', botToken);
-}
-
-async function handleGoalsCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders) {
-  await sendMessage(chatId, 'Goals command - to be implemented', botToken);
-}
-
+// Simple placeholder commands for less critical features
 async function handleDebugCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders) {
   await sendMessage(chatId, 'Debug command - to be implemented', botToken);
 }
 
-async function handleMealsCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders) {
-  await sendMessage(chatId, 'Meals command - to be implemented', botToken);
-}
-
 async function handleResetCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders) {
   await sendMessage(chatId, 'Reset command - to be implemented', botToken);
-}
-
-async function handleProfileCommand(chatId, userId, botToken, supabaseUrl, supabaseHeaders) {
-  await sendMessage(chatId, 'Profile command - to be implemented', botToken);
 }
 
 async function quickDeleteMeal(chatId, messageId, userId, entryId, botToken, supabaseUrl, supabaseHeaders) {

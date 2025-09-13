@@ -6,7 +6,7 @@ export async function analyzeWithGPT5(message, openaiKey, userContext) {
   const hasPhoto = message.photo && message.photo.length > 0;
   
   try {
-    console.log('Starting GPT-5 analysis...');
+    // console.log('Starting GPT-5 analysis...');
     
     // Add timeout protection
     const controller = new AbortController();
@@ -43,7 +43,7 @@ export async function analyzeWithGPT5(message, openaiKey, userContext) {
       }
 
       const openaiData = await openaiResponse.json();
-      console.log('GPT-5 response received');
+      // console.log('GPT-5 response received');
       
       return parseGPT5Response(openaiData, userContext);
 
