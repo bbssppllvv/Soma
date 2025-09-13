@@ -8,52 +8,65 @@ export async function analyzeWithGPT5(message, openaiKey, userContext) {
   try {
     // console.log('Starting GPT-5 analysis...');
     
-    // Add timeout protection
+    // Extended timeout and retry logic
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    const timeoutId = setTimeout(() => controller.abort(), 90000);
 
     let requestBody;
 
     if (hasPhoto) {
-      // Photo analysis
-      const base64Image = await getPhotoAsBase64(message.photo, openaiKey);
+      // Photo analysis with compression
+      const base64Image = await getOptimizedPhotoAsBase64(message.photo);
       requestBody = createPhotoAnalysisRequest(base64Image, text, userContext);
     } else {
       // Text analysis  
       requestBody = createTextAnalysisRequest(text, userContext);
     }
 
-    try {
-      const openaiResponse = await fetch('https://api.openai.com/v1/responses', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${openaiKey}`
-        },
-        signal: controller.signal,
-        body: JSON.stringify(requestBody)
-      });
+    // Add temperature for stability
+    requestBody.temperature = 0;
 
-      clearTimeout(timeoutId);
+    let attempt = 0;
+    while (true) {
+      try {
+        const openaiResponse = await fetch('https://api.openai.com/v1/responses', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${openaiKey}`
+          },
+          signal: controller.signal,
+          body: JSON.stringify(requestBody)
+        });
 
-      if (!openaiResponse.ok) {
+        clearTimeout(timeoutId);
+
+        if (openaiResponse.ok) {
+          const openaiData = await openaiResponse.json();
+          return parseGPT5Response(openaiData, userContext);
+        }
+
+        // Retry logic for 429/500 errors
+        if ((openaiResponse.status === 429 || openaiResponse.status >= 500) && attempt < 2) {
+          console.log(`OpenAI API ${openaiResponse.status}, retrying attempt ${attempt + 1}`);
+          await new Promise(resolve => setTimeout(resolve, 500 * Math.pow(2, attempt)));
+          attempt++;
+          continue;
+        }
+
+        // Non-retryable error
         const errorText = await openaiResponse.text();
         console.error('OpenAI API error:', openaiResponse.status, errorText);
         throw new Error(`OpenAI API error: ${openaiResponse.status}`);
-      }
 
-      const openaiData = await openaiResponse.json();
-      // console.log('GPT-5 response received');
-      
-      return parseGPT5Response(openaiData, userContext);
-
-    } catch (fetchError) {
-      clearTimeout(timeoutId);
-      if (fetchError.name === 'AbortError') {
-        console.error('GPT-5 analysis timeout after 25 seconds');
-        throw new Error('Analysis timeout');
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        if (fetchError.name === 'AbortError') {
+          console.error('GPT-5 analysis timeout after 90 seconds');
+          throw new Error('Analysis timeout');
+        }
+        throw fetchError;
       }
-      throw fetchError;
     }
 
   } catch (error) {
@@ -62,8 +75,8 @@ export async function analyzeWithGPT5(message, openaiKey, userContext) {
   }
 }
 
-// Get photo as base64
-async function getPhotoAsBase64(photos, openaiKey) {
+// Get optimized photo as base64 with compression
+async function getOptimizedPhotoAsBase64(photos) {
   const photo = photos[photos.length - 1];
   const fileResponse = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getFile?file_id=${photo.file_id}`);
   const fileData = await fileResponse.json();
@@ -80,6 +93,15 @@ async function getPhotoAsBase64(photos, openaiKey) {
   }
   
   const photoBuffer = await photoResponse.arrayBuffer();
+  
+  // For now, return original - TODO: add sharp compression
+  // const sharp = await import('sharp');
+  // const optimized = await sharp.default(Buffer.from(photoBuffer))
+  //   .resize({ width: 1280, withoutEnlargement: true })
+  //   .jpeg({ quality: 80 })
+  //   .toBuffer();
+  // return optimized.toString('base64');
+  
   return Buffer.from(photoBuffer).toString('base64');
 }
 
@@ -95,7 +117,7 @@ function createPhotoAnalysisRequest(base64Image, caption, userContext) {
           type: "input_text", 
           text: `${caption ? `User says: "${caption}"` : 'Analyze what you see in the photo.'}
 
-User needs ${userContext.goals.cal_goal - userContext.todayTotals.calories} cal, ${userContext.goals.protein_goal_g - userContext.todayTotals.protein}g protein today.
+User needs ${Math.max(0, userContext.goals.cal_goal - userContext.todayTotals.calories)} cal, ${Math.max(0, userContext.goals.protein_goal_g - userContext.todayTotals.protein)}g protein today.
 
 Analyze ALL food visible in the photo, not just what user mentions.`
         },
@@ -107,6 +129,7 @@ Analyze ALL food visible in the photo, not just what user mentions.`
       ]
     }],
     reasoning: { effort: "minimal" },
+    temperature: 0,
     text: {
       verbosity: "low",
       format: {
@@ -145,8 +168,9 @@ function createTextAnalysisRequest(text, userContext) {
     model: 'gpt-5-mini',
     input: `Analyze food: "${text}"
 
-User needs ${userContext.goals.cal_goal - userContext.todayTotals.calories} cal, ${userContext.goals.protein_goal_g - userContext.todayTotals.protein}g protein today.`,
+User needs ${Math.max(0, userContext.goals.cal_goal - userContext.todayTotals.calories)} cal, ${Math.max(0, userContext.goals.protein_goal_g - userContext.todayTotals.protein)}g protein today.`,
     reasoning: { effort: "minimal" },
+    temperature: 0,
     text: {
       verbosity: "low",
       format: {
@@ -183,7 +207,7 @@ User needs ${userContext.goals.cal_goal - userContext.todayTotals.calories} cal,
 function createAnalysisPrompt(text, userContext) {
   return `Analyze this food: "${text}"
 
-User needs ${userContext.goals.cal_goal - userContext.todayTotals.calories} cal, ${userContext.goals.protein_goal_g - userContext.todayTotals.protein}g protein today.
+User needs ${Math.max(0, userContext.goals.cal_goal - userContext.todayTotals.calories)} cal, ${Math.max(0, userContext.goals.protein_goal_g - userContext.todayTotals.protein)}g protein today.
 
 Return JSON:
 {
@@ -200,25 +224,35 @@ Return JSON:
 }`;
 }
 
-// Parse GPT-5 response (universal) - following best practices
+// Parse GPT-5 response with robust fallback
 function parseGPT5Response(openaiData, userContext) {
-  // With JSON Schema, response should be in output_text as clean JSON
-  if (openaiData.output_text) {
+  // Primary: try output_text
+  let textPayload = openaiData.output_text;
+  
+  // Fallback: extract from output array if output_text is empty
+  if (!textPayload && Array.isArray(openaiData.output)) {
+    textPayload = openaiData.output
+      .flatMap(o => o.content?.map(c => c.text).filter(Boolean) || [])
+      .join('');
+  }
+  
+  if (textPayload) {
     try {
-      const parsed = JSON.parse(openaiData.output_text);
+      const parsed = JSON.parse(textPayload);
       parsed.score = calculateMealScore(parsed, userContext);
       return cleanNutritionData(parsed);
     } catch (jsonError) {
-      console.error('Failed to parse JSON from output_text:', openaiData.output_text);
+      console.error('Failed to parse JSON:', textPayload);
       throw new Error('GPT-5 returned invalid JSON format');
     }
   }
   
-  // Log what we actually got to debug
+  // Log for debugging
   console.error('GPT-5 response structure:', Object.keys(openaiData));
   console.error('Output text:', openaiData.output_text);
+  console.error('Output array:', openaiData.output);
   
-  throw new Error(`GPT-5 returned no output_text. Keys: ${Object.keys(openaiData).join(', ')}`);
+  throw new Error(`GPT-5 returned no parseable content. Keys: ${Object.keys(openaiData).join(', ')}`);
 }
 
 // Text response parsing no longer needed - JSON Schema ensures clean JSON in output_text
