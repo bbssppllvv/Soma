@@ -201,7 +201,7 @@ Analyze ALL food visible in the photo, not just what user mentions.`
         schema: GPT_NUTRITION_SCHEMA
       }
     },
-    max_output_tokens: 300
+    max_output_tokens: 900
   };
 }
 
@@ -223,7 +223,7 @@ User needs ${Math.max(0, userContext.goals.cal_goal - userContext.todayTotals.ca
         schema: GPT_NUTRITION_SCHEMA
       }
     },
-    max_output_tokens: 300
+    max_output_tokens: 900
   };
 }
 
@@ -383,156 +383,91 @@ async function maybeResolveWithOFFIfEnabled(norm, userContext) {
   }
 }
 
+async function finalize(parsed, userContext) {
+  const norm = normalizeAnalysisPayload(parsed);
+  
+  // Дебаг: логируем items от GPT
+  if (norm.items && norm.items.length > 0) {
+    console.log('GPT items:', JSON.stringify(norm.items, null, 2));
+  }
+  
+  const off = await maybeResolveWithOFFIfEnabled(norm, userContext);
+
+  // Используем OFF агрегаты только если есть успешно резолвленные items
+  const hasResolvedItems = off && Array.isArray(off.items) &&
+                           off.items.some(x => x?.resolved?.source === 'off');
+  
+  const final = hasResolvedItems
+    // если OFF сработал И есть резолвленные items — используем детерминированные агрегаты
+    ? {
+        calories: Math.round(off.aggregates.calories),
+        protein_g: round(off.aggregates.protein_g, 1),
+        fat_g: round(off.aggregates.fat_g, 1),
+        carbs_g: round(off.aggregates.carbs_g, 1),
+        fiber_g: round(off.aggregates.fiber_g, 1),
+        items: off.items,
+        advice_short: norm.advice_short,
+        needs_clarification: off.items.some(x => x.needs_clarification),
+        confidence: clamp(avg(off.items.map(x => x.confidence)), 0.1, 1.0),
+        assumptions: norm.assumptions,
+        // Сохраняем совместимость с текущим API
+        food_name: (parsed.food_name || 'Unknown Food').substring(0, 100),
+        portion_size: (parsed.portion_size || 'Standard').substring(0, 50),
+        portion_description: (parsed.portion_description || 'Medium serving').substring(0, 100)
+      }
+    // иначе — как было (агрегаты модели)
+    : {
+        calories: Math.max(1, Math.min(2000, Math.round(norm.aggregates.calories))),
+        protein_g: Math.max(0, Math.min(100, round(norm.aggregates.protein_g, 1))),
+        fat_g:     Math.max(0, Math.min(100, round(norm.aggregates.fat_g, 1))),
+        carbs_g:   Math.max(0, Math.min(200, round(norm.aggregates.carbs_g, 1))),
+        fiber_g:   Math.max(0, Math.min(50,  round(norm.aggregates.fiber_g, 1))),
+        items: norm.items,
+        advice_short: norm.advice_short,
+        needs_clarification: norm.needs_clarification,
+        confidence: clamp(parsed.confidence ?? avgItemConf(norm.items) ?? 0.7, 0.1, 1.0),
+        assumptions: norm.assumptions,
+        // Сохраняем совместимость с текущим API
+        food_name: (parsed.food_name || 'Unknown Food').substring(0, 100),
+        portion_size: (parsed.portion_size || 'Standard').substring(0, 50),
+        portion_description: (parsed.portion_description || 'Medium serving').substring(0, 100)
+      };
+
+  // Гард против нулевых агрегатов
+  if (allZeroAgg(final)) {
+    final.needs_clarification = true;
+    final.advice_short = final.advice_short || "Уточните порцию (например: 100 g или 1 cup).";
+    final.score = 0;
+    return final;
+  }
+
+  final.score = calculateMealScore(final, userContext);
+  return final;
+}
+
 // Parse GPT-5 response with robust fallback
 async function parseGPT5Response(openaiData, userContext) {
-  // Primary: try output_text
-  let textPayload = openaiData.output_text;
-  
-  // Fallback: extract from output array if output_text is empty
-  if (!textPayload && Array.isArray(openaiData.output)) {
-    textPayload = openaiData.output
-      .flatMap(o => o.content?.map(c => c.text).filter(Boolean) || [])
-      .join('');
-  }
-  
-  if (textPayload) {
-    // 1) прямая попытка
-    let parsed = (() => { try { return JSON.parse(textPayload); } catch {} })();
-    
-    // 2) балансный экстрактор для обрезанных строк
-    if (!parsed) {
-      parsed = extractFirstBalancedJson(textPayload);
-    }
-    
-    if (parsed) {
-      const norm = normalizeAnalysisPayload(parsed);
-      
-      // Дебаг: логируем items от GPT
-      if (norm.items && norm.items.length > 0) {
-        console.log('GPT items:', JSON.stringify(norm.items, null, 2));
-      }
-      
-      const off = await maybeResolveWithOFFIfEnabled(norm, userContext);
-
-      // Используем OFF агрегаты только если есть успешно резолвленные items
-      const hasResolvedItems = off && Array.isArray(off.items) &&
-                               off.items.some(x => x?.resolved?.source === 'off');
-      
-      const final = hasResolvedItems
-        // если OFF сработал И есть резолвленные items — используем детерминированные агрегаты
-        ? {
-            calories: Math.round(off.aggregates.calories),
-            protein_g: round(off.aggregates.protein_g, 1),
-            fat_g: round(off.aggregates.fat_g, 1),
-            carbs_g: round(off.aggregates.carbs_g, 1),
-            fiber_g: round(off.aggregates.fiber_g, 1),
-            items: off.items,
-            advice_short: norm.advice_short,
-            needs_clarification: off.items.some(x => x.needs_clarification),
-            confidence: clamp(avg(off.items.map(x => x.confidence)), 0.1, 1.0),
-            assumptions: norm.assumptions,
-            // Сохраняем совместимость с текущим API
-            food_name: (parsed.food_name || 'Unknown Food').substring(0, 100),
-            portion_size: (parsed.portion_size || 'Standard').substring(0, 50),
-            portion_description: (parsed.portion_description || 'Medium serving').substring(0, 100)
-          }
-        // иначе — как было (агрегаты модели)
-        : {
-            calories: Math.max(1, Math.min(2000, Math.round(norm.aggregates.calories))),
-            protein_g: Math.max(0, Math.min(100, round(norm.aggregates.protein_g, 1))),
-            fat_g:     Math.max(0, Math.min(100, round(norm.aggregates.fat_g, 1))),
-            carbs_g:   Math.max(0, Math.min(200, round(norm.aggregates.carbs_g, 1))),
-            fiber_g:   Math.max(0, Math.min(50,  round(norm.aggregates.fiber_g, 1))),
-            items: norm.items,
-            advice_short: norm.advice_short,
-            needs_clarification: norm.needs_clarification,
-            confidence: clamp(parsed.confidence ?? avgItemConf(norm.items) ?? 0.7, 0.1, 1.0),
-            assumptions: norm.assumptions,
-            // Сохраняем совместимость с текущим API
-            food_name: (parsed.food_name || 'Unknown Food').substring(0, 100),
-            portion_size: (parsed.portion_size || 'Standard').substring(0, 50),
-            portion_description: (parsed.portion_description || 'Medium serving').substring(0, 100)
-          };
-
-      // Гард против нулевых агрегатов
-      if (allZeroAgg(final)) {
-        final.needs_clarification = true;
-        final.advice_short = final.advice_short || "Уточните порцию (например: 100 g или 1 cup).";
-        final.score = 0;
-        return final;
-      }
-
-      final.score = calculateMealScore(final, userContext);
-      return final;
-    }
-    
-    // Не удалось распарсить
-    console.error('GPT-5 response structure:', Object.keys(openaiData || {}));
-    console.error('Output text (start):', String(textPayload || '').slice(0, 400));
-    throw new Error('GPT-5 returned invalid JSON format');
-  }
-  
-  // 3) fallback из output[]
+  const texts = [];
+  if (typeof openaiData.output_text === 'string') texts.push(openaiData.output_text);
   if (Array.isArray(openaiData.output)) {
-    const parts = openaiData.output
-      .flatMap(o => o.content?.map(c => c?.text).filter(Boolean) || []);
-    const joined = parts.join('');
-    const parsed = (() => { try { return JSON.parse(joined); } catch {} })()
-                || extractFirstBalancedJson(joined);
-    if (parsed) {
-      const norm = normalizeAnalysisPayload(parsed);
-      // Дальше та же логика...
-      const off = await maybeResolveWithOFFIfEnabled(norm, userContext);
-      const hasResolvedItems = off && Array.isArray(off.items) &&
-                               off.items.some(x => x?.resolved?.source === 'off');
-      
-      const final = hasResolvedItems
-        ? {
-            calories: Math.round(off.aggregates.calories),
-            protein_g: round(off.aggregates.protein_g, 1),
-            fat_g: round(off.aggregates.fat_g, 1),
-            carbs_g: round(off.aggregates.carbs_g, 1),
-            fiber_g: round(off.aggregates.fiber_g, 1),
-            items: off.items,
-            advice_short: norm.advice_short,
-            needs_clarification: off.items.some(x => x.needs_clarification),
-            confidence: clamp(avg(off.items.map(x => x.confidence)), 0.1, 1.0),
-            assumptions: norm.assumptions,
-            food_name: (parsed.food_name || 'Unknown Food').substring(0, 100),
-            portion_size: (parsed.portion_size || 'Standard').substring(0, 50),
-            portion_description: (parsed.portion_description || 'Medium serving').substring(0, 100)
-          }
-        : {
-            calories: Math.max(1, Math.min(2000, Math.round(norm.aggregates.calories))),
-            protein_g: Math.max(0, Math.min(100, round(norm.aggregates.protein_g, 1))),
-            fat_g:     Math.max(0, Math.min(100, round(norm.aggregates.fat_g, 1))),
-            carbs_g:   Math.max(0, Math.min(200, round(norm.aggregates.carbs_g, 1))),
-            fiber_g:   Math.max(0, Math.min(50,  round(norm.aggregates.fiber_g, 1))),
-            items: norm.items,
-            advice_short: norm.advice_short,
-            needs_clarification: norm.needs_clarification,
-            confidence: clamp(parsed.confidence ?? avgItemConf(norm.items) ?? 0.7, 0.1, 1.0),
-            assumptions: norm.assumptions,
-            food_name: (parsed.food_name || 'Unknown Food').substring(0, 100),
-            portion_size: (parsed.portion_size || 'Standard').substring(0, 50),
-            portion_description: (parsed.portion_description || 'Medium serving').substring(0, 100)
-          };
-
-      if (allZeroAgg(final)) {
-        final.needs_clarification = true;
-        final.advice_short = final.advice_short || "Уточните порцию (например: 100 g или 1 cup).";
-        final.score = 0;
-        return final;
+    for (const o of openaiData.output) {
+      for (const c of o.content || []) {
+        if (typeof c.text === 'string') texts.push(c.text);
       }
-
-      final.score = calculateMealScore(final, userContext);
-      return final;
     }
   }
 
+  for (const t of texts) {
+    try { return await finalize(JSON.parse(t), userContext); } catch {}
+    const bal = extractFirstBalancedJson(t);
+    if (bal) { try { return await finalize(bal, userContext); } catch {} }
+  }
+  
+  // последняя линия обороны — не валим UX
+  console.error('JSON parse failed — returning safe fallback');
   console.error('GPT-5 response structure:', Object.keys(openaiData || {}));
   console.error('Output text (start):', String(openaiData.output_text || '').slice(0, 400));
-  throw new Error(`GPT-5 returned no parseable content. Keys: ${Object.keys(openaiData).join(', ')}`);
+  return getFallbackAnalysis('Parsing failed');
 }
 
 // Text response parsing no longer needed - JSON Schema ensures clean JSON in output_text

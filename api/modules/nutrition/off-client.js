@@ -71,21 +71,33 @@ export async function getByBarcode(barcode, { signal } = {}) {
 // V1 полнотекстовый поиск (стабильный)
 export async function searchByName({ query, page_size = 24 }, { signal } = {}) {
   const q = canonicalizeQuery(query);
-  const url = new URL(`${BASE}/cgi/search.pl`);
-  url.searchParams.set('action', 'process');
-  url.searchParams.set('search_terms', q);
-  url.searchParams.set('search_simple', '1');
-  url.searchParams.set('json', '1');
-  url.searchParams.set('page_size', String(page_size));
-  url.searchParams.set('sort_by', 'unique_scans_n'); // самые популярные сверху
+  const qs = new URLSearchParams({
+    action: 'process',
+    search_terms: q,
+    search_simple: '1',
+    json: '1',
+    page_size: String(page_size),
+    fields: 'code,product_name,brands,nutriments,serving_size'
+  });
+  const url = `${BASE}/cgi/search.pl?${qs}`;
 
-  const res = await fetchWithBackoff(url.toString(), { signal });
+  const r = await fetch(url, {
+    headers: {
+      'Accept': 'application/json',
+      'User-Agent': UA
+    },
+    signal
+  });
+  
+  if (!r.ok) throw new Error(`OFF ${r.status}`);
+  const data = await r.json();               // ← ВАЖНО: возвращаем уже JSON
 
   // 🔎 Диагностика: видим count/hits из ответа
-  try {
-    const count = Array.isArray(res?.products) ? res.products.length : 0;
-    console.log(`[OFF] V1 hits for "${q}":`, { count, count_field: res?.count, page_size });
-  } catch {}
+  console.log(`[OFF] V1 hits for "${q}":`, {
+    count: data.count, 
+    products_len: data.products?.length, 
+    page_size: data.page_size
+  });
 
-  return res;
+  return data;                               // { count, page, page_size, products: [...] }
 }

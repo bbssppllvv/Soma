@@ -55,23 +55,22 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
   }
 
   // V1 полнотекстовый поиск с канонической строкой
-  const res = await searchByName({ query: item.name, page_size: 24 }, { signal });
-  const products = Array.isArray(res?.products) ? res.products : [];
-
-  if (products.length === 0) {
+  const data = await searchByName({ query: item.name, page_size: 24 }, { signal });
+  
+  if (!Array.isArray(data.products) || data.products.length === 0) {
     console.log(`[OFF] No hits for "${canonicalQuery}"`);
     return null; // пометили как неразрешённый — дальше fallback на модель
   }
 
   // ⚖️ базовая пригодность: есть хоть один пер-100г нутриент
-  const useful = products.filter(p => {
+  const useful = data.products.filter(p => {
     const n = p?.nutriments || {};
     return n['energy-kcal_100g'] != null || n['protein_100g'] != null ||
            n['fat_100g'] != null || n['carbohydrates_100g'] != null || n['fiber_100g'] != null;
   });
 
   if (useful.length === 0) {
-    console.log(`[OFF] No useful nutrients for "${canonicalQuery}" (${products.length} products found)`);
+    console.log(`[OFF] No useful nutrients for "${canonicalQuery}" (${data.products.length} products found)`);
     return null;
   }
 
