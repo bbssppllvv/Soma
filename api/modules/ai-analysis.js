@@ -127,7 +127,6 @@ Analyze ALL food visible in the photo, not just what user mentions.`
       ]
     }],
     reasoning: { effort: "minimal" },
-    temperature: 0,
     text: {
       verbosity: "low",
       format: {
@@ -168,7 +167,6 @@ function createTextAnalysisRequest(text, userContext) {
 
 User needs ${Math.max(0, userContext.goals.cal_goal - userContext.todayTotals.calories)} cal, ${Math.max(0, userContext.goals.protein_goal_g - userContext.todayTotals.protein)}g protein today.`,
     reasoning: { effort: "minimal" },
-    temperature: 0,
     text: {
       verbosity: "low",
       format: {
