@@ -8,10 +8,7 @@ export async function analyzeWithGPT5(message, openaiKey, userContext) {
   try {
     // console.log('Starting GPT-5 analysis...');
     
-    // Extended timeout and retry logic
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 90000);
-
+    // Prepare request body
     let requestBody;
 
     if (hasPhoto) {
@@ -23,11 +20,12 @@ export async function analyzeWithGPT5(message, openaiKey, userContext) {
       requestBody = createTextAnalysisRequest(text, userContext);
     }
 
-    // Add temperature for stability
-    requestBody.temperature = 0;
-
+    // Retry logic with proper timeout per attempt
     let attempt = 0;
     while (true) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 90000);
+      
       try {
         const openaiResponse = await fetch('https://api.openai.com/v1/responses', {
           method: 'POST',
@@ -136,7 +134,7 @@ Analyze ALL food visible in the photo, not just what user mentions.`
         type: "json_schema",
         name: "nutrition_analysis",
         strict: true,
-        json_schema: {
+        schema: {
           type: "object",
           additionalProperties: false,
           properties: {
@@ -177,7 +175,7 @@ User needs ${Math.max(0, userContext.goals.cal_goal - userContext.todayTotals.ca
         type: "json_schema",
         name: "nutrition_analysis",
         strict: true,
-        json_schema: {
+        schema: {
           type: "object",
           additionalProperties: false,
           properties: {
