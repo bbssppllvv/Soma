@@ -6,11 +6,20 @@ const TTL = Number(process.env.OFF_CACHE_TTL_MS || 10800000);
 
 import { getCache, setCache } from './simple-cache.js';
 
-const COMMON_HEADERS = {
-  'User-Agent': UA,
-  'Accept': 'application/json',
-  'Accept-Language': LANG
-};
+function buildHeaders() {
+  return { 'User-Agent': UA, 'Accept': 'application/json' };
+}
+
+// Нормализация свободного текста для поиска (универсально)
+export function canonicalizeQuery(name = '') {
+  return name
+    .toLowerCase()
+    .replace(/\(.*?\)/g, ' ')                          // убираем скобки: "(plain cooked)"
+    .replace(/\b(plain|boiled|cooked|baked|grilled|roasted|fried)\b/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 // Узкий список полей — быстрее и дешевле
 const FIELDS = 'code,product_name,brands,serving_size,nutriments,categories_tags,last_modified_t';
@@ -36,7 +45,7 @@ async function fetchWithBackoff(url, { signal } = {}) {
     const combined = combineSignals(signal, ac.signal);
 
     try {
-      const res = await fetch(url, { headers: COMMON_HEADERS, signal: combined });
+      const res = await fetch(url, { headers: buildHeaders(), signal: combined });
       clearTimeout(timeoutId);
       if (res.status === 429 || res.status >= 500) throw new Error(`OFF ${res.status}`);
       if (!res.ok) throw new Error(`OFF ${res.status}`);
@@ -59,15 +68,17 @@ export async function getByBarcode(barcode, { signal } = {}) {
   return json.product;
 }
 
-export async function searchByName({ query, brand, page_size = 24 }, { signal } = {}) {
-  const u = new URL(`${BASE}/api/v2/search`);
-  u.searchParams.set('fields', FIELDS);
-  u.searchParams.set('page_size', String(page_size));
-  u.searchParams.set('sort_by', 'unique_scans_n');
-  u.searchParams.set('search_simple', '1');
-  if (query) u.searchParams.set('search_terms', query);
-  if (brand) u.searchParams.set('brands_tags', brand.toLowerCase());
+// V1 полнотекстовый поиск (стабильный)
+export async function searchByName({ query, page_size = 24 }, { signal } = {}) {
+  const q = canonicalizeQuery(query);
+  const url = new URL(`${BASE}/cgi/search.pl`);
+  url.searchParams.set('action', 'process');
+  url.searchParams.set('search_terms', q);
+  url.searchParams.set('search_simple', '1');
+  url.searchParams.set('json', '1');
+  url.searchParams.set('page_size', String(page_size));
+  url.searchParams.set('sort_by', 'unique_scans_n'); // самые популярные сверху
 
-  const json = await fetchWithBackoff(u.toString(), { signal });
+  const json = await fetchWithBackoff(url.toString(), { signal });
   return Array.isArray(json?.products) ? json.products : [];
 }
