@@ -30,6 +30,8 @@ function normalizeUPC(s){
 }
 
 export async function resolveOneItemOFF(item, { signal } = {}) {
+  console.log(`[OFF] Resolving item:`, { name: item.name, brand: item.brand, upc: item.upc, confidence: item.confidence });
+  
   if (item.upc) {
     const normalizedUPC = normalizeUPC(item.upc);
     if (normalizedUPC) {
@@ -38,11 +40,19 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     }
   }
   const p1 = await searchByName({ query: item.name, brand: item.brand, page_size: 8 }, { signal });
-  let best = pickBest(p1, p => scoreProduct(p, { query: item.name, brand: item.brand }), 0.80);
+  let best = pickBest(p1, p => scoreProduct(p, { query: item.name, brand: item.brand }), 0.60); // понижен с 0.80
   if (best && hasUsefulNutriments(best.product)) return best;
 
   const p2 = await searchByName({ query: item.name, page_size: 10 }, { signal });
-  best = pickBest(p2, p => scoreProduct(p, { query: item.name }), 0.70);
+  best = pickBest(p2, p => scoreProduct(p, { query: item.name }), 0.50); // понижен с 0.70
+  
+  console.log(`[OFF] Search results for "${item.name}":`, {
+    p1_count: p1?.length || 0,
+    p2_count: p2?.length || 0,
+    best_score: best?.score,
+    best_name: best?.product?.product_name
+  });
+  
   if (best && !hasUsefulNutriments(best.product)) return null;
   return best; // может быть null
 }

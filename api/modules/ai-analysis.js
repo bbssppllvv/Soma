@@ -367,6 +367,11 @@ async function parseGPT5Response(openaiData, userContext) {
       const parsed = JSON.parse(payload);
       const norm = normalizeAnalysisPayload(parsed);
       
+      // Дебаг: логируем items от GPT
+      if (norm.items && norm.items.length > 0) {
+        console.log('GPT items:', JSON.stringify(norm.items, null, 2));
+      }
+      
       const off = await maybeResolveWithOFFIfEnabled(norm, userContext);
 
       // Используем OFF агрегаты только если есть успешно резолвленные items
