@@ -113,8 +113,10 @@ Analyze ALL food visible in the photo, not just what user mentions.`
         type: "json_schema",
         json_schema: {
           name: "nutrition_analysis",
+          strict: true,
           schema: {
             type: "object",
+            additionalProperties: false,
             properties: {
               calories: { type: "integer" },
               protein_g: { type: "number" },
@@ -150,8 +152,10 @@ User needs ${userContext.goals.cal_goal - userContext.todayTotals.calories} cal,
         type: "json_schema",
         json_schema: {
           name: "nutrition_analysis",
+          strict: true,
           schema: {
             type: "object",
+            additionalProperties: false,
             properties: {
               calories: { type: "integer" },
               protein_g: { type: "number" },
