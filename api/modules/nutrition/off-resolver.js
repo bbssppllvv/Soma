@@ -128,9 +128,18 @@ function scoreProduct(item, product) {
   let score = 0;
   const categories = Array.isArray(product.categories_tags) ? product.categories_tags : [];
 
-  // Name overlap bonus
+  // Name overlap bonus with exact word matching
   const nameHits = queryTokens.filter(t => name.includes(t)).length;
   score += Math.min(0.5, (nameHits / Math.max(1, queryTokens.length)) * 0.5);
+  
+  // Bonus for exact token matches (prefer exact word matches over partial)
+  const exactMatches = queryTokens.filter(t => {
+    const regex = new RegExp(`\\b${t}\\b`, 'i');
+    return regex.test(name);
+  }).length;
+  if (exactMatches > 0) {
+    score += Math.min(0.3, exactMatches * 0.15);
+  }
 
   // Bonus for nutrient coverage
   const n = product.nutriments || {};
