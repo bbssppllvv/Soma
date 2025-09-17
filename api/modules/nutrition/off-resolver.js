@@ -445,6 +445,18 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         );
         const brandText = (product.brands || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         
+        // DEBUG: Log brand data for first product
+        if (candidates.indexOf(product) === 0) {
+          console.log(`[OFF] DEBUG first product brands:`, {
+            product_name: product.product_name,
+            brands: product.brands,
+            brands_tags: product.brands_tags,
+            normalized_tags: brandTags,
+            normalized_text: brandText,
+            seeking_aliases: [...brandAliases]
+          });
+        }
+        
         // Check if any brand alias matches any brand tag or text (exact word match)
         return [...brandAliases].some(alias => {
           return brandTags.some(tag => {
