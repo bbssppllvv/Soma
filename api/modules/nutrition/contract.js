@@ -1,4 +1,4 @@
-// Единый контракт ответа от GPT (и для резолвера позже)
+// Unified GPT response contract (shared with the resolver)
 export const GPT_NUTRITION_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -82,8 +82,8 @@ export const GPT_NUTRITION_SCHEMA = {
             ]
           }
         },
-        // В strict:true required должен перечислять ВСЕ ключи из properties.
-        // Опциональность решаем через nullable:true.
+        // strict:true requires every property to be listed in required.
+        // Optionality is handled through nullable fields.
         required: [
           "name","portion","unit","brand","upc","cooking_method","confidence","occluded","item_role","canonical_category","food_form"
         ]
@@ -101,7 +101,7 @@ export const GPT_NUTRITION_SCHEMA = {
     assumptions:        { type: "array", items: { type: "string", maxLength: 120 } }
   },
 
-  // Тоже перечисляем ВСЕ ключи верхнего уровня.
+  // List every top-level key as required as well.
   required: [
     "items",
     "calories","protein_g","fat_g","carbs_g","fiber_g",

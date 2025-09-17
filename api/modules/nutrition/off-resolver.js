@@ -118,11 +118,11 @@ function scoreProduct(item, product) {
   let score = 0;
   const categories = Array.isArray(product.categories_tags) ? product.categories_tags : [];
 
-  // Совпадения по названию
+  // Name overlap bonus
   const nameHits = queryTokens.filter(t => name.includes(t)).length;
   score += Math.min(0.5, (nameHits / Math.max(1, queryTokens.length)) * 0.5);
 
-  // Бонус за нутриенты
+  // Bonus for nutrient coverage
   const n = product.nutriments || {};
   if (
     n['energy-kcal_100g'] != null ||
@@ -292,7 +292,7 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     }
   }
 
-  // V1 полнотекстовый поиск с канонической строкой
+  // Primary OFF search with canonical query
   try {
     const positiveHints = CATEGORY_POSITIVE_HINTS[item?.canonical_category || ''] || null;
     const categoryTags = positiveHints ? positiveHints.tags : [];
@@ -306,7 +306,7 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       return { item, reason: 'no_hits', canonical: canonicalQuery };
     }
 
-    // ⚖️ базовая пригодность: есть хоть один пер-100г нутриент
+    // Require at least one useful per-100g nutrient value
     const useful = products.filter(hasUsefulNutriments);
 
     if (useful.length === 0) {

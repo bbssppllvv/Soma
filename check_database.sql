@@ -1,40 +1,29 @@
--- Скрипт для проверки текущей схемы базы данных
--- Запустите этот скрипт ПЕРЕД обновлением, чтобы увидеть текущую структуру
+-- Script to inspect the current database schema
+-- Run this before applying updates to capture the existing structure
 
--- 1. Проверяем существующие таблицы
-SELECT table_name, table_type 
-FROM information_schema.tables 
-WHERE table_schema = 'public' 
+-- 1. Inspect available tables
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'public'
 ORDER BY table_name;
 
--- 2. Проверяем структуру таблицы users
-SELECT 
-    column_name,
-    data_type,
-    character_maximum_length,
-    is_nullable,
-    column_default
-FROM information_schema.columns 
-WHERE table_name = 'users' 
+-- 2. Inspect the structure of the users table
+SELECT column_name, data_type, is_nullable, column_default
+FROM information_schema.columns
+WHERE table_name = 'users'
 ORDER BY ordinal_position;
 
--- 3. Проверяем существующих пользователей
-SELECT 
-    telegram_user_id,
-    display_name,
-    cal_goal,
-    protein_goal_g,
-    fiber_goal_g,
-    first_seen_utc,
-    last_seen_utc
-FROM users 
-ORDER BY first_seen_utc DESC 
-LIMIT 10;
+-- 3. Sample existing users
+SELECT id, telegram_user_id, display_name, cal_goal, protein_goal_g, fiber_goal_g
+FROM users
+LIMIT 20;
 
--- 4. Проверяем записи в таблице entries
-SELECT COUNT(*) as total_entries FROM entries;
-SELECT COUNT(DISTINCT user_id) as unique_users_with_entries FROM entries;
+-- 4. Inspect entries table records
+SELECT id, user_id, calories, protein_g, fat_g, carbs_g
+FROM entries
+LIMIT 20;
 
--- 5. Проверяем записи в таблице daily
-SELECT COUNT(*) as total_daily_records FROM daily;
-SELECT COUNT(DISTINCT user_id) as unique_users_with_daily FROM daily;
+-- 5. Inspect daily aggregation records
+SELECT user_id, day_local, calories_sum, protein_sum, fat_sum, carbs_sum
+FROM daily
+LIMIT 20;

@@ -141,22 +141,22 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
     if (analyzingMessage?.message_id) {
       const firstBrandItem = (nutritionData.items || []).find(item => item.brand);
       const brandSummary = firstBrandItem?.brand
-        ? `${firstBrandItem.name || nutritionData.food_name || 'Food'} (бренд: ${firstBrandItem.brand})`
+        ? `${firstBrandItem.name || nutritionData.food_name || 'Food'} (brand: ${firstBrandItem.brand})`
         : recognizedLabel;
       const checkingLine = firstBrandItem?.brand
-        ? 'Проверяем по базе брендов…'
-        : 'Использую оценку AI (бренд не указан).';
-      const recognizedText = `📸 <b>Распознано:</b> ${brandSummary}\n${checkingLine}`;
+        ? 'Checking branded database…'
+        : 'Using AI estimate (brand not provided).';
+      const recognizedText = `📸 <b>Recognized:</b> ${brandSummary}\n${checkingLine}`;
       await editMessageWithKeyboard(chatId, analyzingMessage.message_id, recognizedText, [], botToken);
     }
 
     const sourceLine = offStatus === 'used'
-      ? 'Источник: Open Food Facts (точное совпадение)'
+      ? 'Source: Open Food Facts (exact match)'
       : offStatus === 'disabled'
-        ? 'Источник: оценка AI (OFF отключён)'
+        ? 'Source: AI estimate (OFF disabled)'
         : offStatus === 'fallback'
-          ? `Источник: оценка AI (fallback${offReasons.length ? `: ${offReasons.join(', ')}` : ''})`
-          : 'Источник: оценка AI';
+          ? `Source: AI estimate (fallback${offReasons.length ? `: ${offReasons.join(', ')}` : ''})`
+          : 'Source: AI estimate';
 
     const perItemSources = (nutritionData.items || []).map(item => {
       const sourceLabel = item.data_source === 'off'
@@ -164,7 +164,16 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
         : item.data_source === 'ai_fallback'
           ? 'AI fallback'
           : 'AI';
-      return `• ${item.name || 'Item'} — ${sourceLabel}`;
+      const portionUnit = item.portion_unit || (item.unit && typeof item.unit === 'string' && item.unit.toLowerCase().includes('ml') ? 'ml' : 'g');
+      const portionValue = Number.isFinite(item.portion_value) ? item.portion_value : null;
+      const fallbackDisplay = (() => {
+        if (portionValue == null) return null;
+        const rounded = portionValue >= 100 ? Math.round(portionValue) : Math.round(portionValue * 10) / 10;
+        return `${rounded} ${portionUnit}`;
+      })();
+      const portionDisplay = item.portion_display || fallbackDisplay;
+      const portionDetail = portionDisplay ? `, portion ${portionDisplay} (${item.portion_reason || item.portion_source || 'unknown'})` : '';
+      return `• ${item.name || 'Item'} — ${sourceLabel}${portionDetail}`;
     }).join('\n');
 
     const responseText = `<b>Nutrition Analysis</b>
@@ -173,7 +182,7 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
 <b>Portion:</b> ${nutritionData.portion_size || 'Standard'} (${nutritionData.portion_description || 'medium serving'})
 <b>${sourceLine}</b>
 
-<b>Пер-ингредиент источники:</b>
+<b>Per-item sources:</b>
 ${perItemSources || '• AI estimate'}
 
 <b>Nutritional Breakdown:</b>

@@ -1,4 +1,4 @@
-const CACHE = new Map(); // in-memory LRU на жизнь воркера — для serverless ок
+const CACHE = new Map(); // in-memory LRU scoped to the worker lifetime — fine for serverless
 const MAX_ITEMS = 1000;
 
 export function getCache(key){
@@ -9,7 +9,7 @@ export function getCache(key){
 }
 
 export function setCache(key, val, ttlMs){
-  // LRU: удаляем самый старый элемент если превышен лимит
+  // LRU eviction: drop the oldest item when capacity is reached
   if (CACHE.size >= MAX_ITEMS) {
     const first = CACHE.keys().next().value;
     if (first) CACHE.delete(first);

@@ -13,21 +13,21 @@ function buildHeaders() {
   return { 'User-Agent': UA, 'Accept': 'application/json', 'Accept-Language': LANG };
 }
 
-// Нормализация свободного текста для поиска (универсально)
+// Normalize free-form text for search queries
 export function canonicalizeQuery(raw = '') {
   return raw
     .toLowerCase()
-    .replace(/\(.*?\)/g, ' ')                                  // (plain cooked) → ''
+    .replace(/\(.*?\)/g, ' ')                                  // drop parenthetical notes
     .replace(/\b(plain|boiled|cooked|baked|grilled|roasted|fried|raw|fresh|hard|soft)\b/g, ' ')
     .replace(/\b(of|or|with|and)\b/g, ' ')
-    .replace(/\b(slices?|slice|wedges?|wedge|sticks?|sprinkled)\b/g, ' ') // формы и нарезки
+    .replace(/\b(slices?|slice|wedges?|wedge|sticks?|sprinkled)\b/g, ' ') // remove cutting styles
     .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .replace(/\s+/g, ' ')
-    .replace(/\b(\w+)s\b/g, '$1')                              // plural → singular (грубо)
+    .replace(/\b(\w+)s\b/g, '$1')                              // naive plural → singular
     .trim();
 }
 
-// Узкий список полей — быстрее и дешевле
+// Narrow field list keeps responses small and fast
 const FIELDS = 'code,product_name,brands,serving_size,nutriments,categories_tags,last_modified_t';
 
 function cacheKey(url){ return `off:${url}`; }
@@ -94,13 +94,13 @@ async function acquireSearchToken(signal) {
 }
 
 function combineSignals(a, b) {
-  // Node 18.17+ поддерживает AbortSignal.any
+  // Node 18.17+ supports AbortSignal.any
   if (a && b && 'any' in AbortSignal) return AbortSignal.any([a, b]);
   return a || b || undefined;
 }
 
 async function fetchWithBackoff(url, { signal } = {}) {
-  // кэш перед сетью
+  // check cache before hitting the network
   const ck = cacheKey(url);
   const hit = getCache(ck);
   if (hit) return hit;
@@ -120,7 +120,7 @@ async function fetchWithBackoff(url, { signal } = {}) {
       setCache(ck, json, TTL);
       return json;
     } catch (e) {
-      clearTimeout(timeoutId);            // важно: чистим именно timeoutId
+      clearTimeout(timeoutId);            // always clear timeout handle
       if (attempt === 2) throw e;
       await new Promise(r => setTimeout(r, delay + Math.floor(Math.random()*120)));
       delay *= 2;
@@ -135,7 +135,7 @@ export async function getByBarcode(barcode, { signal } = {}) {
   return json.product;
 }
 
-// V1 полнотекстовый поиск (стабильный)
+// Primary OFF search endpoint (stable)
 export async function searchByNameV1(query, { signal, categoryTags = [], preferPlain = false } = {}) {
   await acquireSearchToken(signal);
 

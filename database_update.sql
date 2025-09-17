@@ -1,52 +1,52 @@
--- SQL скрипт для обновления схемы базы данных Soma Diet Tracker
--- Добавляет поля для onboarding системы и персонализированных целей
+-- SQL script to update the Soma Diet Tracker schema
+-- Adds onboarding fields and personalized goal columns
 
--- Обновляем таблицу users, добавляя поля для профиля пользователя
-ALTER TABLE users 
-ADD COLUMN IF NOT EXISTS age INTEGER,
-ADD COLUMN IF NOT EXISTS gender VARCHAR(10),
-ADD COLUMN IF NOT EXISTS height_cm INTEGER,
-ADD COLUMN IF NOT EXISTS weight_kg INTEGER,
-ADD COLUMN IF NOT EXISTS fitness_goal VARCHAR(20),
-ADD COLUMN IF NOT EXISTS activity_level VARCHAR(20),
-ADD COLUMN IF NOT EXISTS fat_goal_g INTEGER,
-ADD COLUMN IF NOT EXISTS carbs_goal_g INTEGER,
-ADD COLUMN IF NOT EXISTS profile_completed_at TIMESTAMP WITH TIME ZONE;
+-- Update users table with profile fields
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS age INTEGER,
+  ADD COLUMN IF NOT EXISTS gender VARCHAR,
+  ADD COLUMN IF NOT EXISTS height_cm INTEGER,
+  ADD COLUMN IF NOT EXISTS weight_kg INTEGER,
+  ADD COLUMN IF NOT EXISTS fitness_goal VARCHAR,
+  ADD COLUMN IF NOT EXISTS activity_level VARCHAR,
+  ADD COLUMN IF NOT EXISTS profile_completed_at TIMESTAMPTZ;
 
--- Добавляем комментарии для документации
-COMMENT ON COLUMN users.age IS 'User age for BMR calculation';
-COMMENT ON COLUMN users.gender IS 'User gender (male/female) for BMR calculation';
+-- Document the new columns
+COMMENT ON COLUMN users.age IS 'User age in years';
+COMMENT ON COLUMN users.gender IS 'User gender self-description';
 COMMENT ON COLUMN users.height_cm IS 'User height in centimeters';
 COMMENT ON COLUMN users.weight_kg IS 'User weight in kilograms';
-COMMENT ON COLUMN users.fitness_goal IS 'User fitness goal (lose/maintain/gain)';
-COMMENT ON COLUMN users.activity_level IS 'User activity level (sedentary/light/moderate/very/extreme)';
-COMMENT ON COLUMN users.fat_goal_g IS 'Daily fat goal in grams';
-COMMENT ON COLUMN users.carbs_goal_g IS 'Daily carbohydrates goal in grams';
-COMMENT ON COLUMN users.profile_completed_at IS 'Timestamp when user completed profile setup';
+COMMENT ON COLUMN users.fitness_goal IS 'Weight objective: lose, gain, maintain';
+COMMENT ON COLUMN users.activity_level IS 'Activity level enum';
+COMMENT ON COLUMN users.profile_completed_at IS 'Timestamp when onboarding finished';
 
--- Создаем индексы для оптимизации запросов
-CREATE INDEX IF NOT EXISTS idx_users_profile_completed ON users(profile_completed_at) WHERE profile_completed_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_users_fitness_goal ON users(fitness_goal) WHERE fitness_goal IS NOT NULL;
+-- Create helper indexes
+CREATE INDEX IF NOT EXISTS idx_users_telegram ON users(telegram_user_id);
+CREATE INDEX IF NOT EXISTS idx_entries_user_day ON entries(user_id, day_local);
 
--- Проверяем существующие поля (должны уже существовать)
--- Если нужно, раскомментируйте и добавьте недостающие поля:
+-- Existing columns reference (run if needed)
+-- ALTER TABLE users ADD COLUMN ...;
 
--- ALTER TABLE users ADD COLUMN IF NOT EXISTS cal_goal INTEGER DEFAULT 2000;
--- ALTER TABLE users ADD COLUMN IF NOT EXISTS protein_goal_g INTEGER DEFAULT 150;  
--- ALTER TABLE users ADD COLUMN IF NOT EXISTS fiber_goal_g INTEGER DEFAULT 25;
+-- Set default values for legacy users
+UPDATE users
+SET
+  cal_goal = COALESCE(cal_goal, 2000),
+  protein_goal_g = COALESCE(protein_goal_g, 150),
+  fiber_goal_g = COALESCE(fiber_goal_g, 25),
+  fat_goal_g = COALESCE(fat_goal_g, 65),
+  carbs_goal_g = COALESCE(carbs_goal_g, 250)
+WHERE cal_goal IS NULL
+   OR protein_goal_g IS NULL
+   OR fiber_goal_g IS NULL
+   OR fat_goal_g IS NULL
+   OR carbs_goal_g IS NULL;
 
--- Обновляем дефолтные значения для пользователей без профиля
-UPDATE users 
-SET 
-    cal_goal = COALESCE(cal_goal, 2000),
-    protein_goal_g = COALESCE(protein_goal_g, 150),
-    fiber_goal_g = COALESCE(fiber_goal_g, 25),
-    fat_goal_g = COALESCE(fat_goal_g, 65),
-    carbs_goal_g = COALESCE(carbs_goal_g, 250)
-WHERE profile_completed_at IS NULL;
-
--- Показать структуру обновленной таблицы
--- SELECT column_name, data_type, is_nullable, column_default 
--- FROM information_schema.columns 
--- WHERE table_name = 'users' 
--- ORDER BY ordinal_position;
+-- Inspect updated columns
+SELECT column_name, data_type, is_nullable, column_default
+FROM information_schema.columns
+WHERE table_name = 'users'
+  AND column_name IN (
+    'age','gender','height_cm','weight_kg',
+    'fitness_goal','activity_level','profile_completed_at'
+  )
+ORDER BY column_name;

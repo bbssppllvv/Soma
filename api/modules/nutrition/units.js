@@ -70,11 +70,11 @@ const PIECE_KEYWORD_HINTS = [
 ];
 
 const DENSITY_HINTS = [
-  { key: /oil|olive|масло/i, g_per_ml: 0.91 },
-  { key: /honey|мёд|мед/i,   g_per_ml: 1.42 },
-  { key: /milk|молоко/i,     g_per_ml: 1.03 },
-  { key: /yogurt|йогурт/i,   g_per_ml: 1.03 },
-  { key: /water|вода/i,      g_per_ml: 1.00 }
+  { key: /oil|olive|butterfat/i, g_per_ml: 0.91 },
+  { key: /honey/i,               g_per_ml: 1.42 },
+  { key: /milk/i,                g_per_ml: 1.03 },
+  { key: /yogurt/i,              g_per_ml: 1.03 },
+  { key: /water/i,               g_per_ml: 1.00 }
 ];
 
 export function parseNumberMaybeFraction(v){
@@ -115,7 +115,7 @@ function weightFromPiece(context = {}) {
   if (form === 'bar') return 50;
   if (form === 'cookie') return 25;
 
-  return 50; // fallback универсальный вес
+  return 50; // universal fallback weight
 }
 
 export function toGrams(portion, unit, name, context = {}) {
@@ -148,5 +148,5 @@ export function toGrams(portion, unit, name, context = {}) {
     return normalizedPortion * weightFromPiece({ ...context, name });
   }
 
-  return null; // попросим уточнение позже
+  return null; // ask the user for clarification later
 }

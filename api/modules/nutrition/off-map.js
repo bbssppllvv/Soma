@@ -11,7 +11,7 @@ export function mapOFFProductToPer100g(product) {
   const grams = parseServingGrams(product?.serving_size);
   const to100 = v => (Number.isFinite(+v) && grams) ? (+v) * (100/grams) : undefined;
 
-  // Конвертируем serving в per-100g если нет готовых per-100g значений
+  // Convert serving-based nutrients to per-100g when explicit values are missing
   n['energy-kcal_100g']   ??= to100(n['energy-kcal_serving']);
   n['energy-kj_100g']     ??= to100(n['energy-kj_serving']);
   n['proteins_100g']      ??= to100(n['proteins_serving'] ?? n['protein_serving']);

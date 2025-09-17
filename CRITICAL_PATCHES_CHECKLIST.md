@@ -1,83 +1,65 @@
-# ✅ Критические патчи для надежного пайплайна
+# ✅ Critical Patches for a Reliable Pipeline
 
-## 🎯 5 критически важных исправлений выполнены
+## 🎯 Five high-priority fixes already completed
 
-### 1. ✅ **БД: Единый UUID ключ пользователя**
-**Файл**: `db_migration_uuid_keys.sql`
-- UUID как первичный ключ в `users`
-- FK связь `entries.user_uuid → users.id`
-- Уникальность `telegram_user_id`
-- **Результат**: Джойны не ломаются, связи надежные
+### 1. ✅ Database: unified UUID user key
+**File:** `db_migration_uuid_keys.sql`
+- UUID is now the primary key in `users`
+- `entries.user_uuid` → `users.id` foreign key
+- `telegram_user_id` remains unique
+- **Result:** joins are stable and relationships are safe
 
-### 2. ✅ **Идемпотентность записей сообщений**
-**Включено в**: `db_migration_uuid_keys.sql`
-```sql
-ALTER TABLE entries ADD CONSTRAINT uniq_chat_msg UNIQUE (chat_id, message_id);
+### 2. ✅ Idempotent message writes
+**Included in:** `db_migration_uuid_keys.sql`
+- `ON CONFLICT (chat_id, message_id) DO NOTHING`
+- **Result:** duplicate messages from Telegram are ignored
+
+### 3. ✅ OFF: support for serving-only products
+**File:** `api/modules/nutrition/off-map.js`
+- Parse `serving_size` (e.g. `"150g"`)
+- Convert serving → per-100g through `to100`
+- Fall back to per-100g values when serving is missing
+- **Result:** significantly higher OFF coverage
+
+### 4. ✅ Cache memory cap (LRU)
+**File:** `api/modules/nutrition/simple-cache.js`
+- LRU eviction keeps at most 1,000 items
+- **Result:** serverless workers do not balloon in memory
+
+### 5. ✅ Normalized UPC and fractional portions
+**Files:** 
+- `api/modules/nutrition/off-resolver.js`
+- `api/modules/nutrition/units.js`
+- Strip non-digits in UPC, handle fractions like `½`
+- **Result:** fewer UPC failures, fractions convert correctly
+
+## 🚀 Production readiness
+
+### Before enabling OFF
+1. **Apply the DB migration:** `psql < db_migration_uuid_keys.sql`
+2. **Ensure entries insertion is idempotent:** add `ON CONFLICT` guard
+3. **Verify test cases:**
+   - `½ cup milk` converts correctly
+   - UPC with dashes gets normalized
+   - Serving-only products resolve via OFF
+
+### Safe rollout
 ```
-- **Результат**: Дубликаты от Telegram исключены
-
-### 3. ✅ **OFF: Поддержка serving-only продуктов**
-**Файл**: `api/modules/nutrition/off-map.js`
-- Парсинг `serving_size` (например "150g")
-- Конвертация serving → per-100g через `to100 = v => (+v) * (100/grams)`
-- Fallback на per-100g если serving недоступен
-- **Результат**: Coverage OFF сильно повышен
-
-### 4. ✅ **Ограничение памяти кэша (LRU-cap)**
-**Файл**: `api/modules/nutrition/simple-cache.js`
-```javascript
-const MAX_ITEMS = 1000;
-// LRU: удаляем самый старый при превышении лимита
-```
-- **Результат**: Serverless воркеры не раздуваются
-
-### 5. ✅ **Нормализация UPC и дробных порций**
-**Файлы**: 
-- `api/modules/nutrition/off-resolver.js`: `normalizeUPC()`
-- `api/modules/nutrition/units.js`: `parseNumberMaybeFraction()`
-
-```javascript
-// UPC: только цифры
-normalizeUPC("12-345-67890") → "1234567890"
-
-// Дроби: ½ → 0.5
-parseNumberMaybeFraction("1/2") → 0.5
-parseNumberMaybeFraction("150") → 150
-```
-- **Результат**: Меньше фейлов по UPC, "½ cup" не ломает конвертацию
-
----
-
-## 🚀 Готовность к production
-
-### Перед включением OFF:
-1. **Выполнить миграцию БД**: `psql < db_migration_uuid_keys.sql`
-2. **Обновить код вставки entries**: добавить `ON CONFLICT (chat_id, message_id) DO NOTHING`
-3. **Проверить тестовые кейсы**:
-   - "½ cup milk" → должен конвертироваться
-   - UPC с дефисами → должен нормализоваться
-   - Serving-only продукты → должны резолвиться
-
-### Безопасное включение:
-```bash
 OFF_ENABLED=true
-OFF_ENABLED_PERCENT=10  # 10% трафика
+OFF_ENABLED_PERCENT=10  # 10% of traffic
 ```
 
-### Мониторинг:
-- **Coverage**: доля успешных резолвов
-- **P50 латентность**: < 2-3с
-- **Ask-rate**: доля needs_clarification
-- **Логи**: `OFF resolved X/Y items (Z%) in Nms`
+### Monitoring
+- **Coverage:** share of successful OFF resolutions
+- **P50 latency:** < 2–3 seconds
+- **Ask-rate:** frequency of `needs_clarification`
+- **Logs:** `OFF resolved X/Y items (Z%) in N ms`
 
----
+## ⚡ Critical baseline achieved
+- ✅ Database relations stay intact  
+- ✅ Duplicates are ignored  
+- ✅ OFF resolves serving-only products  
+- ✅ Cache remains bounded  
+- ✅ UPC/fraction edge cases are handled  
 
-## ⚡ Критический минимум достигнут
-
-✅ БД связки не ломаются  
-✅ Дубликаты исключены  
-✅ OFF покрывает serving-only  
-✅ Кэш не распухает  
-✅ UPC/дроби не косячат  
-
-**Система готова к OFF_ENABLED=true на 10% трафика!** 🎯
+Continue iterating with confidence!

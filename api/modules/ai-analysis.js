@@ -2,6 +2,8 @@
 
 import { GPT_NUTRITION_SCHEMA } from './nutrition/contract.js';
 import { resolveItemsWithOFF } from './nutrition/resolve-pipeline.js';
+import { calculateMealScore } from './utils.js';
+import { toGrams } from './nutrition/units.js';
 
 // Universal GPT-5 analysis with two-tier strategy and user feedback
 export async function analyzeWithGPT5(message, openaiKey, userContext, botToken) {
@@ -17,7 +19,7 @@ export async function analyzeWithGPT5(message, openaiKey, userContext, botToken)
     
     // Check if escalation to full GPT-5 is needed AND we have time budget
     const elapsed = Date.now() - startTime;
-    const canEscalate = elapsed < 15000; // максимум 15s на весь анализ
+    const canEscalate = elapsed < 15000; // cap full analysis at 15s total
     
     if (shouldEscalate(miniResult, text, hasPhoto) && canEscalate) {
       console.log('Escalating to full GPT-5 for better accuracy...');
@@ -112,7 +114,7 @@ async function tryAnalysis(message, openaiKey, userContext, model, detailLevel) 
 
       if (openaiResponse.ok) {
         const openaiData = await openaiResponse.json();
-        return await parseGPT5Response(openaiData, userContext);
+        return await parseGPT5Response(openaiData, userContext, text);
       }
 
       // Retry logic for 429/500 errors
@@ -264,6 +266,12 @@ function normalizeNameKey(name = '') {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+function formatPortionDisplay(value, unit = 'g') {
+  if (!Number.isFinite(value)) return null;
+  const rounded = value >= 100 ? Math.round(value) : Math.round(value * 10) / 10;
+  return `${rounded} ${unit}`.trim();
+}
+
 function mergeSimilarItems(items) {
   const map = new Map();
   for (const item of items) {
@@ -276,6 +284,10 @@ function mergeSimilarItems(items) {
       const portion = Number(item.portion);
       if (Number.isFinite(portion)) {
         target.portion = Number(target.portion || 0) + portion;
+      }
+      if (Number.isFinite(item.portion_value)) {
+        const currentValue = Number(target.portion_value);
+        target.portion_value = Number.isFinite(currentValue) ? currentValue + item.portion_value : item.portion_value;
       }
       target.confidence = Math.max(target.confidence || 0, item.confidence || 0);
       if (target.brand !== item.brand) target.brand = null;
@@ -294,6 +306,24 @@ function mergeSimilarItems(items) {
           target.data_source = item.data_source || target.data_source || 'ai';
         }
       }
+      if (item.portion_source === 'user') {
+        target.portion_source = 'user';
+        target.portion_reason = item.portion_reason || target.portion_reason;
+      } else if (!target.portion_source) {
+        target.portion_source = item.portion_source;
+      }
+      if (!target.portion_reason) {
+        target.portion_reason = item.portion_reason;
+      }
+      if (!target.portion_unit && item.portion_unit) {
+        target.portion_unit = item.portion_unit;
+      }
+      if (!target.portion_display && item.portion_display) {
+        target.portion_display = item.portion_display;
+      }
+      if (Number.isFinite(target.portion_value) && target.portion_value > 0 && !target.portion_display) {
+        target.portion_display = formatPortionDisplay(target.portion_value, target.portion_unit || 'g');
+      }
     }
   }
   return [...map.values()];
@@ -307,37 +337,56 @@ function filterZeroUtilityItems(items) {
   });
 }
 
-function normalizeAnalysisPayload(parsed) {
-  // 1) items[] могут отсутствовать — сделаем безопасный дефолт
+function normalizeAnalysisPayload(parsed, { messageText = '' } = {}) {
+  // 1) items[] might be missing — create a safe default
+  const hasUserText = Boolean(messageText && messageText.trim().length > 0);
   const rawItems = Array.isArray(parsed.items) ? parsed.items : [];
   const enrichedItems = rawItems.map(item => {
     const role = item?.item_role === 'dish' ? 'dish' : 'ingredient';
+    const rawUnit = typeof item?.unit === 'string' ? item.unit.trim() : '';
     const brand = typeof item?.brand === 'string' ? item.brand.trim() : '';
     const upc = typeof item?.upc === 'string' ? item.upc.trim() : '';
     const offCandidate = Boolean(brand || upc);
     const name = item?.name || 'Unknown';
+    const portionGrams = toGrams(item.portion, item.unit, item.name, item);
+    let portionSource = hasUserText ? 'user' : 'ai';
+    let portionReason = hasUserText ? 'user_text' : 'gpt_guess';
+    if (!Number.isFinite(portionGrams)) {
+      if (hasUserText) {
+        portionReason = 'user_text_unparsed';
+      }
+    }
     if (!offCandidate) {
       console.log(`[analysis] item="${name}" role=${role} source=AI (no brand/upc) brand=${brand || 'null'} upc=${upc || 'null'}`);
     } else {
       console.log(`[analysis] item="${name}" role=${role} source=OFF_CANDIDATE brand=${brand || 'null'} upc=${upc || 'null'}`);
     }
+    const normalizedUnit = sanitizeUnit(item?.unit);
+    const portionUnit = normalizedUnit && /ml|l/.test(normalizedUnit.toLowerCase()) ? 'ml' : 'g';
+    const rawPortionDisplay = item?.portion != null && rawUnit ? `${item.portion} ${rawUnit}` : null;
+    const normalizedPortionValue = Number.isFinite(portionGrams) ? portionGrams : null;
+    const normalizedPortionDisplay = rawPortionDisplay || (Number.isFinite(portionGrams) ? formatPortionDisplay(portionGrams, portionUnit) : null);
     return {
       ...item,
       item_role: role,
-      unit: sanitizeUnit(item?.unit),
+      unit: normalizedUnit,
       brand: brand || null,
       upc: upc || null,
       off_candidate: offCandidate,
       data_source: item?.data_source === 'off' ? 'off' : (item?.data_source === 'ai_fallback' ? 'ai_fallback' : 'ai'),
-      locked_source: item?.data_source === 'off'
+      locked_source: item?.data_source === 'off',
+      portion_source: portionSource,
+      portion_reason: portionReason,
+      portion_value: normalizedPortionValue,
+      portion_unit: portionUnit,
+      portion_display: normalizedPortionDisplay
     };
   });
 
   const mergedItems = mergeSimilarItems(enrichedItems);
   const items = filterZeroUtilityItems(mergedItems);
 
-  // 2) агрегаты: если их нет (в будущем форсируем подсчёт из items),
-  //    сейчас оставим как есть, чтобы ничего не ломать
+  // 2) aggregates: keep model-provided values (later we can derive from items)
   const aggregates = {
     calories: safeNum(parsed.calories),
     protein_g: safeNum(parsed.protein_g),
@@ -346,11 +395,11 @@ function normalizeAnalysisPayload(parsed) {
     fiber_g:   safeNum(parsed.fiber_g)
   };
 
-  // 3) прочее
+  // 3) misc fields
   const advice_short = (parsed.advice_short || 'Analyzed.').slice(0, 120);
   let needs_clarification = Boolean(parsed.needs_clarification);
   
-  // Умная логика: если агрегаты == 0 и items[] есть — нужно уточнение
+  // Smart logic: if aggregates are zero while items exist — ask for clarification
   if (!needs_clarification && items.length > 0) {
     const hasZeroAggregates = aggregates.calories === 0 && aggregates.protein_g === 0 && 
                              aggregates.fat_g === 0 && aggregates.carbs_g === 0;
@@ -409,7 +458,7 @@ function extractFirstBalancedJson(s) {
       depth--;
       if (depth === 0 && start !== -1) {
         const candidate = s.slice(start, i + 1);
-        try { return JSON.parse(candidate); } catch { /* попробуем дальше */ }
+        try { return JSON.parse(candidate); } catch { /* keep scanning */ }
       }
     }
   }
@@ -421,7 +470,7 @@ const OFF_ENABLED = String(process.env.OFF_ENABLED || 'false').toLowerCase() ===
 async function maybeResolveWithOFFIfEnabled(norm, userContext) {
   if (!OFF_ENABLED) return null;
   
-  // Процентное включение для постепенного rollout
+  // Percentage-based rollout toggle
   const P = Number(process.env.OFF_ENABLED_PERCENT || 100);
   const roll = Math.random() * 100 < P;
   if (!roll) return null;
@@ -435,7 +484,7 @@ async function maybeResolveWithOFFIfEnabled(norm, userContext) {
     const result = await resolveItemsWithOFF(norm.items, { signal: ac.signal });
     const duration = Date.now() - startTime;
     
-    // Логируем OFF-хиты для метрик
+    // Log OFF hits for metrics
     if (result) {
       const hits = result.items.filter(x => x.resolved?.source === 'off');
       const status = hits.length > 0 ? 'USED' : 'FALLBACK';
@@ -454,7 +503,7 @@ async function maybeResolveWithOFFIfEnabled(norm, userContext) {
     
     return result;
   } catch (error) {
-    // Молча падаем в fallback - пользователь ничего не почувствует
+    // Quietly fall back to model aggregates so the user experience is unaffected
     console.log('OFF resolution failed, falling back to model aggregates:', error.message);
     return null;
   } finally {
@@ -462,10 +511,10 @@ async function maybeResolveWithOFFIfEnabled(norm, userContext) {
   }
 }
 
-async function finalize(parsed, userContext) {
-  const norm = normalizeAnalysisPayload(parsed);
+async function finalize(parsed, userContext, messageText = '') {
+  const norm = normalizeAnalysisPayload(parsed, { messageText });
   
-  // Дебаг: логируем items от GPT
+  // Debug: log GPT items
   if (norm.items && norm.items.length > 0) {
     console.log('GPT items:', JSON.stringify(norm.items, null, 2));
   }
@@ -488,11 +537,11 @@ async function finalize(parsed, userContext) {
     console.log('[analysis] OFF skipped: no branded items');
   }
 
-  // Используем OFF агрегаты только если есть успешно резолвленные items
+  // Use OFF aggregates only when at least one item resolved successfully
   const hasResolvedItems = Boolean(off?.items && off.items.some(x => x?.resolved?.source === 'off'));
   
   const final = hasResolvedItems
-    // если OFF сработал И есть резолвленные items — используем детерминированные агрегаты
+    // When OFF succeeds, rely on deterministic aggregates from OFF
     ? {
         calories: Math.round(off.aggregates.calories),
         protein_g: round(off.aggregates.protein_g, 1),
@@ -504,12 +553,12 @@ async function finalize(parsed, userContext) {
         needs_clarification: off.items.some(x => x.needs_clarification),
         confidence: clamp(avg(off.items.map(x => x.confidence)), 0.1, 1.0),
         assumptions: norm.assumptions,
-        // Сохраняем совместимость с текущим API
+        // Preserve compatibility with the current API
         food_name: (parsed.food_name || 'Unknown Food').substring(0, 100),
         portion_size: (parsed.portion_size || 'Standard').substring(0, 50),
         portion_description: (parsed.portion_description || 'Medium serving').substring(0, 100)
       }
-    // иначе — как было (агрегаты модели)
+    // Otherwise fall back to model aggregates
     : {
         calories: Math.max(1, Math.min(2000, Math.round(norm.aggregates.calories))),
         protein_g: Math.max(0, Math.min(100, round(norm.aggregates.protein_g, 1))),
@@ -521,16 +570,16 @@ async function finalize(parsed, userContext) {
         needs_clarification: norm.needs_clarification,
         confidence: clamp(parsed.confidence ?? avgItemConf(norm.items) ?? 0.7, 0.1, 1.0),
         assumptions: norm.assumptions,
-        // Сохраняем совместимость с текущим API
+        // Preserve compatibility with the current API
         food_name: (parsed.food_name || 'Unknown Food').substring(0, 100),
         portion_size: (parsed.portion_size || 'Standard').substring(0, 50),
         portion_description: (parsed.portion_description || 'Medium serving').substring(0, 100)
       };
 
-  // Гард против нулевых агрегатов
+  // Guard against zeroed aggregates
   if (allZeroAgg(final)) {
     final.needs_clarification = true;
-    final.advice_short = final.advice_short || "Уточните порцию (например: 100 g или 1 cup).";
+    final.advice_short = final.advice_short || 'Please clarify the portion (for example: 100 g or 1 cup).';
     final.score = 0;
     const offStatus = !offEnabled ? 'disabled' : hasResolvedItems ? 'used' : offAttempted ? 'fallback' : 'skipped';
     const itemsWithSource = decorateItemsWithSource(final.items || [], offStatus, offReasons, offAttempted);
@@ -569,7 +618,11 @@ function decorateItemsWithSource(items, offStatus, offReasons, offAttempted) {
     }
     const reasonKey = String(item.name || '').toLowerCase();
     const reason = reasonMap.get(reasonKey) || (source === 'off' ? 'off_match' : source === 'ai_fallback' ? offStatus : 'ai');
-    console.log(`[analysis] decision item="${item.name || 'Unknown'}" role=${item.item_role} brand=${item.brand || 'null'} upc=${item.upc || 'null'} source=${source} reason=${reason}`);
+    const portionValue = Number.isFinite(item.portion_value) ? item.portion_value : null;
+    const portionUnit = item.portion_unit || (item.unit && typeof item.unit === 'string' && item.unit.toLowerCase().includes('ml') ? 'ml' : 'g');
+    const portionLabel = item.portion_display || (portionValue != null ? formatPortionDisplay(portionValue, portionUnit) : 'n/a');
+    const portionReason = item.portion_reason || 'n/a';
+    console.log(`[analysis] decision item="${item.name || 'Unknown'}" role=${item.item_role} brand=${item.brand || 'null'} upc=${item.upc || 'null'} source=${source} reason=${reason} portion=${portionLabel} (${portionReason})`);
     return { ...item, data_source: source, locked_source: item.locked_source === true };
   });
 }
@@ -597,7 +650,7 @@ function logDecisionSummary(items, offStatus, offReasons) {
 }
 
 // Parse GPT-5 response with robust fallback
-async function parseGPT5Response(openaiData, userContext) {
+async function parseGPT5Response(openaiData, userContext, messageText = '') {
   const texts = [];
   if (typeof openaiData.output_text === 'string') texts.push(openaiData.output_text);
   if (Array.isArray(openaiData.output)) {
@@ -609,12 +662,12 @@ async function parseGPT5Response(openaiData, userContext) {
   }
 
   for (const t of texts) {
-    try { return await finalize(JSON.parse(t), userContext); } catch {}
+    try { return await finalize(JSON.parse(t), userContext, messageText); } catch {}
     const bal = extractFirstBalancedJson(t);
-    if (bal) { try { return await finalize(bal, userContext); } catch {} }
+    if (bal) { try { return await finalize(bal, userContext, messageText); } catch {} }
   }
   
-  // последняя линия обороны — не валим UX
+  // Final safety net — do not break UX
   console.error('JSON parse failed — returning safe fallback');
   console.error('GPT-5 response structure:', Object.keys(openaiData || {}));
   console.error('Output text (start):', String(openaiData.output_text || '').slice(0, 400));
@@ -638,8 +691,4 @@ export function getFallbackAnalysis(message) {
     score: 6.0
   };
 }
-
-// Import scoring from utils
-import { calculateMealScore } from './utils.js';
-
 // Legacy functions removed - using universal analyzeWithGPT5 only

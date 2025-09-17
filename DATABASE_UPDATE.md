@@ -1,151 +1,55 @@
-# 🗄️ Обновление Базы Данных для Onboarding Системы
+# Database Update Guide
 
-## 📋 Обзор изменений
+## 🎯 Goal
+Introduce onboarding fields and personalized nutrition targets while keeping existing users intact.
 
-Для работы новой onboarding системы с персонализированными целями питания необходимо добавить следующие поля в таблицу `users`:
+## ✅ Prerequisites
+- Supabase project set up
+- Access rights to run SQL migrations
+- Latest code pulled locally
 
-### Новые поля для профиля пользователя:
-- `age` (INTEGER) - возраст для расчета BMR
-- `gender` (VARCHAR) - пол (male/female) для расчета BMR  
-- `height_cm` (INTEGER) - рост в сантиметрах
-- `weight_kg` (INTEGER) - вес в килограммах
-- `fitness_goal` (VARCHAR) - цель (lose/maintain/gain)
-- `activity_level` (VARCHAR) - уровень активности
-- `fat_goal_g` (INTEGER) - цель по жирам в граммах
-- `carbs_goal_g` (INTEGER) - цель по углеводам в граммах
-- `profile_completed_at` (TIMESTAMP) - когда завершен onboarding
+## 🛠️ Steps
+1. Apply `db_migration_uuid_keys.sql`
+2. Apply `database_update.sql`
+3. Apply `entries_update.sql`
 
-## 🚀 Инструкция по обновлению
+## 🔍 Data validation
+- Confirm new users have profile fields populated
+- Ensure existing users received default goals
+- Verify `/goals` shows defaults for legacy users
 
-### Шаг 1: Резервное копирование
-```sql
--- Создайте резервную копию таблицы users
-CREATE TABLE users_backup AS SELECT * FROM users;
-```
+## 🧪 Smoke tests
+- Create a new user via `/start` → should enter onboarding
+- Complete onboarding and verify goals saved
+- For existing users, run `/profile` and ensure defaults appear
 
-### Шаг 2: Проверка текущей схемы
-```bash
-# Запустите скрипт проверки в Supabase SQL Editor
-cat check_database.sql
-```
+## 🧾 Troubleshooting
+### “column already exists”
+Safe to ignore — scripts use `ADD COLUMN IF NOT EXISTS`.
 
-### Шаг 3: Применение обновлений
-```bash
-# Запустите скрипт обновления в Supabase SQL Editor
-cat database_update.sql
-```
+### Permission errors
+Ensure you have alter privileges in Supabase.
 
-### Шаг 4: Проверка результата
-```sql
--- Проверьте что все поля добавились
-SELECT column_name, data_type, is_nullable 
-FROM information_schema.columns 
-WHERE table_name = 'users' 
-AND column_name IN ('age', 'gender', 'height_cm', 'weight_kg', 'fitness_goal', 'activity_level', 'fat_goal_g', 'carbs_goal_g', 'profile_completed_at')
-ORDER BY column_name;
-```
+### Users skip onboarding
+1. Confirm columns exist in the database
+2. Redeploy the bot
+3. Restart Telegram client to clear cache
 
-## 🔧 Как выполнить в Supabase
+## 📊 Expected outcome
+### New users
+- Automatically enter onboarding when using `/start`
+- Receive personalized goals after onboarding
+- Data stored in new fields
 
-### Через Supabase Dashboard:
-1. Откройте ваш проект в [Supabase Dashboard](https://app.supabase.com)
-2. Перейдите в **SQL Editor**
-3. Создайте новый запрос
-4. Скопируйте содержимое `check_database.sql` и выполните
-5. Проверьте результаты
-6. Создайте еще один новый запрос
-7. Скопируйте содержимое `database_update.sql` и выполните
-8. Проверьте что все поля добавились
+### Existing users
+- Default values populated for new fields
+- `/profile` prompts to configure goals
+- Users can run onboarding at any time
 
-### Через CLI (если настроен):
-```bash
-# Если у вас настроен Supabase CLI
-supabase db reset --local  # для локальной разработки
-# или
-psql "postgresql://[user]:[password]@[host]:[port]/[database]" < database_update.sql
-```
+### Goal calculation
+- BMR via Mifflin–St Jeor formula
+- TDEE includes activity level
+- Goals adjusted for lose/gain/maintain
 
-## ✅ Проверка работоспособности
-
-После обновления схемы:
-
-1. **Перезапустите бота** (redeploy на Vercel)
-2. **Протестируйте onboarding**:
-   - Отправьте `/start` новому пользователю
-   - Пройдите весь процесс onboarding
-   - Проверьте что данные сохраняются в базе
-3. **Проверьте существующих пользователей**:
-   - Команда `/profile` должна предложить настройку
-   - Команда `/goals` должна показать дефолтные цели
-
-## 🔍 Проверка данных
-
-```sql
--- Проверьте что у новых пользователей сохраняется профиль
-SELECT 
-    telegram_user_id,
-    display_name,
-    age,
-    gender,
-    height_cm,
-    weight_kg,
-    fitness_goal,
-    activity_level,
-    cal_goal,
-    protein_goal_g,
-    fat_goal_g,
-    carbs_goal_g,
-    fiber_goal_g,
-    profile_completed_at
-FROM users 
-WHERE profile_completed_at IS NOT NULL
-ORDER BY profile_completed_at DESC;
-
--- Проверьте пользователей без профиля (должны получить дефолтные значения)
-SELECT 
-    telegram_user_id,
-    display_name,
-    cal_goal,
-    protein_goal_g,
-    fat_goal_g,
-    carbs_goal_g,
-    fiber_goal_g
-FROM users 
-WHERE profile_completed_at IS NULL;
-```
-
-## 🚨 Troubleshooting
-
-### Ошибка "column already exists"
-Это нормально - скрипт использует `ADD COLUMN IF NOT EXISTS`, поэтому безопасно запускать несколько раз.
-
-### Ошибка доступа к базе
-Убедитесь что у вас есть права на изменение схемы в Supabase.
-
-### Пользователи не видят onboarding
-1. Проверьте что поля добавились в базу
-2. Перезапустите бота (redeploy)
-3. Очистите кэш Telegram: перезапустите приложение
-
-## 📊 Ожидаемый результат
-
-После успешного обновления:
-
-### Новые пользователи:
-- Автоматически попадают в onboarding при `/start`
-- Получают персонализированные цели после завершения
-- Все данные сохраняются в новых полях
-
-### Существующие пользователи:
-- Получают дефолтные значения для новых полей
-- Команда `/profile` предлагает настройку
-- Могут пройти onboarding в любое время
-
-### Расчет целей:
-- BMR рассчитывается по формуле Миффлина-Сан Жеора
-- TDEE учитывает уровень активности
-- Цели корректируются под цель (похудение/набор/поддержание)
-
-## 🎉 Готово!
-
-После выполнения всех шагов ваша база данных будет готова для работы с новой onboarding системой!
+## 🎉 Done!
+After completing the steps above, the database is ready for the enhanced onboarding flow.

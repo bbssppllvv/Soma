@@ -1,74 +1,63 @@
-# Nutrition Analysis Module
+# Nutrition Module Overview
 
-## Шаг 1: Фундамент (✅ Завершен)
+## Phase 1: Foundation (✅ Complete)
+A unified data contract and normalizer are in place, ready for future data providers.
 
-Создан единый контракт данных и нормализатор, готовый к подключению внешних провайдеров питания.
+## Phase 2: Open Food Facts Behind a Feature Flag (✅ Complete)
+OpenFoodFacts integration is available behind the `OFF_ENABLED` flag (disabled by default).
 
-## Шаг 2: OFF под фичефлагом (✅ Завершен)
+## Structure
+- `contract.js` – shared `GPT_NUTRITION_SCHEMA`
+- `units.js` – helpers for converting units to grams
+- `simple-cache.js` – in-memory cache for serverless environments
+- `off-client.js` – OpenFoodFacts HTTP client with retries
+- `off-map.js` – maps OFF data to standardized nutrient format
+- `off-resolver.js` – resolves products by UPC/name with scoring
+- `resolve-pipeline.js` – main pipeline that enriches GPT items via OFF
+- `README.md` – this documentation
 
-Подключен OpenFoodFacts API под фичефлагом `OFF_ENABLED=false` (выключен по умолчанию).
+## Changes in `ai-analysis.js`
+1. **Unified schema** – both photo and text builders use `GPT_NUTRITION_SCHEMA`
+2. **Required aggregates** – calories, macros, and fiber are mandatory
+3. **Robust parsing** – `extractFirstBalancedJson()` handles responses with preambles
+4. **Normalizer** – `normalizeAnalysisPayload()` produces a consistent payload
+5. **Safety guards** – defensive prompts reduce hallucinations for both builders
+6. **Compatibility** – `cleanNutritionData()` retained as a deprecated wrapper
+7. **Smart logic** – auto-sets `needs_clarification=true` when aggregates are zero
+8. **Debugging** – logs `x-request-id` for easier OpenAI troubleshooting
+9. **OFF integration** – `maybeResolveWithOFFIfEnabled()` enriches via OpenFoodFacts
+10. **Deterministic aggregates** – OFF results override model estimates when available
 
-### Структура
-
-- `contract.js` - Единый контракт `GPT_NUTRITION_SCHEMA` для всех провайдеров
-- `units.js` - Утилиты для конвертации единиц измерения в граммы
-- `simple-cache.js` - In-memory кеш для serverless окружения
-- `off-client.js` - HTTP клиент для OpenFoodFacts API с retry логикой
-- `off-map.js` - Маппинг данных OFF в стандартный формат нутриентов
-- `off-resolver.js` - Резолв продуктов по UPC/названию + скоринг
-- `resolve-pipeline.js` - Главный пайплайн обработки items[] через OFF
-- `README.md` - Документация модуля
-
-### Изменения в ai-analysis.js
-
-1. **Единая схема**: Оба билдера (фото и текст) используют `GPT_NUTRITION_SCHEMA`
-2. **Обязательные поля**: Агрегаты (calories, protein_g, fat_g, carbs_g, fiber_g) теперь required
-3. **Надежный парсинг**: `extractFirstJson()` обрабатывает ответы с преамбулой
-4. **Нормализатор**: `normalizeAnalysisPayload()` приводит ответы к единому формату
-5. **Безопасность**: Микро-гарды в обоих билдерах (фото и текст) для уменьшения галлюцинаций
-6. **Совместимость**: `cleanNutritionData()` сохранен как deprecated wrapper
-7. **Умная логика**: Автоматическое выставление `needs_clarification=true` при нулевых агрегатах
-8. **Дебаг**: Логирование x-request-id для упрощения отладки OpenAI API
-9. **OFF интеграция**: `maybeResolveWithOFFIfEnabled()` - условный резолв через OpenFoodFacts
-10. **Детерминированные агрегаты**: При `OFF_ENABLED=true` и наличии items[] - точный подсчет из реальных нутриентов
-
-### Переменные окружения
-
-```bash
-OFF_ENABLED=false                    # Включение/выключение OFF
-OFF_ENABLED_PERCENT=100              # Процент трафика для OFF (0-100)
-OFF_BASE_URL=https://world.openfoodfacts.org
-OFF_USER_AGENT=SomaDietTracker/1.0 (support@yourdomain.com)
-OFF_LANG=en
-OFF_TIMEOUT_MS=3500                  # Таймаут запросов к OFF
-OFF_CACHE_TTL_MS=10800000           # TTL кеша (3 часа)
+## Environment variables
+```
+OFF_ENABLED=false                    # Enable/disable OFF
+OFF_ENABLED_PERCENT=100              # Percentage of traffic hitting OFF (0-100)
+OFF_TIMEOUT_MS=6000                  # OFF request timeout
+OFF_CACHE_TTL_MS=10800000           # Cache TTL (3 hours)
 ```
 
-### Безопасность и надежность
+## Reliability notes
+- OFF is disabled by default (`OFF_ENABLED=false`)
+- Gradual rollout with `OFF_ENABLED_PERCENT`
+- Graceful fallback when OFF fails
+- Proper AbortSignal chaining
+- Filters to confidence ≥ 0.4, max 6 items
+- Reject items without useful nutrients
+- Density table for ml→g conversions (oil, honey, milk)
+- Logging coverage, latency, and product codes
 
-- **По умолчанию выключено**: `OFF_ENABLED=false`
-- **Процентный rollout**: `OFF_ENABLED_PERCENT` для постепенного включения
-- **Graceful fallback**: При ошибках OFF молча возвращаемся к модельным агрегатам
-- **Комбинированные таймауты**: Правильное объединение AbortSignal
-- **Фильтрация items**: Только confidence ≥ 0.4, максимум 6 позиций
-- **Проверка нутриентов**: Отклонение продуктов без полезных данных
-- **Умная конвертация**: Таблица плотностей для ml→g (масло, мед, молоко)
-- **Логирование метрик**: Coverage, время, product codes для анализа
+## Production rollout
+1. Enable `OFF_ENABLED=true` with `OFF_ENABLED_PERCENT=10`
+2. Monitor coverage, speed, and errors
+3. Increase to 25%, 50%, 100% based on metrics
 
-### Включение в продакшене
+## Test cases
+- Text: `"chicken breast 150g + rice 200g + olive oil 10ml"`
+- Photo: pasta with sauce
+- Item with `unit="piece"`
 
-**Постепенный rollout:**
-1. `OFF_ENABLED=true` + `OFF_ENABLED_PERCENT=10` (10% трафика)
-2. Мониторить логи: coverage, скорость, ошибки
-3. Увеличивать до 25%, 50%, 100% по результатам
-
-**Тестовые кейсы:**
-- Текст: "chicken breast 150g + rice 200g + olive oil 10ml"
-- Фото: паста с соусом
-- Item с unit="piece"
-
-**Метрики для мониторинга:**
-- Coverage@0.7 (доля успешных резолвов)
-- P50 латентность < 2-3с
-- Ask-rate (доля needs_clarification)
-- Калории масла ≈ 90-92 ккал/10ml (проверка плотности)
+## Metrics
+- Coverage@0.7 (share of successful resolutions)
+- P50 latency < 2–3 s
+- Ask-rate (`needs_clarification` frequency)
+- Oil calories ≈ 90–92 kcal/10 ml (density sanity check)
