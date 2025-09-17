@@ -200,7 +200,7 @@ Analyze ALL food visible in the photo, not just what user mentions.`
         }
       ]
     }],
-    reasoning_effort: "minimal",
+    reasoning: { effort: "minimal" },
     text: {
       verbosity: "low",
       format: {
@@ -223,7 +223,7 @@ function createTextAnalysisRequest(text, userContext, model = 'gpt-5-mini') {
     input: `Analyze food: "${text}"
 
 User needs ${Math.max(0, userContext.goals.cal_goal - userContext.todayTotals.calories)} cal, ${Math.max(0, userContext.goals.protein_goal_g - userContext.todayTotals.protein)}g protein today.`,
-    reasoning_effort: "minimal",
+    reasoning: { effort: "minimal" },
     text: {
       verbosity: "low",
       format: {
