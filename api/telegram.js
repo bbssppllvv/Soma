@@ -128,29 +128,35 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
     // Calculate score explanation
     const scoreExplanation = getScoreExplanation(nutritionData, userContext);
     
-    const primaryItem = (nutritionData.items || []).find(i => i.item_role === 'dish')
-      || (nutritionData.items || [])[0] || null;
-    const recognizedLabel = primaryItem ? `${primaryItem.name || nutritionData.food_name || 'Food'} (${primaryItem.canonical_category || 'unknown'})` : (nutritionData.food_name || 'Food');
+    const recognizedItems = (nutritionData.items || []).map(item => {
+      const name = item.name || nutritionData.food_name || 'Food';
+      const role = item.item_role || 'ingredient';
+      const category = item.canonical_category || 'unknown';
+      return `${name} (${role}, ${category})`;
+    });
+    const recognizedLabel = recognizedItems.length ? recognizedItems.join(', ') : (nutritionData.food_name || 'Food');
     const offStatus = nutritionData.off_status || 'skipped';
     const offReasons = Array.isArray(nutritionData.off_reasons) ? nutritionData.off_reasons.map(r => r.reason).filter(Boolean) : [];
 
     if (analyzingMessage?.message_id) {
       const checkingLine = offStatus === 'used'
-        ? '✅ Found precise nutrition in Open Food Facts.'
+        ? '✅ Найдена точная информация в базе Open Food Facts.'
         : offStatus === 'fallback'
-          ? '⚠️ Could not find a precise match in Open Food Facts — using AI estimate.'
-          : 'ℹ️ Using AI estimate for nutrition.';
-      const recognizedText = `🔎 <b>Recognized:</b> ${recognizedLabel}\n${checkingLine}`;
+          ? '⚠️ Не удалось получить точные данные — использую оценку AI.'
+          : offStatus === 'disabled'
+            ? 'ℹ️ Open Food Facts отключён — использую оценку AI.'
+            : 'ℹ️ Использую оценку AI (бренд не указан).';
+      const recognizedText = `🔎 <b>Распознаны продукты:</b> ${recognizedLabel}\n${checkingLine}`;
       await editMessageWithKeyboard(chatId, analyzingMessage.message_id, recognizedText, [], botToken);
     }
 
     const sourceLine = offStatus === 'used'
-      ? 'Source: Open Food Facts match'
+      ? 'Источник: Open Food Facts (точное совпадение)'
       : offStatus === 'disabled'
-        ? 'Source: AI estimate (OFF disabled)'
+        ? 'Источник: оценка AI (OFF отключён)'
         : offStatus === 'fallback'
-          ? `Source: AI estimate (OFF fallback${offReasons.length ? `: ${offReasons.join(', ')}` : ''})`
-          : 'Source: AI estimate';
+          ? `Источник: оценка AI (fallback${offReasons.length ? `: ${offReasons.join(', ')}` : ''})`
+          : 'Источник: оценка AI';
 
     const responseText = `<b>Nutrition Analysis</b>
 

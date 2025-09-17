@@ -2,6 +2,8 @@ import { getByBarcode, searchByNameV1, canonicalizeQuery } from './off-client.js
 import { mapOFFProductToPer100g } from './off-map.js';
 import { getCachedOffProduct, upsertOffProduct } from './off-supabase-cache.js';
 
+const REQUIRE_BRAND = String(process.env.OFF_REQUIRE_BRAND || 'true').toLowerCase() === 'true';
+
 const SWEET_SENSITIVE_CATEGORIES = new Set(['snack-sweet', 'cookie-biscuit', 'dessert']);
 const SWEET_CATEGORY_TAGS = new Set([
   'en:cookies',
@@ -260,6 +262,11 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     upc: item.upc, 
     confidence: item.confidence 
   });
+
+  if (REQUIRE_BRAND && !item.off_candidate) {
+    console.log(`[OFF] Skipping (no brand/upc): ${item.name}`);
+    return { item, reason: 'skipped_no_brand', canonical: canonicalQuery };
+  }
   
   if (item.upc) {
     const normalizedUPC = normalizeUPC(item.upc);

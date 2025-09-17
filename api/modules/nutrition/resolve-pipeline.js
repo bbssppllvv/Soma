@@ -4,6 +4,7 @@ import { canonicalizeQuery } from './off-client.js';
 import pLimit from 'p-limit';
 
 const OFF_MAX_ITEMS = Number(process.env.OFF_MAX_ITEMS || 4);
+const REQUIRE_BRAND = String(process.env.OFF_REQUIRE_BRAND || 'true').toLowerCase() === 'true';
 
 function ensureGramsFallback(it) {
   // 100 g/ml — универсальный дефолт; не нужен ни список продуктов, ни плотности
@@ -27,17 +28,40 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
   const global = new AbortController();
   const globalTimer = setTimeout(() => global.abort(), Number(process.env.OFF_GLOBAL_BUDGET_MS || 12000));
 
-  // dedupe по canonical
-  const groups = new Map(); // canonical -> [items]
-  for (const it of items.filter(it => (it.confidence ?? 0) >= 0.4).slice(0, 6)) {
-    const key = canonicalizeQuery(it.name);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(it);
-  }
+  const candidates = REQUIRE_BRAND ? items.filter(it => it.off_candidate) : items;
+  const skippedNoBrand = REQUIRE_BRAND ? items.filter(it => !it.off_candidate) : [];
 
   const limit = pLimit(Number(process.env.OFF_CONCURRENCY || 2));
   const results = [];
   const reasons = [];
+
+  for (const it of skippedNoBrand) {
+    reasons.push({
+      name: it.name,
+      canonical: canonicalizeQuery(it.name),
+      reason: 'skipped_no_brand',
+      score: null,
+      error: null
+    });
+    const grams = ensureGramsFallback(it);
+    results.push({
+      ...it,
+      grams,
+      resolved: null,
+      nutrients: null,
+      confidence: Math.min(it.confidence ?? 0.6, 0.6),
+      needs_clarification: Boolean(it.needs_clarification),
+      data_source: 'ai'
+    });
+  }
+
+  // dedupe по canonical среди кандидатов
+  const groups = new Map(); // canonical -> [items]
+  for (const it of candidates.filter(it => (it.confidence ?? 0) >= 0.4).slice(0, 6)) {
+    const key = canonicalizeQuery(it.name);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(it);
+  }
 
   const groupEntries = [...groups.entries()].map(([canonical, originals]) => ({
     canonical,
@@ -55,19 +79,19 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
   const skipped = groupEntries.slice(OFF_MAX_ITEMS);
 
   for (const skip of skipped) {
-    reasons.push({
-      name: skip.originals[0].name,
-      canonical: skip.canonical,
-      reason: 'budget_skipped',
-      score: null,
-      error: null
-    });
-    for (const it of skip.originals) {
-      const grams = ensureGramsFallback(it);
-      results.push({ ...it, grams, resolved: null, nutrients: null,
-                     confidence: Math.min(it.confidence ?? 0.6, 0.6), needs_clarification: true });
+      reasons.push({
+        name: skip.originals[0].name,
+        canonical: skip.canonical,
+        reason: 'budget_skipped',
+        score: null,
+        error: null
+      });
+      for (const it of skip.originals) {
+        const grams = ensureGramsFallback(it);
+        results.push({ ...it, grams, resolved: null, nutrients: null,
+                     confidence: Math.min(it.confidence ?? 0.6, 0.6), needs_clarification: true, data_source: 'ai_fallback' });
+      }
     }
-  }
 
   const backgroundPromises = skipped.map(skip =>
     resolveOneItemOFF(skip.originals[0]).catch(() => null)
@@ -102,7 +126,8 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
               nutrients: { calories: scaled.calories, protein_g: scaled.protein_g, fat_g: scaled.fat_g,
                            carbs_g: scaled.carbs_g, fiber_g: scaled.fiber_g },
               confidence: Math.max(it.confidence ?? 0.6, result.score),
-              needs_clarification: false
+              needs_clarification: false,
+              data_source: 'off'
             });
           }
         } else {
@@ -118,7 +143,8 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
           for (const it of originals) {
             const grams = ensureGramsFallback(it);
             results.push({ ...it, grams, resolved: null, nutrients: null,
-                           confidence: Math.min(it.confidence ?? 0.6, 0.6), needs_clarification: true });
+                           confidence: Math.min(it.confidence ?? 0.6, 0.6), needs_clarification: true,
+                           data_source: 'ai_fallback' });
           }
         }
       } catch (e) {
@@ -132,7 +158,8 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
         for (const it of originals) {
           const grams = ensureGramsFallback(it);
           results.push({ ...it, grams, resolved: null, nutrients: null,
-                         confidence: Math.min(it.confidence ?? 0.6, 0.6), needs_clarification: true });
+                         confidence: Math.min(it.confidence ?? 0.6, 0.6), needs_clarification: true,
+                         data_source: 'ai_fallback' });
         }
       } finally {
         clearTimeout(perReqTimer);
@@ -150,11 +177,12 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
   }
 
   // Добавляем отфильтрованные items
-  const filtered = items.filter(it => !groups.has(canonicalizeQuery(it.name)) || (it.confidence ?? 0) < 0.4);
+  const filtered = candidates.filter(it => !groups.has(canonicalizeQuery(it.name)) || (it.confidence ?? 0) < 0.4);
   for (const it of filtered) {
     const grams = ensureGramsFallback(it);
     results.push({ ...it, grams, resolved: null, nutrients: null,
-                   confidence: Math.min(it.confidence ?? 0.6, 0.4), needs_clarification: true });
+                   confidence: Math.min(it.confidence ?? 0.6, 0.4), needs_clarification: true,
+                   data_source: 'ai_fallback' });
   }
 
   const agg = results.reduce((a,x)=>{

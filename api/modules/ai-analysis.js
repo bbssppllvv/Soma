@@ -280,6 +280,10 @@ function mergeSimilarItems(items) {
       target.confidence = Math.max(target.confidence || 0, item.confidence || 0);
       if (target.brand !== item.brand) target.brand = null;
       if (target.upc !== item.upc) target.upc = null;
+      target.off_candidate = Boolean(target.off_candidate || item.off_candidate);
+      if (target.data_source !== item.data_source) {
+        target.data_source = 'ai';
+      }
     }
   }
   return [...map.values()];
@@ -298,10 +302,23 @@ function normalizeAnalysisPayload(parsed) {
   const rawItems = Array.isArray(parsed.items) ? parsed.items : [];
   const enrichedItems = rawItems.map(item => {
     const role = item?.item_role === 'dish' ? 'dish' : 'ingredient';
+    const brand = typeof item?.brand === 'string' ? item.brand.trim() : '';
+    const upc = typeof item?.upc === 'string' ? item.upc.trim() : '';
+    const offCandidate = Boolean(brand || upc);
+    const name = item?.name || 'Unknown';
+    if (!offCandidate) {
+      console.log(`[analysis] item="${name}" role=${role} source=AI (no brand/upc) brand=${brand || 'null'} upc=${upc || 'null'}`);
+    } else {
+      console.log(`[analysis] item="${name}" role=${role} source=OFF_CANDIDATE brand=${brand || 'null'} upc=${upc || 'null'}`);
+    }
     return {
       ...item,
       item_role: role,
-      unit: sanitizeUnit(item?.unit)
+      unit: sanitizeUnit(item?.unit),
+      brand: brand || null,
+      upc: upc || null,
+      off_candidate: offCandidate,
+      data_source: 'ai'
     };
   });
 
@@ -442,12 +459,26 @@ async function finalize(parsed, userContext) {
     console.log('GPT items:', JSON.stringify(norm.items, null, 2));
   }
   
-  const off = await maybeResolveWithOFFIfEnabled(norm, userContext);
-  const offReasons = Array.isArray(off?.reasons) ? off.reasons : [];
+  const offEnabled = OFF_ENABLED;
+  const offCandidates = norm.items.filter(x => x.off_candidate);
+  const hasOffCandidates = offCandidates.length > 0;
+  let offAttempted = false;
+  let off = null;
+  let offReasons = [];
+
+  if (offEnabled && hasOffCandidates) {
+    offAttempted = true;
+    off = await maybeResolveWithOFFIfEnabled(norm, userContext);
+    offReasons = Array.isArray(off?.reasons) ? off.reasons : [];
+  } else if (offEnabled && !hasOffCandidates) {
+    offReasons = norm.items
+      .filter(x => !x.off_candidate)
+      .map(x => ({ name: x.name || 'Unknown', reason: 'skipped_no_brand' }));
+    console.log('[analysis] OFF skipped: no branded items');
+  }
 
   // Используем OFF агрегаты только если есть успешно резолвленные items
-  const hasResolvedItems = off && Array.isArray(off.items) &&
-                           off.items.some(x => x?.resolved?.source === 'off');
+  const hasResolvedItems = Boolean(off?.items && off.items.some(x => x?.resolved?.source === 'off'));
   
   const final = hasResolvedItems
     // если OFF сработал И есть резолвленные items — используем детерминированные агрегаты
@@ -490,17 +521,66 @@ async function finalize(parsed, userContext) {
     final.needs_clarification = true;
     final.advice_short = final.advice_short || "Уточните порцию (например: 100 g или 1 cup).";
     final.score = 0;
-    const offEnabled = OFF_ENABLED;
-    final.off_status = !offEnabled ? 'disabled' : hasResolvedItems ? 'used' : off ? 'fallback' : 'skipped';
+    const offStatus = !offEnabled ? 'disabled' : hasResolvedItems ? 'used' : offAttempted ? 'fallback' : 'skipped';
+    const itemsWithSource = decorateItemsWithSource(final.items || [], offStatus, offReasons, offAttempted);
+    final.items = itemsWithSource;
+    final.off_status = offStatus;
     final.off_reasons = offReasons;
+    logDecisionSummary(final.items, offStatus, offReasons);
     return final;
   }
 
   final.score = calculateMealScore(final, userContext);
-  const offEnabled = OFF_ENABLED;
-  final.off_status = !offEnabled ? 'disabled' : hasResolvedItems ? 'used' : off ? 'fallback' : 'skipped';
+  const offStatus = !offEnabled ? 'disabled' : hasResolvedItems ? 'used' : offAttempted ? 'fallback' : 'skipped';
+  final.items = decorateItemsWithSource(final.items || [], offStatus, offReasons, offAttempted);
+  final.off_status = offStatus;
   final.off_reasons = offReasons;
+  logDecisionSummary(final.items, offStatus, offReasons);
   return final;
+}
+
+function decorateItemsWithSource(items, offStatus, offReasons, offAttempted) {
+  const reasonMap = new Map();
+  offReasons.forEach(r => {
+    if (!r?.name || !r.reason) return;
+    reasonMap.set(String(r.name).toLowerCase(), r.reason);
+  });
+
+  return items.map(item => {
+    let source = item.data_source || 'ai';
+    if (offStatus === 'fallback' && source === 'ai') {
+      source = 'ai_fallback';
+    }
+    if ((offStatus === 'skipped' || offStatus === 'disabled') && source === 'ai_fallback' && !offAttempted) {
+      source = 'ai';
+    }
+    const reasonKey = String(item.name || '').toLowerCase();
+    const reason = reasonMap.get(reasonKey) || (source === 'off' ? 'off_match' : source === 'ai_fallback' ? offStatus : 'ai');
+    console.log(`[analysis] decision item="${item.name || 'Unknown'}" role=${item.item_role} brand=${item.brand || 'null'} upc=${item.upc || 'null'} source=${source} reason=${reason}`);
+    return { ...item, data_source: source };
+  });
+}
+
+function logDecisionSummary(items, offStatus, offReasons) {
+  if (!Array.isArray(items)) {
+    console.log('[analysis] summary empty');
+    return;
+  }
+  let offUsed = 0;
+  let aiOnly = 0;
+  let aiFallback = 0;
+  items.forEach(item => {
+    const source = item.data_source || 'ai';
+    if (source === 'off') offUsed++;
+    else if (source === 'ai_fallback') aiFallback++;
+    else aiOnly++;
+  });
+  const reasonCounts = offReasons.reduce((acc, r) => {
+    if (!r?.reason) return acc;
+    acc[r.reason] = (acc[r.reason] || 0) + 1;
+    return acc;
+  }, {});
+  console.log(`[analysis] summary off_status=${offStatus} off_used=${offUsed} ai_only=${aiOnly} ai_fallback=${aiFallback} reasons=${JSON.stringify(reasonCounts)}`);
 }
 
 // Parse GPT-5 response with robust fallback
