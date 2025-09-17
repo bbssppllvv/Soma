@@ -359,16 +359,15 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     // Build multiple search strategies for better coverage
     const searchStrategies = [];
     
-    // Strategy 1: Full name with tokens
-    if (item.clean_name && item.required_tokens?.length > 0) {
-      const fullName = `${item.clean_name} ${item.required_tokens.join(' ')}`;
-      searchStrategies.push({ term: limitTokens(fullName), brand: brandName, strategy: 'full_with_tokens' });
-    }
-    
-    // Strategy 2: Brand + tokens only
+    // Strategy 1: Brand + simple tokens only  
     if (brandName && item.required_tokens?.length > 0) {
-      const brandWithTokens = `${brandName} ${item.required_tokens.join(' ')}`;
-      searchStrategies.push({ term: limitTokens(brandWithTokens), brand: brandName, strategy: 'brand_with_tokens' });
+      const simpleTokens = item.required_tokens.filter(token => 
+        token.length <= 15 && !token.includes('/') && !token.includes('%') && !token.match(/\d/)
+      );
+      if (simpleTokens.length > 0) {
+        const brandWithTokens = `${brandName} ${simpleTokens.join(' ')}`;
+        searchStrategies.push({ term: limitTokens(brandWithTokens), brand: brandName, strategy: 'brand_with_tokens' });
+      }
     }
     
     // Strategy 3: Original queries as fallback
@@ -457,12 +456,10 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
           });
         }
         
-        // Check if any brand alias matches any brand tag or text (exact word match)
+        // Check if any brand alias matches any brand tag or text (flexible matching)
         return [...brandAliases].some(alias => {
-          return brandTags.some(tag => {
-            const regex = new RegExp(`\\b${alias}\\b`, 'i');
-            return regex.test(tag);
-          }) || new RegExp(`\\b${alias}\\b`, 'i').test(brandText);
+          return brandTags.some(tag => tag.includes(alias)) || 
+                 brandText.includes(alias);
         });
       });
       
