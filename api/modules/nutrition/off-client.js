@@ -8,7 +8,8 @@ const SEARCH_BUCKET_CAPACITY = Number(process.env.OFF_SEARCH_MAX_TOKENS || 10);
 const SEARCH_BUCKET_REFILL_MS = Number(process.env.OFF_SEARCH_REFILL_MS || 60000);
 const SEARCH_BUCKET_POLL_MS = Number(process.env.OFF_SEARCH_POLL_MS || 500);
 const SEARCH_PAGE_SIZE = Number(process.env.OFF_SEARCH_PAGE_SIZE || 40); // Larger window to capture variants
-const SEARCH_TIMEOUT_MS = Number(process.env.OFF_SEARCH_TIMEOUT_MS || 600);
+const SAL_TIMEOUT_MS = Number(process.env.OFF_SAL_TIMEOUT_MS || 500);
+const FALLBACK_TIMEOUT_MS = Number(process.env.OFF_FALLBACK_TIMEOUT_MS || 1500);
 
 import { getCache, setCache } from './simple-cache.js';
 import { matchVariantRules, isVariantToken } from './variant-rules.js';
@@ -80,7 +81,8 @@ function limitSearchTerms(value = '', maxTokens = 6) {
 
 function escapeLuceneValue(value) {
   return String(value)
-    .replace(/([+\-!(){}\[\]^"~*?:\\/]|&&|\|\|)/g, '\\$1');
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"');
 }
 
 function makeTerm(value, { boost, proximity } = {}) {
@@ -236,6 +238,11 @@ function normalizeLocale(value) {
   return LANG;
 }
 
+function stripLangPrefix(value) {
+  if (typeof value !== 'string') return value;
+  return value.replace(/^[a-z]{2,3}:/i, '');
+}
+
 function buildLangsParam(locale) {
   const langs = new Set(['en', 'es']);
   const primary = normalizeLocale(locale);
@@ -294,25 +301,23 @@ async function runSearchV3(term, { signal, locale, categoryTags = [], negativeCa
 
   const requestBody = {
     q: luceneQuery,
-    page_size: Math.min(Math.max(SEARCH_PAGE_SIZE, 30), 50),
+    page_size: Math.max(1, Math.min(SEARCH_PAGE_SIZE, 50)),
     fields: SEARCH_V3_FIELDS,
     langs: buildLangsParam(locale),
     boost_phrase: true
   };
 
-  console.log(`[OFF] Search-a-licious request params:`, {
-    page_size: requestBody.page_size,
-    langs: requestBody.langs,
-    boost_phrase: requestBody.boost_phrase,
-    fields_count: requestBody.fields.length,
-    no_sort_by: !requestBody.sort_by // Подтверждаем, что sort_by не задан
-  });
-
   const url = `${SEARCH_BASE}/search`;
   const startedAt = Date.now();
   
   try {
-    const response = await fetchWithBackoffPost(url, requestBody, { signal, timeoutMs: SEARCH_TIMEOUT_MS });
+    const response = await fetchWithBackoffPost(url, requestBody, {
+      signal,
+      timeoutMs: SAL_TIMEOUT_MS,
+      maxAttempts: 1,
+      retryOnServerError: false,
+      logBodyOnError: true
+    });
     const duration = Date.now() - startedAt;
 
     const hits = Array.isArray(response?.hits) ? response.hits : [];
@@ -332,7 +337,96 @@ async function runSearchV3(term, { signal, locale, categoryTags = [], negativeCa
       lucene_q: luceneQuery
     };
   } catch (error) {
-    console.log(`[OFF] search v3 POST error term="${queryTerm || '∅'}" brand="${brandFilter || 'none'}"`, {
+    console.log(`[OFF] search v3 POST error q="${luceneQuery}" term="${queryTerm || '∅'}" brand="${brandFilter || 'none'}"`, {
+      status: error?.status || null,
+      request_id: error?.requestId || null,
+      body: error?.responseBody || null,
+      error: error?.message || 'unknown',
+      ms: Date.now() - startedAt
+    });
+    throw error;
+  }
+}
+
+async function runSearchV2(term, { signal, locale, categoryTags = [], negativeCategoryTags = [], brandFilter = null, variantTokens = [] } = {}) {
+  const searchTerm = term?.trim();
+  if (!searchTerm && !brandFilter && categoryTags.length === 0) {
+    return null;
+  }
+
+  await acquireSearchToken(signal);
+
+  const params = new URLSearchParams();
+  const limitedTerm = searchTerm ? limitSearchTerms(searchTerm, 8) : '';
+  if (limitedTerm) params.set('search_terms', limitedTerm);
+  params.set('page', '1');
+  params.set('page_size', String(Math.max(1, Math.min(SEARCH_PAGE_SIZE, 50))));
+  params.set('fields', SEARCH_V3_FIELDS.join(','));
+  params.set('sort_by', 'data_quality_score');
+
+  const langs = buildLangsParam(locale);
+  if (langs.length > 0) {
+    params.set('languages_tags', langs.join(','));
+  }
+
+  if (brandFilter) {
+    const normalizedBrand = canonicalizeQuery(brandFilter).replace(/\s+/g, '-');
+    if (normalizedBrand) params.set('brands_tags', normalizedBrand);
+  }
+
+  for (const category of categoryTags) {
+    if (category) params.append('categories_tags', category);
+  }
+
+  const url = `${PRODUCT_BASE}/api/v2/search?${params.toString()}`;
+  const startedAt = Date.now();
+
+  try {
+    const response = await fetchWithBackoff(url, {
+      signal,
+      timeoutMs: FALLBACK_TIMEOUT_MS,
+      maxAttempts: 1,
+      retryOnServerError: false,
+      logBodyOnError: true
+    });
+
+    const duration = Date.now() - startedAt;
+    const rawProducts = Array.isArray(response?.products) ? response.products : [];
+    const products = rawProducts
+      .map(hit => normalizeV3Product(hit, locale))
+      .filter(Boolean)
+      .filter(prod => {
+        if (!negativeCategoryTags?.length) return true;
+        const categories = Array.isArray(prod.categories_tags) ? prod.categories_tags : [];
+        return !categories.some(cat => {
+          const normalizedCat = stripLangPrefix(cat || '').toLowerCase();
+          return negativeCategoryTags.some(neg => {
+            const normalizedNeg = stripLangPrefix(neg || '').toLowerCase();
+            return cat === neg || normalizedCat.includes(normalizedNeg);
+          });
+        });
+      });
+
+    const count = typeof response?.count === 'number' ? response.count : products.length;
+
+    console.log(`[OFF] search v2 term="${limitedTerm || '∅'}" brand="${brandFilter || 'none'}" hits=${products.length}`, {
+      count,
+      ms: duration,
+      categories: categoryTags
+    });
+
+    return {
+      count,
+      products,
+      query_term: limitedTerm,
+      brand_filter: brandFilter,
+      source: 'v2'
+    };
+  } catch (error) {
+    console.log(`[OFF] search v2 error term="${limitedTerm || '∅'}" brand="${brandFilter || 'none'}"`, {
+      status: error?.status || null,
+      request_id: error?.requestId || null,
+      body: error?.responseBody || null,
       error: error?.message || 'unknown',
       ms: Date.now() - startedAt
     });
@@ -374,6 +468,12 @@ function normalizeV3Product(hit, locale) {
     : hit.lang
       ? [hit.lang]
       : [];
+  normalized.countries_tags = Array.isArray(hit.countries_tags)
+    ? hit.countries_tags
+    : typeof hit.countries_tags === 'string'
+      ? hit.countries_tags.split(',').map(x => x.trim()).filter(Boolean)
+      : [];
+  normalized.data_quality_score = typeof hit.data_quality_score === 'number' ? hit.data_quality_score : null;
 
   return normalized;
 }
@@ -426,7 +526,10 @@ async function searchByNameLegacy(query, { signal, categoryTags = [], brand = nu
       try {
         data = await fetchWithBackoff(url, {
           signal,
-          timeoutMs: SEARCH_TIMEOUT_MS
+          timeoutMs: FALLBACK_TIMEOUT_MS,
+          maxAttempts: 1,
+          retryOnServerError: false,
+          logBodyOnError: true
         });
       } catch (error) {
         console.log(`[OFF] legacy search error term="${limitedTerm}" brand="${brandFilter || 'none'}" page=${page}`, {
@@ -487,6 +590,7 @@ const SEARCH_V3_FIELDS = [
   'nutriments',
   'languages_tags',
   'categories_tags',
+  'countries_tags',
   'last_modified_t',
   // Health and quality data
   'nutriscore_grade',
@@ -502,7 +606,8 @@ const SEARCH_V3_FIELDS = [
   'ingredients_analysis_tags',
   'ingredients_text',
   'labels_tags',
-  'nutrition_grades_tags'
+  'nutrition_grades_tags',
+  'data_quality_score'
 ];
 
 function cacheKey(url){ return `off:${url}`; }
@@ -574,14 +679,14 @@ function combineSignals(a, b) {
   return a || b || undefined;
 }
 
-async function fetchWithBackoff(url, { signal, timeoutMs } = {}) {
+async function fetchWithBackoff(url, { signal, timeoutMs, maxAttempts = 2, retryOnServerError = true, logBodyOnError = false } = {}) {
   // CACHE DISABLED FOR TESTING - check cache before hitting the network
   // const ck = cacheKey(url);
   // const hit = getCache(ck);
   // if (hit) return hit;
 
   let delay = 150;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const ac = new AbortController();
     const timeoutId = setTimeout(() => ac.abort(), timeoutMs ?? TIMEOUT);
     const combined = combineSignals(signal, ac.signal);
@@ -589,28 +694,67 @@ async function fetchWithBackoff(url, { signal, timeoutMs } = {}) {
     try {
       const res = await fetch(url, { headers: buildHeaders(), signal: combined });
       clearTimeout(timeoutId);
-      if (res.status === 429 || res.status >= 500) throw new Error(`OFF ${res.status}`);
-      if (!res.ok) throw new Error(`OFF ${res.status}`);
+      const requestId = res.headers.get('x-request-id') || null;
+      if (!res.ok) {
+        let responseBody = null;
+        if (logBodyOnError) {
+          try {
+            responseBody = await res.text();
+          } catch {
+            responseBody = null;
+          }
+        }
+
+        const error = new Error(`OFF ${res.status}`);
+        error.status = res.status;
+        error.url = url;
+        error.requestId = requestId;
+        error.responseBody = responseBody;
+
+        const shouldRetry = retryOnServerError && attempt < maxAttempts - 1 && (res.status === 429 || res.status >= 500);
+        if (shouldRetry) {
+          if (logBodyOnError) {
+            console.log(`[OFF] retryable GET error ${res.status} (${url})`, {
+              attempt,
+              request_id: requestId,
+              body: responseBody?.slice(0, 300) || null
+            });
+          }
+          throw error;
+        }
+
+        throw error;
+      }
       const json = await res.json();
       // CACHE DISABLED FOR TESTING - setCache(ck, json, TTL);
       return json;
     } catch (e) {
       clearTimeout(timeoutId);            // always clear timeout handle
-      if (attempt === 1) throw e;
+      const isRetryable = retryOnServerError && e?.status != null && (e.status === 429 || e.status >= 500);
+      if (attempt === maxAttempts - 1 || !isRetryable) {
+        if (logBodyOnError && e?.status != null) {
+          console.log(`[OFF] GET error ${e.status} (${url})`, {
+            attempt,
+            request_id: e.requestId || null,
+            body: e.responseBody?.slice(0, 300) || null
+          });
+        }
+        throw e;
+      }
       await new Promise(r => setTimeout(r, delay + Math.floor(Math.random()*120)));
       delay *= 2;
     }
   }
 }
 
-async function fetchWithBackoffPost(url, body, { signal, timeoutMs } = {}) {
+async function fetchWithBackoffPost(url, body, { signal, timeoutMs, maxAttempts = 2, retryOnServerError = true, logBodyOnError = false } = {}) {
   // CACHE DISABLED FOR TESTING - Create cache key based on URL and body for POST requests
   // const ck = cacheKey(url + JSON.stringify(body));
   // const hit = getCache(ck);
   // if (hit) return hit;
 
   let delay = 150;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const ac = new AbortController();
     const timeoutId = setTimeout(() => ac.abort(), timeoutMs ?? TIMEOUT);
     const combined = combineSignals(signal, ac.signal);
@@ -629,14 +773,53 @@ async function fetchWithBackoffPost(url, body, { signal, timeoutMs } = {}) {
       });
       
       clearTimeout(timeoutId);
-      if (res.status === 429 || res.status >= 500) throw new Error(`OFF ${res.status}`);
-      if (!res.ok) throw new Error(`OFF ${res.status}`);
+      const requestId = res.headers.get('x-request-id') || null;
+      if (!res.ok) {
+        let responseBody = null;
+        if (logBodyOnError) {
+          try {
+            responseBody = await res.text();
+          } catch {
+            responseBody = null;
+          }
+        }
+
+        const error = new Error(`OFF ${res.status}`);
+        error.status = res.status;
+        error.url = url;
+        error.requestId = requestId;
+        error.responseBody = logBodyOnError ? responseBody : null;
+
+        const shouldRetry = retryOnServerError && attempt < maxAttempts - 1 && (res.status === 429 || res.status >= 500);
+        if (shouldRetry) {
+          if (logBodyOnError) {
+            console.log(`[OFF] retryable POST error ${res.status} (${url})`, {
+              attempt,
+              request_id: requestId,
+              body: responseBody?.slice(0, 300) || null
+            });
+          }
+          throw error;
+        }
+
+        throw error;
+      }
       const json = await res.json();
       // CACHE DISABLED FOR TESTING - setCache(ck, json, TTL);
       return json;
     } catch (e) {
       clearTimeout(timeoutId);            // always clear timeout handle
-      if (attempt === 1) throw e;
+      const isRetryable = retryOnServerError && e?.status != null && (e.status === 429 || e.status >= 500);
+      if (attempt === maxAttempts - 1 || !isRetryable) {
+        if (logBodyOnError && e?.status != null) {
+          console.log(`[OFF] POST error ${e.status} (${url})`, {
+            attempt,
+            request_id: e.requestId || null,
+            body: e.responseBody?.slice(0, 300) || null
+          });
+        }
+        throw e;
+      }
       await new Promise(r => setTimeout(r, delay + Math.floor(Math.random()*120)));
       delay *= 2;
     }
@@ -657,9 +840,11 @@ export async function searchByNameV1(query, { signal, categoryTags = [], negativ
   const cleanQuery = query.trim();
   const queries = buildSearchQueries(cleanQuery, brand).slice(0, 2);
   const attemptedResults = [];
+  let salServerError = false;
 
   // Try Search-a-licious POST API first
   for (const term of queries) {
+    if (salServerError) break;
     try {
       const v3Result = await runSearchV3(term, {
         signal,
@@ -677,24 +862,66 @@ export async function searchByNameV1(query, { signal, categoryTags = [], negativ
         attemptedResults.push(v3Result);
       }
     } catch (error) {
-      const isServerError = error?.message?.includes('500');
+      const status = error?.status || null;
+      const isServerError = status != null && status >= 500;
       console.log(`[OFF] search v3 POST error term="${term}" brand="${brand || 'none'}"`, {
+        status,
         error: error?.message || 'unknown',
         server_error: isServerError,
-        will_fallback: isServerError
+        will_fallback: true
       });
       
-      // If it's a 500 error, we'll try legacy fallback below
-      if (!isServerError) {
-        throw error; // Re-throw non-server errors
+      if (isServerError) {
+        salServerError = true;
+        break;
       }
+
+      if (error?.name === 'AbortError') {
+        salServerError = true;
+        break;
+      }
+
+      throw error;
+    }
+  }
+
+  // Try API v2 fallback before legacy
+  for (const term of queries) {
+    try {
+      const v2Result = await runSearchV2(term, {
+        signal,
+        locale: localeParam,
+        categoryTags,
+        negativeCategoryTags,
+        brandFilter: brand,
+        variantTokens
+      });
+
+      if (v2Result) {
+        if (v2Result.products.length > 0) {
+          console.log(`[OFF] Search v2 SUCCESS: found ${v2Result.products.length} products`);
+          return v2Result;
+        }
+        attemptedResults.push(v2Result);
+      }
+    } catch (error) {
+      console.log(`[OFF] search v2 error term="${term}" brand="${brand || 'none'}"`, {
+        status: error?.status || null,
+        error: error?.message || 'unknown'
+      });
     }
   }
 
   // Fallback to legacy search if Search-a-licious failed
   try {
     console.log(`[OFF] Falling back to legacy search for "${cleanQuery}"`);
-    const legacyResult = await searchByNameLegacy(cleanQuery, { signal, categoryTags, brand, maxPages, locale: localeParam });
+    const legacyResult = await searchByNameLegacy(cleanQuery, {
+      signal,
+      categoryTags,
+      brand,
+      maxPages,
+      locale: localeParam
+    });
     if (legacyResult && legacyResult.products.length > 0) {
       console.log(`[OFF] Legacy search SUCCESS: found ${legacyResult.products.length} products, using legacy API`);
       return legacyResult;

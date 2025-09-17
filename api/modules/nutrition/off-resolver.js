@@ -67,6 +67,10 @@ const CATEGORY_POSITIVE_HINTS = {
   rice: {
     tags: ['en:rices'],
     keywords: ['rice']
+  },
+  dairy: {
+    tags: ['en:milks', 'en:cheeses', 'en:butters', 'en:cream-cheeses'],
+    keywords: ['milk', 'leche', 'queso', 'cheese', 'mantequilla', 'butter', 'philadelphia', 'cream cheese']
   }
 };
 
@@ -145,6 +149,49 @@ function buildBrandContext(item) {
     full: normalized,
     collapsed: normalized.replace(/\s+/g, ''),
     tokens: new Set(tokens)
+  };
+}
+
+function deriveCategoryFilters(item, variantTokens = []) {
+  const include = new Set();
+  const exclude = new Set();
+  const canonical = item?.canonical_category || 'unknown';
+  const combinedText = normalizeText([
+    item?.brand,
+    item?.brand_normalized,
+    item?.clean_name,
+    item?.name
+  ].filter(Boolean).join(' '));
+
+  if (canonical === 'dairy') {
+    exclude.add('en:plant-based-milk-alternatives');
+
+    const isButter = /\bmantequilla\b|\bbutter\b/.test(combinedText);
+    const isCheese = /\bqueso\b|\bcheese\b|\bphiladelphia\b|cream\s*cheese/.test(combinedText);
+    const milkSignals = /\bleche\b|\bmilk\b|\blacteo\b/.test(combinedText);
+
+    const variantSignal = variantTokens.some(token => {
+      const normalized = normalizeText(token);
+      return normalized.includes('semidesnat') || normalized.includes('semi') || normalized.includes('desnatada') || normalized.includes('entera') || normalized.includes('light');
+    });
+
+    if (isButter) {
+      include.add('en:butters');
+    }
+
+    if (isCheese) {
+      include.add('en:cheeses');
+      include.add('en:cream-cheeses');
+    }
+
+    if (milkSignals || (!isButter && !isCheese) || variantSignal) {
+      include.add('en:milks');
+    }
+  }
+
+  return {
+    include: [...include],
+    exclude: [...exclude]
   };
 }
 
@@ -282,6 +329,65 @@ function computeNameSimilarityScore(product, queryTokens = new Set()) {
   return Math.min(60, Math.round(ratio * 60));
 }
 
+function computeCategorySpecificityScore(categories = []) {
+  let bestDepth = 0;
+  for (const raw of categories) {
+    const value = stripLangPrefix(raw || '').toLowerCase();
+    if (!value) continue;
+    const depth = value.split('-').length;
+    if (depth > bestDepth) bestDepth = depth;
+  }
+  if (bestDepth <= 1) return 0;
+  return Math.min(20, (bestDepth - 1) * 5);
+}
+
+function parseQuantityToBase(raw) {
+  if (!raw) return null;
+  const value = String(raw).toLowerCase();
+  const match = value.match(/(\d+(?:[\.,]\d+)?)\s*(kg|g|l|ml)\b/);
+  if (!match) return null;
+  const amount = parseFloat(match[1].replace(',', '.'));
+  if (!Number.isFinite(amount)) return null;
+  const unit = match[2];
+  if (unit === 'kg') {
+    return { value: amount * 1000, unit: 'g' };
+  }
+  if (unit === 'g') {
+    return { value: amount, unit: 'g' };
+  }
+  if (unit === 'l') {
+    return { value: amount * 1000, unit: 'ml' };
+  }
+  if (unit === 'ml') {
+    return { value: amount, unit: 'ml' };
+  }
+  return null;
+}
+
+function computeQuantityMatchScore(item, product) {
+  const parsed = parseQuantityToBase(product?.quantity);
+  if (!parsed) return 0;
+
+  const portion = Number(item?.portion);
+  const unit = (item?.unit || '').toLowerCase();
+  if (!Number.isFinite(portion)) return 0;
+
+  let targetValue = null;
+  if (unit === 'g' || unit === 'gram' || unit === 'grams') {
+    targetValue = { value: portion, unit: 'g' };
+  } else if (unit === 'ml' || unit === 'milliliter' || unit === 'milliliters') {
+    targetValue = { value: portion, unit: 'ml' };
+  }
+
+  if (!targetValue || targetValue.unit !== parsed.unit) return 0;
+
+  const diff = Math.abs(parsed.value - targetValue.value);
+  const tolerance = Math.max(20, targetValue.value * 0.15);
+  if (diff <= tolerance) return 15;
+  if (diff <= targetValue.value * 0.3) return 8;
+  return 0;
+}
+
 function computePreferenceAdjustments(item, product) {
   const canonical = item?.canonical_category || 'unknown';
   const categories = Array.isArray(product.categories_tags) ? product.categories_tags : [];
@@ -355,10 +461,36 @@ function scoreProduct(item, product, context) {
   const categoryPenalty = computeCategoryPenalty(product, negativeCategoryTags);
   breakdown.category_penalty = categoryPenalty;
   total += categoryPenalty;
-  
-  if (categoryPenalty < 0) {
-    console.log(`[OFF] Category penalty applied: ${categoryPenalty} for product "${product.product_name}"`);
-  }
+
+  const brandTagsBonus = Array.isArray(product.brands_tags) && product.brands_tags.length > 0 ? 25 : 0;
+  breakdown.brand_tags = brandTagsBonus;
+  total += brandTagsBonus;
+
+  const categorySpecificityScore = computeCategorySpecificityScore(product.categories_tags);
+  breakdown.category_specificity = categorySpecificityScore;
+  total += categorySpecificityScore;
+
+  const countryBonus = Array.isArray(product.countries_tags) && product.countries_tags.some(tag => {
+    const normalized = stripLangPrefix(tag || '').toLowerCase();
+    return normalized === 'spain' || normalized === 'espana' || normalized === 'españa';
+  }) ? 10 : 0;
+  breakdown.country = countryBonus;
+  total += countryBonus;
+
+  const nutrimentCount = Object.keys(product?.nutriments || {}).filter(key => key.endsWith('_100g')).length;
+  const nutrimentScore = Math.min(30, nutrimentCount);
+  breakdown.nutriments = nutrimentScore;
+  total += nutrimentScore;
+
+  const quantityBonus = computeQuantityMatchScore(item, product);
+  breakdown.quantity = quantityBonus;
+  total += quantityBonus;
+
+  const dataQualityBonus = typeof product.data_quality_score === 'number'
+    ? Math.max(0, Math.min(20, Math.round(product.data_quality_score)))
+    : 0;
+  breakdown.data_quality = dataQualityBonus;
+  total += dataQualityBonus;
 
   const nameScore = computeNameSimilarityScore(product, nameTokens);
   breakdown.name = nameScore;
@@ -435,17 +567,15 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
   try {
     const startedAt = Date.now();
     const positiveHints = CATEGORY_POSITIVE_HINTS[item?.canonical_category || ''] || null;
-    const categoryTags = positiveHints ? positiveHints.tags : [];
     const brandName = item.brand ? canonicalizeQuery(String(item.brand)) : null;
     const cleanName = canonicalQuery || canonicalizeQuery(item.name || '');
     const locale = typeof item.locale === 'string' && item.locale.trim() ? item.locale.trim().toLowerCase() : 'en';
     const variantWhitelistTokens = Array.isArray(item.required_tokens)
       ? [...new Set(item.required_tokens.filter(token => isVariantToken(token)))]
       : [];
-    const negativeCategoryTags = [];
-    if (item.canonical_category === 'dairy') {
-      negativeCategoryTags.push('en:plant-based-milk-alternatives');
-    }
+    const categoryFilters = deriveCategoryFilters(item, variantWhitelistTokens);
+    const categoryTags = [...new Set([...categoryFilters.include, ...(positiveHints ? positiveHints.tags : [])])];
+    const negativeCategoryTags = [...new Set(categoryFilters.exclude)];
     const brandContext = buildBrandContext(item);
 
     const brandTokens = brandName ? new Set(brandName.split(' ')) : null;
