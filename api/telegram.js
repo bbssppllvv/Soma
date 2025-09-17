@@ -158,11 +158,23 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
           ? `Источник: оценка AI (fallback${offReasons.length ? `: ${offReasons.join(', ')}` : ''})`
           : 'Источник: оценка AI';
 
+    const perItemSources = (nutritionData.items || []).map(item => {
+      const sourceLabel = item.data_source === 'off'
+        ? 'OFF'
+        : item.data_source === 'ai_fallback'
+          ? 'AI fallback'
+          : 'AI';
+      return `• ${item.name || 'Item'} — ${sourceLabel}`;
+    }).join('\n');
+
     const responseText = `<b>Nutrition Analysis</b>
 
 <b>Food:</b> ${nutritionData.food_name || 'Mixed Food'}
 <b>Portion:</b> ${nutritionData.portion_size || 'Standard'} (${nutritionData.portion_description || 'medium serving'})
 <b>${sourceLine}</b>
+
+<b>Пер-ингредиент источники:</b>
+${perItemSources || '• AI estimate'}
 
 <b>Nutritional Breakdown:</b>
 Calories: ${nutritionData.calories} kcal

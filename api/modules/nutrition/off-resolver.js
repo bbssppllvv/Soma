@@ -3,6 +3,8 @@ import { mapOFFProductToPer100g } from './off-map.js';
 import { getCachedOffProduct, upsertOffProduct } from './off-supabase-cache.js';
 
 const REQUIRE_BRAND = String(process.env.OFF_REQUIRE_BRAND || 'true').toLowerCase() === 'true';
+const BRAND_THRESHOLD = Number(process.env.OFF_BRAND_THRESHOLD || 0.7);
+const DEFAULT_THRESHOLD = 0.8;
 
 const SWEET_SENSITIVE_CATEGORIES = new Set(['snack-sweet', 'cookie-biscuit', 'dessert']);
 const SWEET_CATEGORY_TAGS = new Set([
@@ -325,11 +327,13 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       return { item, reason: 'bad_category', canonical: canonicalQuery };
     }
 
+    const threshold = item?.off_candidate ? BRAND_THRESHOLD : DEFAULT_THRESHOLD;
+
     const best = filtered
       .map(p => ({ p, s: scoreProduct(item, p) }))
       .sort((a,b) => b.s - a.s)[0];
 
-    if (!best || best.s < 0.8) {
+    if (!best || best.s < threshold) {
       console.log(`[OFF] Low score for "${canonicalQuery}": ${best?.s ?? 'null'} (${filtered.length} filtered products)`);
       return { item, reason: 'low_score', canonical: canonicalQuery, score: best?.s };
     }

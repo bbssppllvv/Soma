@@ -127,7 +127,8 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
                            carbs_g: scaled.carbs_g, fiber_g: scaled.fiber_g },
               confidence: Math.max(it.confidence ?? 0.6, result.score),
               needs_clarification: false,
-              data_source: 'off'
+              data_source: 'off',
+              locked_source: true
             });
           }
         } else {

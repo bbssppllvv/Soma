@@ -281,8 +281,18 @@ function mergeSimilarItems(items) {
       if (target.brand !== item.brand) target.brand = null;
       if (target.upc !== item.upc) target.upc = null;
       target.off_candidate = Boolean(target.off_candidate || item.off_candidate);
-      if (target.data_source !== item.data_source) {
-        target.data_source = 'ai';
+      if (item.locked_source) {
+        target.data_source = 'off';
+        target.locked_source = true;
+      } else if (!target.locked_source) {
+        if (target.data_source === 'off' && item.data_source !== 'off') {
+          // keep OFF
+        } else if (target.data_source === 'ai_fallback' && item.data_source === 'ai') {
+          // keep fallback unless better AI available
+          target.data_source = 'ai';
+        } else if (target.data_source !== item.data_source) {
+          target.data_source = item.data_source || target.data_source || 'ai';
+        }
       }
     }
   }
@@ -318,7 +328,8 @@ function normalizeAnalysisPayload(parsed) {
       brand: brand || null,
       upc: upc || null,
       off_candidate: offCandidate,
-      data_source: 'ai'
+      data_source: item?.data_source === 'off' ? 'off' : (item?.data_source === 'ai_fallback' ? 'ai_fallback' : 'ai'),
+      locked_source: item?.data_source === 'off'
     };
   });
 
@@ -548,7 +559,9 @@ function decorateItemsWithSource(items, offStatus, offReasons, offAttempted) {
 
   return items.map(item => {
     let source = item.data_source || 'ai';
-    if (offStatus === 'fallback' && source === 'ai') {
+    if (item.locked_source) {
+      source = 'off';
+    } else if (offStatus === 'fallback' && source === 'ai') {
       source = 'ai_fallback';
     }
     if ((offStatus === 'skipped' || offStatus === 'disabled') && source === 'ai_fallback' && !offAttempted) {
@@ -557,7 +570,7 @@ function decorateItemsWithSource(items, offStatus, offReasons, offAttempted) {
     const reasonKey = String(item.name || '').toLowerCase();
     const reason = reasonMap.get(reasonKey) || (source === 'off' ? 'off_match' : source === 'ai_fallback' ? offStatus : 'ai');
     console.log(`[analysis] decision item="${item.name || 'Unknown'}" role=${item.item_role} brand=${item.brand || 'null'} upc=${item.upc || 'null'} source=${source} reason=${reason}`);
-    return { ...item, data_source: source };
+    return { ...item, data_source: source, locked_source: item.locked_source === true };
   });
 }
 
