@@ -465,7 +465,8 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
               ...it,
               grams,
               resolved: { source:'off', score: result.score, product_code: scaled.meta.code,
-                          product_name: scaled.meta.name, brand: scaled.meta.brand },
+                          product_name: scaled.meta.name, brand: scaled.meta.brand, 
+                          product: result.product }, // Include full product for health data
               nutrients: { calories: scaled.calories, protein_g: scaled.protein_g, fat_g: scaled.fat_g,
                            carbs_g: scaled.carbs_g, fiber_g: scaled.fiber_g },
               confidence: Math.max(it.confidence ?? 0.6, result.score),
