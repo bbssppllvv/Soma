@@ -358,8 +358,8 @@ function filterZeroUtilityItems(items) {
   return items.filter(item => {
     const mentioned = Boolean(item.mentioned_by_user);
     if (item.occluded && !mentioned) return false;
-    if (!mentioned && !item.brand && !item.upc && (item.confidence ?? 0) < 0.25) return false;
     if (item.item_role === 'dish') return true;
+    if (!mentioned && !item.brand && !item.upc && (item.confidence ?? 0) < 0.45) return false;
     const name = item.name || '';
     return !ZERO_UTILITY_PATTERNS.some(rx => rx.test(name));
   });
@@ -420,7 +420,8 @@ function normalizeAnalysisPayload(parsed, { messageText = '' } = {}) {
   });
 
   const mergedItems = mergeSimilarItems(enrichedItems);
-  const items = filterZeroUtilityItems(mergedItems);
+  const filteredItems = filterZeroUtilityItems(mergedItems);
+  const items = trimBackgroundItems(filteredItems);
 
   // 2) aggregates: keep model-provided values (later we can derive from items)
   const aggregates = {
@@ -447,6 +448,24 @@ function normalizeAnalysisPayload(parsed, { messageText = '' } = {}) {
   const assumptions = Array.isArray(parsed.assumptions) ? parsed.assumptions : [];
 
   return { items, aggregates, advice_short, needs_clarification, assumptions };
+}
+
+function trimBackgroundItems(items) {
+  if (!Array.isArray(items)) return [];
+  if (items.length === 0) return items;
+  const background = items.filter(item => !item.mentioned_by_user && !item.off_candidate);
+  if (background.length <= 1) return items;
+
+  const ranked = [...background].sort((a, b) => {
+    const confDiff = (b.confidence ?? 0) - (a.confidence ?? 0);
+    if (confDiff !== 0) return confDiff;
+    const portionDiff = (b.portion_value ?? 0) - (a.portion_value ?? 0);
+    if (portionDiff !== 0) return portionDiff;
+    return (b.name || '').localeCompare(a.name || '');
+  });
+
+  const keep = new Set(ranked.slice(0, 1));
+  return items.filter(item => item.mentioned_by_user || item.off_candidate || keep.has(item));
 }
 
 function safeNum(v) {

@@ -364,6 +364,8 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
     const grams = Number.isFinite(portionInfo.grams) ? portionInfo.grams : ensureGramsFallback(it);
     const portionUnit = portionInfo.unit || it.portion_unit || 'g';
     const portionDisplay = portionInfo.display || formatPortionDisplay(grams, portionUnit);
+    const portionFieldValue = Number.isFinite(grams) ? grams : it.portion;
+    const unitFieldValue = portionUnit || it.unit || 'g';
     results.push({
       ...it,
       grams,
@@ -376,7 +378,9 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
       portion_reason: portionInfo.reason,
       portion_value: grams,
       portion_unit: portionUnit,
-      portion_display: portionDisplay
+      portion_display: portionDisplay,
+      portion: portionFieldValue,
+      unit: unitFieldValue
     });
   }
 
@@ -417,13 +421,17 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
         const portionInfo = determinePortionInfo(it, null);
         const portionUnit = portionInfo.unit || it.portion_unit || 'g';
         const portionDisplay = portionInfo.display || formatPortionDisplay(grams, portionUnit);
+        const portionFieldValue = Number.isFinite(grams) ? grams : it.portion;
+        const unitFieldValue = portionUnit || it.unit || 'g';
         results.push({ ...it, grams, resolved: null, nutrients: null,
                      confidence: Math.min(it.confidence ?? 0.6, 0.6), needs_clarification: true, data_source: fallbackSource,
                      portion_source: portionInfo.source,
                      portion_reason: portionInfo.reason,
                      portion_value: grams,
                      portion_unit: portionUnit,
-                     portion_display: portionDisplay });
+                     portion_display: portionDisplay,
+                     portion: portionFieldValue,
+                     unit: unitFieldValue });
       }
     }
 
@@ -451,6 +459,8 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
             const portionUnit = portionInfo.unit || it.portion_unit || 'g';
             const portionDisplay = portionInfo.display || formatPortionDisplay(grams, portionUnit);
             const scaled = scalePerPortionOFF(result.product, grams);
+            const portionFieldValue = Number.isFinite(grams) ? grams : it.portion;
+            const unitFieldValue = portionUnit || it.unit || 'g';
             results.push({
               ...it,
               grams,
@@ -466,7 +476,9 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
               portion_reason: portionInfo.reason,
               portion_value: grams,
               portion_unit: portionUnit,
-              portion_display: portionDisplay
+              portion_display: portionDisplay,
+              portion: portionFieldValue,
+              unit: unitFieldValue
             });
           }
         } else {
@@ -485,6 +497,8 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
             const portionUnit = portionInfo.unit || it.portion_unit || 'g';
             const portionDisplay = portionInfo.display || formatPortionDisplay(grams, portionUnit);
             const fallbackSource = it.off_candidate ? 'off_error' : 'ai_fallback';
+            const portionFieldValue = Number.isFinite(grams) ? grams : it.portion;
+            const unitFieldValue = portionUnit || it.unit || 'g';
             results.push({ ...it, grams, resolved: null, nutrients: null,
                            confidence: Math.min(it.confidence ?? 0.6, 0.6), needs_clarification: true,
                            data_source: fallbackSource,
@@ -492,7 +506,9 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
                            portion_reason: portionInfo.reason,
                            portion_value: grams,
                            portion_unit: portionUnit,
-                           portion_display: portionDisplay });
+                           portion_display: portionDisplay,
+                           portion: portionFieldValue,
+                           unit: unitFieldValue });
           }
         }
       } catch (e) {
@@ -509,6 +525,8 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
           const portionUnit = portionInfo.unit || it.portion_unit || 'g';
           const portionDisplay = portionInfo.display || formatPortionDisplay(grams, portionUnit);
           const fallbackSource = it.off_candidate ? 'off_error' : 'ai_fallback';
+          const portionFieldValue = Number.isFinite(grams) ? grams : it.portion;
+          const unitFieldValue = portionUnit || it.unit || 'g';
           results.push({ ...it, grams, resolved: null, nutrients: null,
                          confidence: Math.min(it.confidence ?? 0.6, 0.6), needs_clarification: true,
                          data_source: fallbackSource,
@@ -516,7 +534,9 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
                          portion_reason: portionInfo.reason,
                          portion_value: grams,
                          portion_unit: portionUnit,
-                         portion_display: portionDisplay });
+                         portion_display: portionDisplay,
+                         portion: portionFieldValue,
+                         unit: unitFieldValue });
         }
       } finally {
         clearTimeout(perReqTimer);
@@ -538,6 +558,8 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
     const portionUnit = portionInfo.unit || it.portion_unit || 'g';
     const portionDisplay = portionInfo.display || formatPortionDisplay(grams, portionUnit);
     const fallbackSource = it.off_candidate ? 'off_error' : 'ai_fallback';
+    const portionFieldValue = Number.isFinite(grams) ? grams : it.portion;
+    const unitFieldValue = portionUnit || it.unit || 'g';
     results.push({ ...it, grams, resolved: null, nutrients: null,
                    confidence: Math.min(it.confidence ?? 0.6, 0.4), needs_clarification: true,
                    data_source: fallbackSource,
@@ -545,7 +567,9 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
                    portion_reason: portionInfo.reason,
                    portion_value: grams,
                    portion_unit: portionUnit,
-                   portion_display: portionDisplay });
+                   portion_display: portionDisplay,
+                   portion: portionFieldValue,
+                   unit: unitFieldValue });
   }
 
   const agg = results.reduce((a,x)=>{

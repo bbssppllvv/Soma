@@ -65,6 +65,15 @@ export function canonicalizeQuery(raw = '') {
   return unique.join(' ').trim();
 }
 
+function limitSearchTerms(value = '', maxTokens = 6) {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, maxTokens)
+    .join(' ')
+    .trim();
+}
+
 // Narrow field list keeps responses small and fast
 const FIELDS = 'code,product_name,brands,serving_size,nutriments,categories_tags,last_modified_t';
 
@@ -182,16 +191,17 @@ export async function searchByNameV1(query, { signal, categoryTags = [], brand =
   const searchLocale = (locale || LANG);
 
   async function runSearch(term, brandFilter) {
+    const limitedTerm = limitSearchTerms(term);
+    if (!limitedTerm) return null;
     for (let page = 1; page <= maxPages; page++) {
       const params = new URLSearchParams({
         action: 'process',
-        search_terms: term,
+        search_terms: limitedTerm,
         search_simple: '1',
         json: '1',
-        page_size: '10',
+        page_size: '5',
         page: String(page),
         lc: searchLocale,
-        nocache: '1',
         sort_by: 'unique_scans_n',
         fields: FIELDS
       });
@@ -213,13 +223,22 @@ export async function searchByNameV1(query, { signal, categoryTags = [], brand =
 
       const url = `${base}/cgi/search.pl?${params.toString()}`;
       const t0 = Date.now();
-      const data = await fetchWithBackoff(url, {
-        signal,
-        timeoutMs: Number(process.env.OFF_SEARCH_TIMEOUT_MS || 600)
-      });
+      let data;
+      try {
+        data = await fetchWithBackoff(url, {
+          signal,
+          timeoutMs: Number(process.env.OFF_SEARCH_TIMEOUT_MS || 600)
+        });
+      } catch (error) {
+        console.log(`[OFF] search error term="${limitedTerm}" brand="${brandFilter || 'none'}" page=${page}`, {
+          ms: Date.now() - t0,
+          error: error?.message || 'unknown'
+        });
+        throw error;
+      }
       const dt = Date.now() - t0;
 
-      console.log(`[OFF] search term="${term}" brand="${brandFilter || 'none'}" page=${page}`, {
+      console.log(`[OFF] search term="${limitedTerm}" brand="${brandFilter || 'none'}" page=${page}`, {
         count: data?.count,
         products_len: data?.products?.length,
         ms: dt
@@ -232,13 +251,26 @@ export async function searchByNameV1(query, { signal, categoryTags = [], brand =
     return null;
   }
 
+  async function runSearchSafe(term, brandFilter) {
+    try {
+      return await runSearch(term, brandFilter);
+    } catch (error) {
+      const isAbort = error?.name === 'AbortError';
+      console.log(`[OFF] search aborted term="${limitSearchTerms(term)}" brand="${brandFilter || 'none'}"`, {
+        timeout: isAbort,
+        error: error?.message || 'unknown'
+      });
+      return null;
+    }
+  }
+
   if (brand) {
-    const data = await runSearch(sanitizedQuery, brand);
+    const data = await runSearchSafe(sanitizedQuery, brand);
     if (data) return data;
   }
 
-  const data = await runSearch(sanitizedQuery, null);
+  const data = await runSearchSafe(sanitizedQuery, null);
   if (data) return data;
 
-  return { count: 0, products: [], query_term: sanitizedQuery, brand_filter: brand || null };
+  return { count: 0, products: [], query_term: limitSearchTerms(sanitizedQuery), brand_filter: brand || null };
 }

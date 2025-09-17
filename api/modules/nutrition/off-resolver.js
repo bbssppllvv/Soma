@@ -112,6 +112,15 @@ function tokensFromTags(tags) {
   return tokens;
 }
 
+function limitTokens(value = '', maxTokens = 6) {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, maxTokens)
+    .join(' ')
+    .trim();
+}
+
 function scoreProduct(item, product) {
   const queryTokens = tokenize(item?.name || '');
   const itemBrandTokens = tokenize(item?.brand || '');
@@ -302,15 +311,22 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     const cleanName = canonicalQuery || canonicalizeQuery(item.name || '');
     const locale = typeof item.locale === 'string' && item.locale.trim() ? item.locale.trim().toLowerCase() : 'en';
 
-    const queries = [];
-    if (brandName && cleanName) {
-      const combined = canonicalizeQuery(`${brandName} ${cleanName}`);
-      if (combined) {
-        queries.push({ term: combined, brand: brandName });
-      }
+    const brandTokens = brandName ? new Set(brandName.split(' ')) : null;
+    const cleanTokens = cleanName ? cleanName.split(' ') : [];
+    let nameWithoutBrand = cleanTokens.filter(token => !brandTokens || !brandTokens.has(token)).join(' ');
+    if (!nameWithoutBrand && cleanName) {
+      nameWithoutBrand = cleanName;
     }
-    if (cleanName) {
-      queries.push({ term: cleanName, brand: null });
+
+    const limitedBrandTerm = limitTokens(nameWithoutBrand);
+    const limitedCleanTerm = limitTokens(cleanName);
+
+    const queries = [];
+    if (brandName && limitedBrandTerm) {
+      queries.push({ term: limitedBrandTerm, brand: brandName });
+    }
+    if (limitedCleanTerm) {
+      queries.push({ term: limitedCleanTerm, brand: null });
     }
 
     const finalQueries = [];
