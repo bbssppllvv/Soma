@@ -136,22 +136,48 @@ export async function getByBarcode(barcode, { signal } = {}) {
 }
 
 // V1 полнотекстовый поиск (стабильный)
-export async function searchByNameV1(query, { signal } = {}) {
+export async function searchByNameV1(query, { signal, categoryTags = [], preferPlain = false } = {}) {
   await acquireSearchToken(signal);
 
   const base = process.env.OFF_BASE_URL || 'https://world.openfoodfacts.org';
-  const url = `${base}/cgi/search.pl?action=process&search_terms=${encodeURIComponent(query)}&search_simple=1&json=1&page_size=24&lc=${encodeURIComponent(LANG)}&nocache=1&sort_by=unique_scans_n`;
+  const searchQueries = preferPlain ? [`plain ${query}`.trim(), query] : [query];
 
-  const t0 = Date.now();
-  const data = await fetchWithBackoff(url, { signal }); // JSON + кеш + ретраи
-  const dt = Date.now() - t0;
+  for (const searchTerm of searchQueries) {
+    const params = new URLSearchParams({
+      action: 'process',
+      search_terms: searchTerm,
+      search_simple: '1',
+      json: '1',
+      page_size: '24',
+      lc: LANG,
+      nocache: '1',
+      sort_by: 'unique_scans_n'
+    });
 
-  console.log(`[OFF] V1 hits for "${query}":`, {
-    count: data?.count,
-    products_len: data?.products?.length,
-    page_size: data?.page_size,
-    ms: dt
-  });
+    categoryTags.slice(0, 3).forEach((tag, idx) => {
+      params.set(`tagtype_${idx}`, 'categories');
+      params.set(`tag_contains_${idx}`, 'contains');
+      params.set(`tag_${idx}`, tag);
+    });
 
-  return data;                                         // {count, products: [...]}
+    const url = `${base}/cgi/search.pl?${params.toString()}`;
+
+    const t0 = Date.now();
+    const data = await fetchWithBackoff(url, { signal });
+    const dt = Date.now() - t0;
+
+    console.log(`[OFF] V1 hits for "${searchTerm}":`, {
+      count: data?.count,
+      products_len: data?.products?.length,
+      page_size: data?.page_size,
+      ms: dt,
+      category_tags: categoryTags
+    });
+
+    if (Array.isArray(data?.products) && data.products.length > 0) {
+      return data;
+    }
+  }
+
+  return { count: 0, products: [] };
 }

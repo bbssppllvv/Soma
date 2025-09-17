@@ -3,13 +3,24 @@ import { toGrams } from './units.js';
 import { canonicalizeQuery } from './off-client.js';
 import pLimit from 'p-limit';
 
+const OFF_MAX_ITEMS = Number(process.env.OFF_MAX_ITEMS || 4);
+
 function ensureGramsFallback(it) {
   // 100 g/ml — универсальный дефолт; не нужен ни список продуктов, ни плотности
   if (!it.unit || !Number.isFinite(it.portion)) {
     return it.name?.match(/\b(ml|литр|l)\b/i) ? 100 : 100; // по умолчанию 100 g
   }
-  const g = toGrams(it.portion, it.unit, it.name);
+  const g = toGrams(it.portion, it.unit, it.name, it);
   return Number.isFinite(g) ? g : 100; // дефолт 100 g
+}
+
+function computeItemPriority(item) {
+  const portion = Number(item?.portion) || 100;
+  const portionWeight = Math.min(Math.max(portion, 10), 600) / 100;
+  const confidence = Math.min(Math.max(item?.confidence ?? 0.6, 0), 1);
+  const confidenceWeight = 1 - confidence;
+  const roleBoost = item?.item_role === 'dish' ? 2 : 1;
+  return portionWeight * (0.5 + confidenceWeight) * roleBoost;
 }
 
 export async function resolveItemsWithOFF(items, { signal } = {}) {
@@ -28,14 +39,41 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
   const results = [];
   const reasons = [];
 
-  // Приоритезируем простые (односоставные) запросы: tomato, cucumber, egg
-  const sortedGroups = [...groups.entries()].sort((a, b) => {
-    const aTokens = a[0].split(/\s+/).length;
-    const bTokens = b[0].split(/\s+/).length;
-    return aTokens - bTokens; // меньше токенов — раньше
+  const groupEntries = [...groups.entries()].map(([canonical, originals]) => ({
+    canonical,
+    originals,
+    priority: computeItemPriority(originals[0]),
+    tokenCount: canonical.split(/\s+/).length
+  }));
+
+  groupEntries.sort((a, b) => {
+    if (b.priority !== a.priority) return b.priority - a.priority;
+    return a.tokenCount - b.tokenCount;
   });
 
-  const tasks = sortedGroups.map(([canonical, originals]) =>
+  const selected = groupEntries.slice(0, OFF_MAX_ITEMS);
+  const skipped = groupEntries.slice(OFF_MAX_ITEMS);
+
+  for (const skip of skipped) {
+    reasons.push({
+      name: skip.originals[0].name,
+      canonical: skip.canonical,
+      reason: 'budget_skipped',
+      score: null,
+      error: null
+    });
+    for (const it of skip.originals) {
+      const grams = ensureGramsFallback(it);
+      results.push({ ...it, grams, resolved: null, nutrients: null,
+                     confidence: Math.min(it.confidence ?? 0.6, 0.6), needs_clarification: true });
+    }
+  }
+
+  const backgroundPromises = skipped.map(skip =>
+    resolveOneItemOFF(skip.originals[0]).catch(() => null)
+  );
+
+  const tasks = selected.map(({ canonical, originals }) =>
     limit(async () => {
       const ctrl = new AbortController();
       const perReqTimer = setTimeout(() => ctrl.abort(), Number(process.env.OFF_TIMEOUT_MS || 2000));
@@ -104,6 +142,9 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
 
   try {
     await Promise.allSettled(tasks);
+    if (backgroundPromises.length) {
+      Promise.allSettled(backgroundPromises).catch(() => {});
+    }
   } finally {
     clearTimeout(globalTimer);
   }

@@ -18,6 +18,13 @@ export const GPT_NUTRITION_SCHEMA = {
           cooking_method:  { type: ["string", "null"],  maxLength: 24 },
           confidence:      { type: "number",  minimum: 0, maximum: 1 },
           occluded:        { type: "boolean" },
+          item_role: {
+            type: "string",
+            enum: [
+              "ingredient",
+              "dish"
+            ]
+          },
           canonical_category: {
             type: "string",
             enum: [
@@ -78,7 +85,7 @@ export const GPT_NUTRITION_SCHEMA = {
         // В strict:true required должен перечислять ВСЕ ключи из properties.
         // Опциональность решаем через nullable:true.
         required: [
-          "name","portion","unit","brand","upc","cooking_method","confidence","occluded","canonical_category","food_form"
+          "name","portion","unit","brand","upc","cooking_method","confidence","occluded","item_role","canonical_category","food_form"
         ]
       }
     },

@@ -16,6 +16,37 @@ const SWEET_CATEGORY_TAGS = new Set([
 ]);
 const SWEET_NAME_KEYWORDS = ['cookie', 'biscuit', 'dessert', 'snack', 'brownie', 'cake', 'candy', 'bar', 'chocolate', 'wafer'];
 
+const FLAVOR_KEYWORDS = [
+  'maple',
+  'brown sugar',
+  'honey',
+  'vanilla',
+  'chocolate',
+  'strawberry',
+  'raspberry',
+  'cinnamon',
+  'protein',
+  'flavor',
+  'flavoured',
+  'flavored',
+  'sweetened',
+  'caramel',
+  'butter',
+  'apple'
+];
+
+const PLAIN_ELIGIBLE_CATEGORIES = new Set([
+  'grain',
+  'porridge',
+  'rice',
+  'pasta',
+  'bread',
+  'breakfast-cereal',
+  'legume',
+  'vegetable',
+  'fruit'
+]);
+
 const CATEGORY_POSITIVE_HINTS = {
   porridge: {
     tags: ['en:porridges', 'en:oat-flakes', 'en:breakfast-cereals'],
@@ -148,6 +179,13 @@ function scoreProduct(item, product) {
     }
   }
 
+  const plainSensitive = PLAIN_ELIGIBLE_CATEGORIES.has(canonical) && !item?.brand;
+  if (plainSensitive) {
+    if (FLAVOR_KEYWORDS.some(word => name.includes(word))) {
+      score -= 0.6;
+    }
+  }
+
   return Math.max(score, 0);
 }
 
@@ -180,6 +218,7 @@ function productMatchesPreferences(item, product) {
   const sweetSensitive = !SWEET_SENSITIVE_CATEGORIES.has(canonical);
   const categories = Array.isArray(product.categories_tags) ? product.categories_tags : [];
   const name = (product.product_name || '').toLowerCase();
+  const nutriments = product?.nutriments || {};
 
   if (sweetSensitive) {
     const hasSweetTag = categories.some(tag => SWEET_CATEGORY_TAGS.has(tag));
@@ -195,6 +234,17 @@ function productMatchesPreferences(item, product) {
     const hasPosKeyword = positiveHints.keywords.some(word => name.includes(word));
     if (!(hasPosTag || hasPosKeyword)) {
       return { ok: false, reason: 'bad_category' };
+    }
+  }
+
+  const plainSensitive = PLAIN_ELIGIBLE_CATEGORIES.has(canonical) && !item?.brand;
+  if (plainSensitive) {
+    if (FLAVOR_KEYWORDS.some(word => name.includes(word))) {
+      return { ok: false, reason: 'flavored' };
+    }
+    const sugars = Number(nutriments['sugars_100g']);
+    if (Number.isFinite(sugars) && sugars > 5) {
+      return { ok: false, reason: 'high_sugar' };
     }
   }
 
@@ -235,7 +285,11 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
 
   // V1 полнотекстовый поиск с канонической строкой
   try {
-    const data = await searchByNameV1(canonicalQuery, { signal });
+    const positiveHints = CATEGORY_POSITIVE_HINTS[item?.canonical_category || ''] || null;
+    const categoryTags = positiveHints ? positiveHints.tags : [];
+    const preferPlain = !item?.brand && PLAIN_ELIGIBLE_CATEGORIES.has(item?.canonical_category || '');
+
+    const data = await searchByNameV1(canonicalQuery, { signal, categoryTags, preferPlain });
     const products = Array.isArray(data?.products) ? data.products : [];
     
     if (products.length === 0) {
@@ -268,7 +322,7 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       .map(p => ({ p, s: scoreProduct(item, p) }))
       .sort((a,b) => b.s - a.s)[0];
 
-    if (!best || best.s < 0.7) {
+    if (!best || best.s < 0.8) {
       console.log(`[OFF] Low score for "${canonicalQuery}": ${best?.s ?? 'null'} (${filtered.length} filtered products)`);
       return { item, reason: 'low_score', canonical: canonicalQuery, score: best?.s };
     }
