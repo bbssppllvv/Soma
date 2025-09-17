@@ -14,6 +14,8 @@ const V2_RELAX_TIMEOUT_MS = Number(process.env.OFF_V2_RELAX_TIMEOUT_MS || 700);
 const V2_BRANDLESS_TIMEOUT_MS = Number(process.env.OFF_V2_BRANDLESS_TIMEOUT_MS || 500);
 const LEGACY_TIMEOUT_MS = Number(process.env.OFF_LEGACY_TIMEOUT_MS || 400);
 const GLOBAL_BUDGET_MS = Number(process.env.OFF_GLOBAL_BUDGET_MS || 3000);
+const HEDGE_DELAY_MS = Number(process.env.OFF_HEDGE_DELAY_MS || 350);
+const HEDGE_TIMEOUT_MS = Number(process.env.OFF_HEDGE_TIMEOUT_MS || 400);
 
 import { getCache, setCache } from './simple-cache.js';
 import { matchVariantRules, isVariantToken } from './variant-rules.js';
@@ -464,6 +466,10 @@ async function runSearchV2({
       ms: duration,
       labels: labelFilters
     });
+
+    if (stage) {
+      emitMetric('off_fallback_step_used', { step: stage, hits: products.length });
+    }
 
     return {
       count,
@@ -937,8 +943,104 @@ export async function searchByNameV1(query, { signal, categoryTags = [], negativ
   const queries = buildSearchQueries(cleanQuery, brand).slice(0, 1);
   const salTerm = queries[0] || cleanQuery;
 
-  // Stage A: Search-a-licious
-  if (canRunStage(SAL_TIMEOUT_MS)) {
+  const runHedgedSalAndStrict = async () => {
+    return new Promise((resolve) => {
+      let resolved = false;
+      let winner = null;
+      let v2Timer = null;
+      let active = 0;
+      const abortFns = new Map();
+
+      const settle = (value) => {
+        if (resolved) return;
+        resolved = true;
+        if (v2Timer) clearTimeout(v2Timer);
+        resolve(value);
+      };
+
+      const launchStage = (stageName, controller, runner) => {
+        const abortFn = () => {
+          if (!controller.signal.aborted) controller.abort('hedge_cancelled');
+        };
+        abortFns.set(stageName, abortFn);
+        active++;
+        runner()
+          .then(res => {
+            if (res?.products?.length && !winner) {
+              stageUsed.push(stageName);
+              winner = { stage: stageName, result: res };
+              abortFns.forEach((fn, key) => {
+                if (key !== stageName) fn();
+              });
+              settle(winner);
+            } else if (res) {
+              stageUsed.push(`${stageName}_empty`);
+              attemptedResults.push(res);
+            }
+          })
+          .catch(error => {
+            stageUsed.push(`${stageName}_error`);
+            console.log(`[OFF] Hedged stage ${stageName} failed`, {
+              error: error?.code || error?.message || 'unknown'
+            });
+          })
+          .finally(() => {
+            active--;
+            if (!winner && active === 0) {
+              settle(null);
+            }
+          });
+      };
+
+      emitMetric('off_budget_remaining', { stage: 'sal_hedged', ms: Math.max(0, remainingBudget()) });
+      const salController = new AbortController();
+      const salSignal = combineSignals(signal, salController.signal);
+      launchStage('sal', salController, () => runSearchV3(salTerm, {
+        signal: salSignal,
+        locale: localeParam,
+        categoryTags: primaryCategory ? [primaryCategory] : [],
+        negativeCategoryTags,
+        brandFilter: brand,
+        variantTokens
+      }));
+
+      if (brandSlug && primaryCategory && canRunStage(V2_STRICT_TIMEOUT_MS)) {
+        v2Timer = setTimeout(() => {
+          if (resolved) return;
+          const v2Controller = new AbortController();
+          const v2Signal = combineSignals(signal, v2Controller.signal);
+          const hedgeTimeout = adjustedTimeout(Math.min(HEDGE_TIMEOUT_MS, V2_STRICT_TIMEOUT_MS));
+          launchStage('v2_strict', v2Controller, () => runSearchV2({
+            signal: v2Signal,
+            locale: localeParam,
+            stage: 'v2_strict',
+            brandSlug,
+            primaryCategory,
+            labelFilters,
+            timeoutMs: hedgeTimeout,
+            negativeCategoryTags
+          }));
+        }, HEDGE_DELAY_MS);
+      }
+    });
+  };
+
+  let hedgedResult = null;
+  let hedgedTried = false;
+  if (brandSlug && primaryCategory && canRunStage(SAL_TIMEOUT_MS)) {
+    hedgedResult = await runHedgedSalAndStrict();
+    hedgedTried = true;
+    if (hedgedResult?.stage === 'sal') {
+      console.log('[OFF] Hedged winner: Search-a-licious');
+      return hedgedResult.result;
+    }
+    if (hedgedResult?.stage === 'v2_strict') {
+      console.log('[OFF] Hedged winner: v2_strict');
+      return hedgedResult.result;
+    }
+  }
+
+  if ((!hedgedTried || hedgedResult === null) && canRunStage(SAL_TIMEOUT_MS)) {
     emitMetric('off_budget_remaining', { stage: 'sal', ms: Math.max(0, remainingBudget()) });
     try {
       const salResult = await runSearchV3(salTerm, {
@@ -951,12 +1053,13 @@ export async function searchByNameV1(query, { signal, categoryTags = [], negativ
       });
 
       if (salResult?.products?.length) {
-        stageUsed.push('sal');
+        stageUsed.push(hedgedTried ? 'sal_retry' : 'sal');
         console.log('[OFF] Stage A (Search-a-licious) succeeded');
         return salResult;
       }
 
       if (salResult) {
+        stageUsed.push(hedgedTried ? 'sal_empty_retry' : 'sal_empty');
         attemptedResults.push(salResult);
       }
     } catch (error) {
@@ -991,7 +1094,6 @@ export async function searchByNameV1(query, { signal, categoryTags = [], negativ
 
       if (result?.products?.length) {
         stageUsed.push(stage);
-        emitMetric('off_fallback_step_used', { step: stage, hits: result.products.length });
         return result;
       }
 
