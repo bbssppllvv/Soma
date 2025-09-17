@@ -89,7 +89,7 @@ export const GPT_NUTRITION_SCHEMA = {
         // strict:true requires every property to be listed in required.
         // Optionality is handled through nullable fields.
         required: [
-          "name","portion","unit","brand","upc","cooking_method","confidence","occluded","locale","item_role","canonical_category","food_form"
+          "name","portion","unit","brand","brand_normalized","clean_name","required_tokens","upc","cooking_method","confidence","occluded","locale","item_role","canonical_category","food_form"
         ]
       }
     },
