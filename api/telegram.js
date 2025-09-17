@@ -97,7 +97,7 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
   const text = message.text || message.caption || '';
   
   try {
-    await sendMessage(chatId, 'Analyzing your food...', botToken);
+    const analyzingMessage = await sendMessage(chatId, 'Analyzing your food...', botToken);
 
     // Get user context for personalized analysis
     const userContext = await getUserContext(userId, supabaseUrl, supabaseHeaders);
@@ -128,10 +128,35 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
     // Calculate score explanation
     const scoreExplanation = getScoreExplanation(nutritionData, userContext);
     
+    const primaryItem = (nutritionData.items || []).find(i => i.item_role === 'dish')
+      || (nutritionData.items || [])[0] || null;
+    const recognizedLabel = primaryItem ? `${primaryItem.name || nutritionData.food_name || 'Food'} (${primaryItem.canonical_category || 'unknown'})` : (nutritionData.food_name || 'Food');
+    const offStatus = nutritionData.off_status || 'skipped';
+    const offReasons = Array.isArray(nutritionData.off_reasons) ? nutritionData.off_reasons.map(r => r.reason).filter(Boolean) : [];
+
+    if (analyzingMessage?.message_id) {
+      const checkingLine = offStatus === 'used'
+        ? '✅ Found precise nutrition in Open Food Facts.'
+        : offStatus === 'fallback'
+          ? '⚠️ Could not find a precise match in Open Food Facts — using AI estimate.'
+          : 'ℹ️ Using AI estimate for nutrition.';
+      const recognizedText = `🔎 <b>Recognized:</b> ${recognizedLabel}\n${checkingLine}`;
+      await editMessageWithKeyboard(chatId, analyzingMessage.message_id, recognizedText, [], botToken);
+    }
+
+    const sourceLine = offStatus === 'used'
+      ? 'Source: Open Food Facts match'
+      : offStatus === 'disabled'
+        ? 'Source: AI estimate (OFF disabled)'
+        : offStatus === 'fallback'
+          ? `Source: AI estimate (OFF fallback${offReasons.length ? `: ${offReasons.join(', ')}` : ''})`
+          : 'Source: AI estimate';
+
     const responseText = `<b>Nutrition Analysis</b>
 
 <b>Food:</b> ${nutritionData.food_name || 'Mixed Food'}
 <b>Portion:</b> ${nutritionData.portion_size || 'Standard'} (${nutritionData.portion_description || 'medium serving'})
+<b>${sourceLine}</b>
 
 <b>Nutritional Breakdown:</b>
 Calories: ${nutritionData.calories} kcal

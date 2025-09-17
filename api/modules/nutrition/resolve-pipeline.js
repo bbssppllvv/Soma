@@ -25,7 +25,7 @@ function computeItemPriority(item) {
 
 export async function resolveItemsWithOFF(items, { signal } = {}) {
   const global = new AbortController();
-  const globalTimer = setTimeout(() => global.abort(), Number(process.env.OFF_GLOBAL_BUDGET_MS || 3500));
+  const globalTimer = setTimeout(() => global.abort(), Number(process.env.OFF_GLOBAL_BUDGET_MS || 12000));
 
   // dedupe по canonical
   const groups = new Map(); // canonical -> [items]
@@ -76,7 +76,7 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
   const tasks = selected.map(({ canonical, originals }) =>
     limit(async () => {
       const ctrl = new AbortController();
-      const perReqTimer = setTimeout(() => ctrl.abort(), Number(process.env.OFF_TIMEOUT_MS || 2000));
+      const perReqTimer = setTimeout(() => ctrl.abort(), Number(process.env.OFF_TIMEOUT_MS || 6000));
       
       // Комбинируем сигналы
       let offSignal;

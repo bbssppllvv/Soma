@@ -1,7 +1,7 @@
 const BASE = process.env.OFF_BASE_URL || 'https://world.openfoodfacts.org';
 const UA   = process.env.OFF_USER_AGENT || 'SomaDietTracker/1.0 (support@yourdomain.com)';
 const LANG = (process.env.OFF_LANG || 'en').toLowerCase();
-const TIMEOUT = Number(process.env.OFF_TIMEOUT_MS || 3500);
+const TIMEOUT = Number(process.env.OFF_TIMEOUT_MS || 6000);
 const TTL = Number(process.env.OFF_CACHE_TTL_MS || 10800000);
 const SEARCH_BUCKET_CAPACITY = Number(process.env.OFF_SEARCH_MAX_TOKENS || 10);
 const SEARCH_BUCKET_REFILL_MS = Number(process.env.OFF_SEARCH_REFILL_MS || 60000);
@@ -148,10 +148,11 @@ export async function searchByNameV1(query, { signal, categoryTags = [], preferP
       search_terms: searchTerm,
       search_simple: '1',
       json: '1',
-      page_size: '24',
+      page_size: '10',
       lc: LANG,
       nocache: '1',
-      sort_by: 'unique_scans_n'
+      sort_by: 'unique_scans_n',
+      fields: FIELDS
     });
 
     categoryTags.slice(0, 3).forEach((tag, idx) => {

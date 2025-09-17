@@ -16,13 +16,14 @@ export async function sendMessage(chatId, text, botToken) {
     if (!response.ok) {
       const errorText = await response.text();
       console.error('Telegram API error:', response.status, errorText);
-      return false;
+      return null;
     }
 
-    return true;
+    const data = await response.json();
+    return data?.result || null;
   } catch (error) {
     console.error('Send message error:', error);
-    return false;
+    return null;
   }
 }
 

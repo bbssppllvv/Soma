@@ -401,7 +401,7 @@ async function maybeResolveWithOFFIfEnabled(norm, userContext) {
   if (!Array.isArray(norm.items) || norm.items.length === 0) return null;
 
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), Number(process.env.OFF_TIMEOUT_MS || 3500));
+  const timer = setTimeout(() => ac.abort(), Number(process.env.OFF_TIMEOUT_MS || 6000));
   try {
     const startTime = Date.now();
     const result = await resolveItemsWithOFF(norm.items, { signal: ac.signal });
@@ -443,6 +443,7 @@ async function finalize(parsed, userContext) {
   }
   
   const off = await maybeResolveWithOFFIfEnabled(norm, userContext);
+  const offReasons = Array.isArray(off?.reasons) ? off.reasons : [];
 
   // Используем OFF агрегаты только если есть успешно резолвленные items
   const hasResolvedItems = off && Array.isArray(off.items) &&
@@ -489,10 +490,16 @@ async function finalize(parsed, userContext) {
     final.needs_clarification = true;
     final.advice_short = final.advice_short || "Уточните порцию (например: 100 g или 1 cup).";
     final.score = 0;
+    const offEnabled = OFF_ENABLED;
+    final.off_status = !offEnabled ? 'disabled' : hasResolvedItems ? 'used' : off ? 'fallback' : 'skipped';
+    final.off_reasons = offReasons;
     return final;
   }
 
   final.score = calculateMealScore(final, userContext);
+  const offEnabled = OFF_ENABLED;
+  final.off_status = !offEnabled ? 'disabled' : hasResolvedItems ? 'used' : off ? 'fallback' : 'skipped';
+  final.off_reasons = offReasons;
   return final;
 }
 
