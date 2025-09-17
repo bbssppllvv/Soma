@@ -19,7 +19,7 @@ export async function analyzeWithGPT5(message, openaiKey, userContext, botToken)
     
     // Check if escalation to full GPT-5 is needed AND we have time budget
     const elapsed = Date.now() - startTime;
-    const canEscalate = elapsed < 12000; // cap full analysis at 12s total to fit Vercel limits
+    const canEscalate = elapsed < 8000; // cap full analysis at 8s total for speed
     
     if (shouldEscalate(miniResult, text, hasPhoto) && canEscalate) {
       console.log('Escalating to full GPT-5 for better accuracy...');
@@ -99,7 +99,7 @@ async function tryAnalysis(message, openaiKey, userContext, model, detailLevel, 
   let attempt = 0;
   while (true) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s to fit within Vercel 30s limit
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s for faster responses
     
     try {
       const openaiResponse = await fetch('https://api.openai.com/v1/responses', {
@@ -165,15 +165,20 @@ async function getOptimizedPhotoAsBase64(photos, botToken) {
   
   const photoBuffer = await photoResponse.arrayBuffer();
   
-  // For now, return original - TODO: add sharp compression
-  // const sharp = await import('sharp');
-  // const optimized = await sharp.default(Buffer.from(photoBuffer))
-  //   .resize({ width: 1280, withoutEnlargement: true })
-  //   .jpeg({ quality: 80 })
-  //   .toBuffer();
-  // return optimized.toString('base64');
-  
-  return Buffer.from(photoBuffer).toString('base64');
+  // Optimize image for faster GPT-5 processing
+  try {
+    const sharp = await import('sharp');
+    const optimized = await sharp.default(Buffer.from(photoBuffer))
+      .resize({ width: 1024, withoutEnlargement: true }) // Smaller size for speed
+      .jpeg({ quality: 85, progressive: true }) // Good quality, faster processing
+      .toBuffer();
+    
+    console.log(`[IMG] Optimized: ${photoBuffer.byteLength} → ${optimized.length} bytes (${Math.round((1 - optimized.length/photoBuffer.byteLength) * 100)}% reduction)`);
+    return optimized.toString('base64');
+  } catch (error) {
+    console.log('[IMG] Sharp optimization failed, using original:', error.message);
+    return Buffer.from(photoBuffer).toString('base64');
+  }
 }
 
 // Create photo analysis request - following GPT-5 best practices
@@ -191,6 +196,8 @@ function createPhotoAnalysisRequest(base64Image, caption, userContext, model = '
 
 User needs ${Math.max(0, userContext.goals.cal_goal - userContext.todayTotals.calories)} cal, ${Math.max(0, userContext.goals.protein_goal_g - userContext.todayTotals.protein)}g protein today.
 
+BRAND DETECTION: Look carefully for ANY text, logos, or brand names on packaging, labels, or products. Even if partially visible or at angles, try to read brand names. Include brand names from logos, packaging text, or product labels.
+
 Analyze ALL food visible in the photo, not just what user mentions.`
         },
         { 
@@ -202,15 +209,15 @@ Analyze ALL food visible in the photo, not just what user mentions.`
     }],
     reasoning: { effort: "minimal" },
     text: {
-      verbosity: "low",
+      verbosity: "minimal", // Even more concise
       format: {
         type: "json_schema",
-        name: "nutrition_analysis",
+        name: "nutrition_analysis", 
         strict: true,
         schema: GPT_NUTRITION_SCHEMA
       }
     },
-    max_output_tokens: 900
+    max_output_tokens: 600 // Reduce tokens for faster generation
   };
 }
 
@@ -225,15 +232,15 @@ function createTextAnalysisRequest(text, userContext, model = 'gpt-5-mini') {
 User needs ${Math.max(0, userContext.goals.cal_goal - userContext.todayTotals.calories)} cal, ${Math.max(0, userContext.goals.protein_goal_g - userContext.todayTotals.protein)}g protein today.`,
     reasoning: { effort: "minimal" },
     text: {
-      verbosity: "low",
+      verbosity: "minimal", // Even more concise
       format: {
         type: "json_schema",
-        name: "nutrition_analysis",
+        name: "nutrition_analysis", 
         strict: true,
         schema: GPT_NUTRITION_SCHEMA
       }
     },
-    max_output_tokens: 900
+    max_output_tokens: 600 // Reduce tokens for faster generation
   };
 }
 
