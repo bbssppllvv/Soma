@@ -283,22 +283,24 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
   if (item.upc) {
     const normalizedUPC = normalizeUPC(item.upc);
     if (normalizedUPC) {
-      const cached = await getCachedOffProduct(normalizedUPC, { signal });
-      if (cached?.product && cached.isFresh) {
-        console.log(`[OFF] Cache hit for UPC ${normalizedUPC}`);
-        return { product: cached.product, score: 1.0 };
-      }
+      // CACHE DISABLED FOR TESTING
+      // const cached = await getCachedOffProduct(normalizedUPC, { signal });
+      // if (cached?.product && cached.isFresh) {
+      //   console.log(`[OFF] Cache hit for UPC ${normalizedUPC}`);
+      //   return { product: cached.product, score: 1.0 };
+      // }
 
       const prod = await getByBarcode(normalizedUPC, { signal });
       if (prod && hasUsefulNutriments(prod)) {
-        await upsertOffProduct(prod, { previousLastModified: cached?.last_modified_t, signal });
+        // CACHE DISABLED FOR TESTING - await upsertOffProduct(prod, { previousLastModified: null, signal });
         return { product: prod, score: 1.0 };
       }
 
-      if (cached?.product) {
-        console.log(`[OFF] Using stale cache for UPC ${normalizedUPC}`);
-        return { product: cached.product, score: Math.max(item.confidence ?? 0.6, 0.85) };
-      }
+      // CACHE DISABLED FOR TESTING
+      // if (cached?.product) {
+      //   console.log(`[OFF] Using stale cache for UPC ${normalizedUPC}`);
+      //   return { product: cached.product, score: Math.max(item.confidence ?? 0.6, 0.85) };
+      // }
     }
   }
 
@@ -407,8 +409,9 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     }
 
     if (best.p?.code) {
-      const cached = await getCachedOffProduct(best.p.code, { signal });
-      await upsertOffProduct(best.p, { previousLastModified: cached?.last_modified_t, signal });
+      // CACHE DISABLED FOR TESTING
+      // const cached = await getCachedOffProduct(best.p.code, { signal });
+      // await upsertOffProduct(best.p, { previousLastModified: cached?.last_modified_t, signal });
     }
 
     console.log(`[OFF] Success for "${canonicalQuery}": ${best.p.product_name} (score: ${best.s.toFixed(2)})`);

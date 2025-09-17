@@ -1,0 +1,35 @@
+[19:27:14] info: Starting GPT-5-mini analysis...
+[19:27:28] info: [analysis] item="PHILADELPHIA LIGHT" role=ingredient source=OFF_CANDIDATE brand=PHILADELPHIA upc=null
+[19:27:28] info: [OFF] Resolving item: {
+  name: 'PHILADELPHIA LIGHT',
+  canonical: 'philadelphia light',
+  brand: 'PHILADELPHIA',
+  upc: null,
+  confidence: 0.95
+}
+[19:27:28] info: [OFF] search v3 POST term="philadelphia light" brand="philadelphia" hits=5 { count: 10000, ms: 0 }
+[19:27:28] info: [OFF] Success for "philadelphia light": Philadelphia light (score: 1.40)
+[19:27:28] info: OFF resolved 1/1 in 454ms [USED] { reasons: [], off_ms: 454 }
+[19:27:55] info: Starting GPT-5-mini analysis...
+[19:27:57] info: Starting GPT-5-mini analysis...
+[19:28:10] info: [analysis] item="Asturiana Leche Semidesnatada" role=ingredient source=OFF_CANDIDATE brand=Asturiana upc=null
+[19:28:10] info: [OFF] search v3 POST term="asturiana leche semidesnatada" brand="asturiana" hits=5 { count: 10000, ms: 404 }
+[19:28:15] info: Starting GPT-5-mini analysis...
+[19:28:17] info: Starting GPT-5-mini analysis...
+[19:28:32] info: [analysis] item="Salsa Barbacoa / Molho de Churrasco" role=ingredient source=OFF_CANDIDATE brand=McDonald's upc=null
+[19:28:32] info: [OFF] Resolving item: {
+  name: 'Salsa Barbacoa / Molho de Churrasco',
+  canonical: 'salsa barbacoa molho de churrasco',
+  brand: "McDonald's",
+  upc: null,
+  confidence: 0.9
+}
+[19:28:32] info: [OFF] search v3 POST term="mcdonald s salsa barbacoa molho de churrasco" brand="mcdonald s" hits=5 { count: 10000, ms: 328 }
+[19:28:33] info: [OFF] Success for "salsa barbacoa molho de churrasco": Molho para churrasco (score: 0.70)
+[19:28:49] info: Starting GPT-5-mini analysis...
+[19:28:51] info: Starting GPT-5-mini analysis...
+[19:29:00] info: [analysis] item="Banderilla Beltramen Enchilada" role=ingredient source=AI (no brand/upc) brand=null upc=null
+[19:29:00] info: [analysis] decision item="Banderilla Beltramen Enchilada" role=ingredient brand=null upc=null source=ai reason=skipped_no_brand portion=100 g (gpt_guess)
+[19:29:02] info: [analysis] decision item="Banderilla Beltramen Enchilada" role=ingredient brand=null upc=null source=ai reason=skipped_no_brand portion=100 g (gpt_guess)
+[19:29:05] info: [analysis] decision item="Banderilla Beltramen Enchilada" role=ingredient brand=null upc=null source=ai reason=skipped_no_brand portion=100 g (gpt_guess)
+[19:29:07] info: [analysis] decision item="Banderilla Beltramen Enchilada" role=ingredient brand=null upc=null source=ai reason=skipped_no_brand portion=100 g (gpt_guess)

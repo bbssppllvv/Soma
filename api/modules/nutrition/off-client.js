@@ -385,10 +385,10 @@ function combineSignals(a, b) {
 }
 
 async function fetchWithBackoff(url, { signal, timeoutMs } = {}) {
-  // check cache before hitting the network
-  const ck = cacheKey(url);
-  const hit = getCache(ck);
-  if (hit) return hit;
+  // CACHE DISABLED FOR TESTING - check cache before hitting the network
+  // const ck = cacheKey(url);
+  // const hit = getCache(ck);
+  // if (hit) return hit;
 
   let delay = 150;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -402,7 +402,7 @@ async function fetchWithBackoff(url, { signal, timeoutMs } = {}) {
       if (res.status === 429 || res.status >= 500) throw new Error(`OFF ${res.status}`);
       if (!res.ok) throw new Error(`OFF ${res.status}`);
       const json = await res.json();
-      setCache(ck, json, TTL);
+      // CACHE DISABLED FOR TESTING - setCache(ck, json, TTL);
       return json;
     } catch (e) {
       clearTimeout(timeoutId);            // always clear timeout handle
@@ -414,10 +414,10 @@ async function fetchWithBackoff(url, { signal, timeoutMs } = {}) {
 }
 
 async function fetchWithBackoffPost(url, body, { signal, timeoutMs } = {}) {
-  // Create cache key based on URL and body for POST requests
-  const ck = cacheKey(url + JSON.stringify(body));
-  const hit = getCache(ck);
-  if (hit) return hit;
+  // CACHE DISABLED FOR TESTING - Create cache key based on URL and body for POST requests
+  // const ck = cacheKey(url + JSON.stringify(body));
+  // const hit = getCache(ck);
+  // if (hit) return hit;
 
   let delay = 150;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -442,7 +442,7 @@ async function fetchWithBackoffPost(url, body, { signal, timeoutMs } = {}) {
       if (res.status === 429 || res.status >= 500) throw new Error(`OFF ${res.status}`);
       if (!res.ok) throw new Error(`OFF ${res.status}`);
       const json = await res.json();
-      setCache(ck, json, TTL);
+      // CACHE DISABLED FOR TESTING - setCache(ck, json, TTL);
       return json;
     } catch (e) {
       clearTimeout(timeoutId);            // always clear timeout handle
