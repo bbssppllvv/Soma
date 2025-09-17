@@ -4,5 +4,16 @@
       "memory": 1024,
       "maxDuration": 30
     }
-  }
+  },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "s-maxage=60, stale-while-revalidate=300"
+        }
+      ]
+    }
+  ]
 }
