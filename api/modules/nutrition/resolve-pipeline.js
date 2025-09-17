@@ -28,7 +28,14 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
   const results = [];
   const reasons = [];
 
-  const tasks = [...groups.entries()].map(([canonical, originals]) =>
+  // Приоритезируем простые (односоставные) запросы: tomato, cucumber, egg
+  const sortedGroups = [...groups.entries()].sort((a, b) => {
+    const aTokens = a[0].split(/\s+/).length;
+    const bTokens = b[0].split(/\s+/).length;
+    return aTokens - bTokens; // меньше токенов — раньше
+  });
+
+  const tasks = sortedGroups.map(([canonical, originals]) =>
     limit(async () => {
       const ctrl = new AbortController();
       const perReqTimer = setTimeout(() => ctrl.abort(), Number(process.env.OFF_TIMEOUT_MS || 2000));

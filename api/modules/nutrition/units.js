@@ -25,7 +25,11 @@ export function parseNumberMaybeFraction(v){
 export function toGrams(portion, unit, name) {
   const normalizedPortion = parseNumberMaybeFraction(portion);
   if (!Number.isFinite(normalizedPortion) || !unit) return null;
-  const u = String(unit).toLowerCase();
+  const u = String(unit).toLowerCase().replace(/\bunits\b/, 'unit');
+  if (u === 'unit') {
+    // грубая эвристика: 1 штука ~ 50 г (как было), множитель от portion
+    return normalizedPortion * 50;
+  }
   if (u in MAP) return normalizedPortion * MAP[u];
 
   if (u === 'ml' || u.endsWith('ml')) {
