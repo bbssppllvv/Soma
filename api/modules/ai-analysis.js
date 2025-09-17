@@ -469,26 +469,6 @@ async function parseGPT5Response(openaiData, userContext) {
   return getFallbackAnalysis('Parsing failed');
 }
 
-// Text response parsing no longer needed - JSON Schema ensures clean JSON in output_text
-
-// @deprecated - kept for backward compatibility, use normalizeAnalysisPayload instead
-export function cleanNutritionData(parsed) {
-  // Wrapper around new normalized pipeline for compatibility
-  const norm = normalizeAnalysisPayload(parsed);
-  return {
-    calories: Math.max(1, Math.min(2000, Math.round(norm.aggregates.calories))),
-    protein_g: Math.max(0, Math.min(100, round(norm.aggregates.protein_g, 1))),
-    fat_g: Math.max(0, Math.min(100, round(norm.aggregates.fat_g, 1))),
-    carbs_g: Math.max(0, Math.min(200, round(norm.aggregates.carbs_g, 1))),
-    fiber_g: Math.max(0, Math.min(50, round(norm.aggregates.fiber_g, 1))),
-    confidence: clamp(parsed.confidence ?? avgItemConf(norm.items) ?? 0.7, 0.1, 1.0),
-    advice_short: norm.advice_short,
-    food_name: (parsed.food_name || 'Unknown Food').substring(0, 100),
-    portion_size: (parsed.portion_size || 'Standard').substring(0, 50),
-    portion_description: (parsed.portion_description || 'Medium serving').substring(0, 100),
-    score: parsed.score || 6.0
-  };
-}
 
 // Simple fallback when GPT-5 fails
 export function getFallbackAnalysis(message) {
