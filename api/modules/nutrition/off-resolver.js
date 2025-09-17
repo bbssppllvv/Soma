@@ -5,6 +5,7 @@ import { getCachedOffProduct, upsertOffProduct } from './off-supabase-cache.js';
 const REQUIRE_BRAND = String(process.env.OFF_REQUIRE_BRAND || 'true').toLowerCase() === 'true';
 const BRAND_THRESHOLD = Number(process.env.OFF_BRAND_THRESHOLD || 0.7);
 const DEFAULT_THRESHOLD = 0.8;
+const OFF_BUDGET_MS = Number(process.env.OFF_GLOBAL_BUDGET_MS || 3000);
 
 const SWEET_SENSITIVE_CATEGORIES = new Set(['snack-sweet', 'cookie-biscuit', 'dessert']);
 const SWEET_CATEGORY_TAGS = new Set([
@@ -96,17 +97,6 @@ const FOOD_FORM_HINTS = {
     keywords: ['drink', 'beverage']
   }
 }; 
-
-function inferPackagingHint(item) {
-  const name = (item?.name || '').toLowerCase();
-  const form = (item?.food_form || '').toLowerCase();
-  const packagingKeywords = ['bottle', 'can', 'tub', 'pack', 'package', 'carton', 'jar', 'bar', 'box'];
-  for (const keyword of packagingKeywords) {
-    if (name.includes(keyword)) return keyword;
-    if (form.includes(keyword)) return keyword;
-  }
-  return null;
-}
 
 function tokenize(value) {
   return canonicalizeQuery(value || '').split(' ').filter(Boolean);
@@ -307,50 +297,44 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
   try {
     const positiveHints = CATEGORY_POSITIVE_HINTS[item?.canonical_category || ''] || null;
     const categoryTags = positiveHints ? positiveHints.tags : [];
-    const packagingHint = inferPackagingHint(item);
     const brandName = item.brand ? canonicalizeQuery(String(item.brand)) : null;
     const cleanName = canonicalQuery || canonicalizeQuery(item.name || '');
-    const locale = item.locale || 'en';
+    const locale = typeof item.locale === 'string' && item.locale.trim() ? item.locale.trim().toLowerCase() : 'en';
 
-    const brandedQuery = brandName ? `${brandName} ${cleanName}`.trim() : null;
-    const baseQueries = [...new Set([
-      brandedQuery,
-      cleanName
-    ].filter(Boolean))];
+    const queries = [];
+    if (brandName && cleanName) {
+      const combined = canonicalizeQuery(`${brandName} ${cleanName}`);
+      if (combined) {
+        queries.push({ term: combined, brand: brandName });
+      }
+    }
+    if (cleanName) {
+      queries.push({ term: cleanName, brand: null });
+    }
+
+    const finalQueries = [];
+    const seen = new Set();
+    for (const q of queries) {
+      if (!q.term) continue;
+      const key = `${q.term}::${q.brand || ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      finalQueries.push(q);
+      if (finalQueries.length >= 2) break;
+    }
 
     let data = null;
 
-    if (brandName) {
-      for (const term of baseQueries) {
-        data = await searchByNameV1(term, {
-          signal,
-          categoryTags,
-          brand: brandName,
-          packaging: packagingHint,
-          maxPages: 2,
-          locale
-        });
-        if (Array.isArray(data?.products) && data.products.length > 0) {
-          break;
-        }
-      }
-    }
-
-    if (!data || !Array.isArray(data.products) || data.products.length === 0) {
-      if (brandName) {
-        console.error(`[OFF] Brand lookup failed`, { brand: brandName, name: rawName });
-      }
-      for (const term of baseQueries) {
-        data = await searchByNameV1(term, {
-          signal,
-          categoryTags,
-          packaging: packagingHint,
-          maxPages: brandName ? 1 : 2,
-          locale
-        });
-        if (Array.isArray(data?.products) && data.products.length > 0) {
-          break;
-        }
+    for (const { term, brand } of finalQueries) {
+      data = await searchByNameV1(term, {
+        signal,
+        categoryTags,
+        brand,
+        maxPages: 1,
+        locale
+      });
+      if (Array.isArray(data?.products) && data.products.length > 0) {
+        break;
       }
     }
 
@@ -360,7 +344,7 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         item,
         reason,
         canonical: canonicalQuery,
-        error: `OFF not found for brand="${brandName || 'none'}" name="${rawName}"`
+        error: `OFF not found for brand="${brandName || 'none'}" name="${item.name}"`
       };
     }
 

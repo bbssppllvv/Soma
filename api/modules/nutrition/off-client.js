@@ -49,15 +49,20 @@ const NOISE_WORDS = [
 
 // Normalize free-form text for search queries
 export function canonicalizeQuery(raw = '') {
-  return raw
+  const words = raw
     .toLowerCase()
     .replace(/\(.*?\)/g, ' ')
     .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .split(/\s+/)
     .filter(Boolean)
-    .filter(word => !NOISE_WORDS.includes(word))
-    .join(' ')
-    .trim();
+    .filter(word => !NOISE_WORDS.includes(word));
+
+  const unique = [];
+  for (const word of words) {
+    if (!unique.includes(word)) unique.push(word);
+  }
+
+  return unique.join(' ').trim();
 }
 
 // Narrow field list keeps responses small and fast
@@ -169,22 +174,12 @@ export async function getByBarcode(barcode, { signal } = {}) {
 }
 
 // Primary OFF search endpoint (stable)
-export async function searchByNameV1(query, { signal, categoryTags = [], preferPlain = false, brand = null, packaging = null, maxPages = 2, locale = null } = {}) {
+export async function searchByNameV1(query, { signal, categoryTags = [], brand = null, maxPages = 1, locale = null } = {}) {
   await acquireSearchToken(signal);
 
   const base = process.env.OFF_BASE_URL || 'https://world.openfoodfacts.org';
   const sanitizedQuery = query.trim();
   const searchLocale = (locale || LANG);
-  const searchBaseTerms = new Set();
-  searchBaseTerms.add(sanitizedQuery);
-  if (packaging && typeof packaging === 'string' && packaging.trim()) {
-    searchBaseTerms.add(`${sanitizedQuery} ${packaging.trim()}`);
-  }
-  if (preferPlain) {
-    searchBaseTerms.add(`plain ${sanitizedQuery}`.trim());
-  }
-
-  const baseTerms = [...searchBaseTerms];
 
   async function runSearch(term, brandFilter) {
     for (let page = 1; page <= maxPages; page++) {
@@ -238,16 +233,12 @@ export async function searchByNameV1(query, { signal, categoryTags = [], preferP
   }
 
   if (brand) {
-    for (const term of baseTerms) {
-      const data = await runSearch(term, brand);
-      if (data) return data;
-    }
-  }
-
-  for (const term of baseTerms) {
-    const data = await runSearch(term, null);
+    const data = await runSearch(sanitizedQuery, brand);
     if (data) return data;
   }
+
+  const data = await runSearch(sanitizedQuery, null);
+  if (data) return data;
 
   return { count: 0, products: [], query_term: sanitizedQuery, brand_filter: brand || null };
 }

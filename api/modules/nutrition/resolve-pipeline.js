@@ -279,13 +279,6 @@ function determinePortionInfo(item, product) {
     return userOverride;
   }
 
-  const userValue = Number(item.portion_value);
-  if (item.portion_source === 'user' && Number.isFinite(userValue) && userValue > 0) {
-    const unit = item.portion_unit || 'g';
-    const display = item.portion_display || formatPortionDisplay(userValue, unit);
-    return { grams: userValue, unit, display, source: 'user', reason: item.portion_reason || 'user_text' };
-  }
-
   const packageInfo = extractPackageInfo(product);
   const servingInfo = extractServingInfo(product);
 
@@ -307,6 +300,13 @@ function determinePortionInfo(item, product) {
       source: 'serving',
       reason: 'serving_size'
     };
+  }
+
+  const userValue = Number(item.portion_value);
+  if (item.portion_source === 'user' && Number.isFinite(userValue) && userValue > 0) {
+    const unit = item.portion_unit || 'g';
+    const display = item.portion_display || formatPortionDisplay(userValue, unit);
+    return { grams: userValue, unit, display, source: 'user', reason: item.portion_reason || 'user_text' };
   }
 
   if (Number.isFinite(userValue)) {
@@ -332,7 +332,7 @@ function determinePortionInfo(item, product) {
 
 export async function resolveItemsWithOFF(items, { signal } = {}) {
   const global = new AbortController();
-  const globalTimer = setTimeout(() => global.abort(), Number(process.env.OFF_GLOBAL_BUDGET_MS || 12000));
+  const globalTimer = setTimeout(() => global.abort(), Number(process.env.OFF_GLOBAL_BUDGET_MS || 3000));
 
   const candidates = REQUIRE_BRAND ? items.filter(it => it.off_candidate) : items;
   const skippedNoBrand = REQUIRE_BRAND ? items.filter(it => !it.off_candidate) : [];
