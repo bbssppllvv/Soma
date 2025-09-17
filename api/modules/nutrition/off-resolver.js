@@ -430,45 +430,68 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     // HARD FILTERS: Brand and variant token matching
     let candidates = useful;
     
-    // Brand gate: require exact brand match if provided
+    // Brand gate: proper brands_tags matching with aliases
     if (item.brand_normalized) {
-      const normalizedBrand = item.brand_normalized.toLowerCase();
+      const normalizedBrand = item.brand_normalized.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      
+      // Generate brand aliases (full name + individual words)
+      const brandAliases = new Set([normalizedBrand]);
+      const brandWords = normalizedBrand.split(' ').filter(w => w.length > 2);
+      brandWords.forEach(word => brandAliases.add(word));
+      
       candidates = candidates.filter(product => {
-        const brandTags = product.brands_tags || [];
-        const brandText = (product.brands || '').toLowerCase();
-        return brandTags.some(tag => tag.toLowerCase().includes(normalizedBrand)) ||
-               brandText.includes(normalizedBrand);
+        const brandTags = (product.brands_tags || []).map(tag => 
+          tag.replace(/^[a-z]{2}:/, '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        );
+        const brandText = (product.brands || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        
+        // Check if any brand alias matches any brand tag or text (exact word match)
+        return [...brandAliases].some(alias => {
+          return brandTags.some(tag => {
+            const regex = new RegExp(`\\b${alias}\\b`, 'i');
+            return regex.test(tag);
+          }) || new RegExp(`\\b${alias}\\b`, 'i').test(brandText);
+        });
       });
       
       if (candidates.length === 0) {
-        console.log(`[OFF] No products match brand "${item.brand_normalized}" for "${canonicalQuery}"`);
-        return { item, reason: 'brand_filter_no_match', canonical: canonicalQuery };
+        console.log(`[OFF] No products match brand aliases [${[...brandAliases].join(', ')}] for "${canonicalQuery}"`);
+        return { item, reason: 'brand_filter_no_match', canonical: canonicalQuery, brand_aliases: [...brandAliases] };
       }
+      
+      console.log(`[OFF] Brand filter: ${[...brandAliases].length} aliases, ${candidates.length} candidates match`);
     }
     
-    // Variant gate: require at least one key variant token if provided
+    // Variant gate: require ALL variant tokens in multiple fields
     if (item.required_tokens && item.required_tokens.length > 0) {
       // Filter out overly long/complex tokens (keep only simple modifiers)
       const simpleTokens = item.required_tokens.filter(token => 
-        token.length <= 15 && !token.includes('/') && !token.includes('%')
+        token.length <= 15 && !token.includes('/') && !token.includes('%') && !token.match(/\d/)
       );
       
       if (simpleTokens.length > 0) {
         candidates = candidates.filter(product => {
-          const productName = (product.product_name || '').toLowerCase();
-          // Require at least one key token to match (not all)
-          return simpleTokens.some(token => {
-            const regex = new RegExp(`\\b${token.toLowerCase()}\\b`, 'i');
-            return regex.test(productName);
+          // Normalize and combine searchable fields
+          const productName = (product.product_name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+          const labelTags = (product.labels_tags || []).map(tag => tag.replace(/^[a-z]{2}:/, '').toLowerCase());
+          const categoryTags = (product.categories_tags || []).map(tag => tag.replace(/^[a-z]{2}:/, '').toLowerCase());
+          
+          const searchableText = [productName, ...labelTags, ...categoryTags].join(' ');
+          
+          // Require ALL tokens to be present (every, not some)
+          return simpleTokens.every(token => {
+            const normalizedToken = token.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            const regex = new RegExp(`\\b${normalizedToken}\\b`, 'i');
+            return regex.test(searchableText);
           });
         });
         
         if (candidates.length === 0) {
-          console.log(`[OFF] No products match any required tokens [${simpleTokens.join(', ')}] for "${canonicalQuery}"`);
+          console.log(`[OFF] No products match ALL required tokens [${simpleTokens.join(', ')}] for "${canonicalQuery}"`);
           return { item, reason: 'variant_filter_no_match', canonical: canonicalQuery, missing_tokens: simpleTokens };
         }
         
-        console.log(`[OFF] Variant filter: ${simpleTokens.length} tokens, ${candidates.length} candidates match`);
+        console.log(`[OFF] Variant filter: ALL ${simpleTokens.length} tokens required, ${candidates.length} candidates match`);
       }
     }
     
