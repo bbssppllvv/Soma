@@ -139,14 +139,14 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
     const offReasons = Array.isArray(nutritionData.off_reasons) ? nutritionData.off_reasons.map(r => r.reason).filter(Boolean) : [];
 
     if (analyzingMessage?.message_id) {
-      const checkingLine = offStatus === 'used'
-        ? '✅ Найдена точная информация в базе Open Food Facts.'
-        : offStatus === 'fallback'
-          ? '⚠️ Не удалось получить точные данные — использую оценку AI.'
-          : offStatus === 'disabled'
-            ? 'ℹ️ Open Food Facts отключён — использую оценку AI.'
-            : 'ℹ️ Использую оценку AI (бренд не указан).';
-      const recognizedText = `🔎 <b>Распознаны продукты:</b> ${recognizedLabel}\n${checkingLine}`;
+      const firstBrandItem = (nutritionData.items || []).find(item => item.brand);
+      const brandSummary = firstBrandItem?.brand
+        ? `${firstBrandItem.name || nutritionData.food_name || 'Food'} (бренд: ${firstBrandItem.brand})`
+        : recognizedLabel;
+      const checkingLine = firstBrandItem?.brand
+        ? 'Проверяем по базе брендов…'
+        : 'Использую оценку AI (бренд не указан).';
+      const recognizedText = `📸 <b>Распознано:</b> ${brandSummary}\n${checkingLine}`;
       await editMessageWithKeyboard(chatId, analyzingMessage.message_id, recognizedText, [], botToken);
     }
 
@@ -191,10 +191,11 @@ Ready to add this to your diet?`;
 
     // Store analysis data temporarily with unique ID
     const analysisId = `${userId}_${message.message_id}_${Date.now()}`;
+    const responseMessageId = analyzingMessage?.message_id || message.message_id;
     global.tempAnalysisData = global.tempAnalysisData || {};
     global.tempAnalysisData[analysisId] = {
       ...nutritionData, 
-      messageId: message.message_id, 
+      messageId: responseMessageId, 
       chatId, 
       userId,
       originalText: message.text || message.caption
@@ -215,7 +216,11 @@ Ready to add this to your diet?`;
       ]
     ];
 
-    await sendMessageWithKeyboard(chatId, responseText, keyboard, botToken);
+    if (analyzingMessage?.message_id) {
+      await editMessageWithKeyboard(chatId, analyzingMessage.message_id, responseText, keyboard, botToken);
+    } else {
+      await sendMessageWithKeyboard(chatId, responseText, keyboard, botToken);
+    }
 
   } catch (error) {
     console.error('Food analysis error:', error);
