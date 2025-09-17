@@ -198,6 +198,8 @@ User needs ${Math.max(0, userContext.goals.cal_goal - userContext.todayTotals.ca
 
 BRAND DETECTION: Look carefully for ANY text, logos, or brand names on packaging, labels, or products. Even if partially visible or at angles, try to read brand names. Include brand names from logos, packaging text, or product labels.
 
+PRODUCT VARIANTS: Pay special attention to product variants like 'Light', 'Zero', 'Diet', 'Reduced Fat', 'Low Sodium', etc. These are crucial for accurate nutrition data. Include these modifiers in the product name (e.g., 'Philadelphia Light', not just 'Philadelphia').
+
 FOCUS PRIORITY: Identify the MAIN/PRIMARY food item in the photo (usually the largest, most prominent, or centered object). Analyze secondary items only if they are clearly significant portions of a meal. Ignore background items, partially visible products, or items that appear to be just visible in the scene.`
         },
         { 
