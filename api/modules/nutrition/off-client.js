@@ -7,7 +7,7 @@ const TTL = Number(process.env.OFF_CACHE_TTL_MS || 10800000);
 const SEARCH_BUCKET_CAPACITY = Number(process.env.OFF_SEARCH_MAX_TOKENS || 10);
 const SEARCH_BUCKET_REFILL_MS = Number(process.env.OFF_SEARCH_REFILL_MS || 60000);
 const SEARCH_BUCKET_POLL_MS = Number(process.env.OFF_SEARCH_POLL_MS || 500);
-const SEARCH_PAGE_SIZE = Number(process.env.OFF_SEARCH_PAGE_SIZE || 5);
+const SEARCH_PAGE_SIZE = Number(process.env.OFF_SEARCH_PAGE_SIZE || 15); // Increased for better variant coverage
 const SEARCH_TIMEOUT_MS = Number(process.env.OFF_SEARCH_TIMEOUT_MS || 600);
 
 import { getCache, setCache } from './simple-cache.js';

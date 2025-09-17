@@ -286,7 +286,12 @@ function productMatchesPreferences(item, product) {
 }
 
 export async function resolveOneItemOFF(item, { signal } = {}) {
-  const canonicalQuery = canonicalizeQuery(item.name);
+  // Use clean_name + required_tokens for better search query
+  const fullProductName = item.clean_name && item.required_tokens?.length > 0
+    ? `${item.clean_name} ${item.required_tokens.join(' ')}`
+    : item.name;
+  
+  const canonicalQuery = canonicalizeQuery(fullProductName);
   console.log(`[OFF] Resolving item:`, { 
     name: item.name, 
     canonical: canonicalQuery,
@@ -351,16 +356,31 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       queries.push({ term: limitedCleanTerm, brand: null });
     }
 
-    const finalQueries = [];
-    const seen = new Set();
+    // Build multiple search strategies for better coverage
+    const searchStrategies = [];
+    
+    // Strategy 1: Full name with tokens
+    if (item.clean_name && item.required_tokens?.length > 0) {
+      const fullName = `${item.clean_name} ${item.required_tokens.join(' ')}`;
+      searchStrategies.push({ term: limitTokens(fullName), brand: brandName, strategy: 'full_with_tokens' });
+    }
+    
+    // Strategy 2: Brand + tokens only
+    if (brandName && item.required_tokens?.length > 0) {
+      const brandWithTokens = `${brandName} ${item.required_tokens.join(' ')}`;
+      searchStrategies.push({ term: limitTokens(brandWithTokens), brand: brandName, strategy: 'brand_with_tokens' });
+    }
+    
+    // Strategy 3: Original queries as fallback
     for (const q of queries) {
       if (!q.term) continue;
       const key = `${q.term}::${q.brand || ''}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      finalQueries.push(q);
-      if (finalQueries.length >= 2) break;
+      if (!searchStrategies.some(s => `${s.term}::${s.brand || ''}` === key)) {
+        searchStrategies.push({ ...q, strategy: 'original' });
+      }
     }
+
+    const finalQueries = searchStrategies.slice(0, 3); // Try up to 3 strategies
 
     if (finalQueries.length === 0) {
       return { item, reason: 'empty_query', canonical: canonicalQuery };
@@ -368,7 +388,7 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
 
     let data = null;
 
-    for (const { term, brand } of finalQueries) {
+    for (const { term, brand, strategy } of finalQueries) {
       if (Date.now() - startedAt > OFF_BUDGET_MS) {
         return { item, reason: 'timeout', canonical: canonicalQuery, error: 'budget_exceeded' };
       }
@@ -380,7 +400,10 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         locale
       });
       if (Array.isArray(data?.products) && data.products.length > 0) {
+        console.log(`[OFF] Search strategy '${strategy}' found ${data.products.length} products`);
         break;
+      } else {
+        console.log(`[OFF] Search strategy '${strategy}' found no products for term="${term}"`);
       }
     }
 
