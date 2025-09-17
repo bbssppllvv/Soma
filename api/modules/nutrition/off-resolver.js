@@ -2,6 +2,66 @@ import { getByBarcode, searchByNameV1, canonicalizeQuery } from './off-client.js
 import { mapOFFProductToPer100g } from './off-map.js';
 import { getCachedOffProduct, upsertOffProduct } from './off-supabase-cache.js';
 
+const SWEET_SENSITIVE_CATEGORIES = new Set(['snack-sweet', 'cookie-biscuit', 'dessert']);
+const SWEET_CATEGORY_TAGS = new Set([
+  'en:cookies',
+  'en:biscuits',
+  'en:desserts',
+  'en:snacks-sweet',
+  'en:sweet-snacks',
+  'en:candies',
+  'en:chocolate-products',
+  'en:chocolate-biscuits',
+  'en:chocolate-covered-biscuits'
+]);
+const SWEET_NAME_KEYWORDS = ['cookie', 'biscuit', 'dessert', 'snack', 'brownie', 'cake', 'candy', 'bar', 'chocolate', 'wafer'];
+
+const CATEGORY_POSITIVE_HINTS = {
+  porridge: {
+    tags: ['en:porridges', 'en:oat-flakes', 'en:breakfast-cereals'],
+    keywords: ['porridge', 'oatmeal', 'hot cereal']
+  },
+  'breakfast-cereal': {
+    tags: ['en:breakfast-cereals', 'en:cereals'],
+    keywords: ['cereal', 'flakes']
+  },
+  grain: {
+    tags: ['en:grains', 'en:cereal-grains'],
+    keywords: ['grain']
+  },
+  rice: {
+    tags: ['en:rices'],
+    keywords: ['rice']
+  }
+};
+
+const FOOD_FORM_HINTS = {
+  'hot-cereal': {
+    tags: ['en:porridges', 'en:breakfast-cereals'],
+    keywords: ['porridge', 'hot cereal', 'oatmeal']
+  },
+  flakes: {
+    tags: ['en:oat-flakes', 'en:breakfast-cereals'],
+    keywords: ['flakes']
+  },
+  cookie: {
+    tags: ['en:cookies', 'en:biscuits'],
+    keywords: ['cookie', 'biscuit']
+  },
+  bar: {
+    tags: ['en:energy-bars', 'en:snack-bars'],
+    keywords: ['bar']
+  },
+  salad: {
+    tags: ['en:salads'],
+    keywords: ['salad']
+  },
+  drink: {
+    tags: ['en:beverages', 'en:drinks'],
+    keywords: ['drink', 'beverage']
+  }
+};
+
 function tokenize(value) {
   return canonicalizeQuery(value || '').split(' ').filter(Boolean);
 }
@@ -16,12 +76,12 @@ function tokensFromTags(tags) {
   return tokens;
 }
 
-// 🏷️ скоринг с учётом брендов и категорий
 function scoreProduct(item, product) {
   const queryTokens = tokenize(item?.name || '');
   const itemBrandTokens = tokenize(item?.brand || '');
   const name = (product.product_name || '').toLowerCase();
   let score = 0;
+  const categories = Array.isArray(product.categories_tags) ? product.categories_tags : [];
 
   // Совпадения по названию
   const nameHits = queryTokens.filter(t => name.includes(t)).length;
@@ -60,7 +120,35 @@ function scoreProduct(item, product) {
     }
   }
 
-  return score;
+  const canonical = item?.canonical_category || 'unknown';
+  const positiveHints = CATEGORY_POSITIVE_HINTS[canonical];
+  if (positiveHints) {
+    const hasPosTag = categories.some(tag => positiveHints.tags.includes(tag));
+    const hasPosKeyword = positiveHints.keywords.some(word => name.includes(word));
+    if (hasPosTag || hasPosKeyword) {
+      score += 0.25;
+    }
+  }
+
+  const formHints = FOOD_FORM_HINTS[item?.food_form || 'unknown'];
+  if (formHints) {
+    const formTagHit = categories.some(tag => formHints.tags.includes(tag));
+    const formKeywordHit = formHints.keywords.some(word => name.includes(word));
+    if (formTagHit || formKeywordHit) {
+      score += 0.3;
+    }
+  }
+
+  const sweetSensitive = !SWEET_SENSITIVE_CATEGORIES.has(canonical);
+  if (sweetSensitive) {
+    const hasSweetTag = categories.some(tag => SWEET_CATEGORY_TAGS.has(tag));
+    const hasSweetKeyword = SWEET_NAME_KEYWORDS.some(word => name.includes(word));
+    if (hasSweetTag || hasSweetKeyword) {
+      score -= 0.8;
+    }
+  }
+
+  return Math.max(score, 0);
 }
 
 function pickBest(list, scorer, thr){
@@ -85,6 +173,32 @@ function hasUsefulNutriments(p) {
 
 function normalizeUPC(s){ 
   return String(s||'').replace(/[^0-9]/g,''); 
+}
+
+function productMatchesPreferences(item, product) {
+  const canonical = item?.canonical_category || 'unknown';
+  const sweetSensitive = !SWEET_SENSITIVE_CATEGORIES.has(canonical);
+  const categories = Array.isArray(product.categories_tags) ? product.categories_tags : [];
+  const name = (product.product_name || '').toLowerCase();
+
+  if (sweetSensitive) {
+    const hasSweetTag = categories.some(tag => SWEET_CATEGORY_TAGS.has(tag));
+    const hasSweetKeyword = SWEET_NAME_KEYWORDS.some(word => name.includes(word));
+    if (hasSweetTag || hasSweetKeyword) {
+      return { ok: false, reason: 'bad_category' };
+    }
+  }
+
+  const positiveHints = CATEGORY_POSITIVE_HINTS[canonical];
+  if (positiveHints) {
+    const hasPosTag = categories.some(tag => positiveHints.tags.includes(tag));
+    const hasPosKeyword = positiveHints.keywords.some(word => name.includes(word));
+    if (!(hasPosTag || hasPosKeyword)) {
+      return { ok: false, reason: 'bad_category' };
+    }
+  }
+
+  return { ok: true };
 }
 
 export async function resolveOneItemOFF(item, { signal } = {}) {
@@ -137,12 +251,25 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       return { item, reason: 'no_useful_nutrients', canonical: canonicalQuery };
     }
 
-    const best = useful
+    const filtered = [];
+    for (const prod of useful) {
+      const pref = productMatchesPreferences(item, prod);
+      if (pref.ok) {
+        filtered.push(prod);
+      }
+    }
+
+    if (filtered.length === 0) {
+      console.log(`[OFF] Category filter removed all OFF hits for "${canonicalQuery}" (canonical_category: ${item?.canonical_category || 'unknown'})`);
+      return { item, reason: 'bad_category', canonical: canonicalQuery };
+    }
+
+    const best = filtered
       .map(p => ({ p, s: scoreProduct(item, p) }))
       .sort((a,b) => b.s - a.s)[0];
 
-    if (!best || best.s < 0.5) {
-      console.log(`[OFF] Low score for "${canonicalQuery}": ${best?.s ?? 'null'} (${useful.length} useful products)`);
+    if (!best || best.s < 0.7) {
+      console.log(`[OFF] Low score for "${canonicalQuery}": ${best?.s ?? 'null'} (${filtered.length} filtered products)`);
       return { item, reason: 'low_score', canonical: canonicalQuery, score: best?.s };
     }
 

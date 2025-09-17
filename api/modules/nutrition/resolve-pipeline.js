@@ -69,6 +69,7 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
           }
         } else {
           // Не резолвлен - добавляем реальную причину из резолвера
+          console.log(`[OFF] Resolver fallback for "${canonical}": ${result.reason}${result.score != null ? ` (score=${result.score?.toFixed ? result.score.toFixed(2) : result.score})` : ''}`);
           reasons.push({ 
             name: originals[0].name, 
             canonical, 
