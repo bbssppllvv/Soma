@@ -2,7 +2,7 @@ import { getByBarcode, searchByNameV1, canonicalizeQuery } from './off-client.js
 import { mapOFFProductToPer100g } from './off-map.js';
 import { getCachedOffProduct, upsertOffProduct } from './off-supabase-cache.js';
 
-const REQUIRE_BRAND = String(process.env.OFF_REQUIRE_BRAND || 'true').toLowerCase() === 'true';
+const REQUIRE_BRAND = String(process.env.OFF_REQUIRE_BRAND || 'false').toLowerCase() === 'true';
 const BRAND_THRESHOLD = Number(process.env.OFF_BRAND_THRESHOLD || 0.7);
 const DEFAULT_THRESHOLD = 0.8;
 const OFF_BUDGET_MS = Number(process.env.OFF_GLOBAL_BUDGET_MS || 3000);
@@ -295,6 +295,7 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
 
   // Primary OFF search with canonical query
   try {
+    const startedAt = Date.now();
     const positiveHints = CATEGORY_POSITIVE_HINTS[item?.canonical_category || ''] || null;
     const categoryTags = positiveHints ? positiveHints.tags : [];
     const brandName = item.brand ? canonicalizeQuery(String(item.brand)) : null;
@@ -323,9 +324,16 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       if (finalQueries.length >= 2) break;
     }
 
+    if (finalQueries.length === 0) {
+      return { item, reason: 'empty_query', canonical: canonicalQuery };
+    }
+
     let data = null;
 
     for (const { term, brand } of finalQueries) {
+      if (Date.now() - startedAt > OFF_BUDGET_MS) {
+        return { item, reason: 'timeout', canonical: canonicalQuery, error: 'budget_exceeded' };
+      }
       data = await searchByNameV1(term, {
         signal,
         categoryTags,

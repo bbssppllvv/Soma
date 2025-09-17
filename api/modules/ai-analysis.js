@@ -348,6 +348,7 @@ function mergeSimilarItems(items) {
       if (!target.locale && item.locale) {
         target.locale = item.locale;
       }
+      target.mentioned_by_user = Boolean(target.mentioned_by_user || item.mentioned_by_user);
     }
   }
   return [...map.values()];
@@ -355,6 +356,9 @@ function mergeSimilarItems(items) {
 
 function filterZeroUtilityItems(items) {
   return items.filter(item => {
+    const mentioned = Boolean(item.mentioned_by_user);
+    if (item.occluded && !mentioned) return false;
+    if (!mentioned && !item.brand && !item.upc && (item.confidence ?? 0) < 0.25) return false;
     if (item.item_role === 'dish') return true;
     const name = item.name || '';
     return !ZERO_UTILITY_PATTERNS.some(rx => rx.test(name));
@@ -365,6 +369,7 @@ function normalizeAnalysisPayload(parsed, { messageText = '' } = {}) {
   // 1) items[] might be missing — create a safe default
   const hasUserText = Boolean(messageText && messageText.trim().length > 0);
   const baseLocale = detectLocale(messageText);
+  const userTextKey = normalizeNameKey(messageText);
   const rawItems = Array.isArray(parsed.items) ? parsed.items : [];
   const enrichedItems = rawItems.map(item => {
     const role = item?.item_role === 'dish' ? 'dish' : 'ingredient';
@@ -392,6 +397,8 @@ function normalizeAnalysisPayload(parsed, { messageText = '' } = {}) {
     const normalizedPortionValue = Number.isFinite(portionGrams) ? portionGrams : null;
     const normalizedPortionDisplay = rawPortionDisplay || (Number.isFinite(portionGrams) ? formatPortionDisplay(portionGrams, portionUnit) : null);
     const locale = normalizeLocaleValue(item?.locale, detectLocale(`${messageText} ${item?.name || ''} ${brand}`) || baseLocale);
+    const normalizedNameKey = normalizeNameKey(item?.name || '');
+    const mentionedByUser = Boolean(normalizedNameKey && userTextKey.includes(normalizedNameKey));
     return {
       ...item,
       item_role: role,
@@ -407,7 +414,8 @@ function normalizeAnalysisPayload(parsed, { messageText = '' } = {}) {
       portion_unit: portionUnit,
       portion_display: normalizedPortionDisplay,
       user_text: messageText,
-      locale
+      locale,
+      mentioned_by_user: mentionedByUser
     };
   });
 

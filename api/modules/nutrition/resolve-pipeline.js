@@ -4,7 +4,7 @@ import { canonicalizeQuery } from './off-client.js';
 import pLimit from 'p-limit';
 
 const OFF_MAX_ITEMS = Number(process.env.OFF_MAX_ITEMS || 4);
-const REQUIRE_BRAND = String(process.env.OFF_REQUIRE_BRAND || 'true').toLowerCase() === 'true';
+const REQUIRE_BRAND = String(process.env.OFF_REQUIRE_BRAND || 'false').toLowerCase() === 'true';
 
 function ensureGramsFallback(it) {
   // 100 g/ml as universal default; avoids requiring product lists or densities
@@ -270,7 +270,18 @@ function extractPackageInfo(product) {
   if (!product) return null;
   const quantity = product.product_quantity;
   const quantityUnit = product.product_quantity_unit;
-  return parseQuantityString(quantity, quantityUnit);
+  const parsedQuantity = parseQuantityString(quantity, quantityUnit);
+  if (parsedQuantity && Number.isFinite(parsedQuantity.grams)) {
+    return parsedQuantity;
+  }
+  const labelQuantity = product.quantity;
+  if (labelQuantity) {
+    const parsedLabel = parseQuantityString(labelQuantity, undefined);
+    if (parsedLabel && Number.isFinite(parsedLabel.grams)) {
+      return parsedLabel;
+    }
+  }
+  return null;
 }
 
 function determinePortionInfo(item, product) {

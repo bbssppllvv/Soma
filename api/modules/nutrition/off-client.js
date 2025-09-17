@@ -143,8 +143,8 @@ async function fetchWithBackoff(url, { signal, timeoutMs } = {}) {
   const hit = getCache(ck);
   if (hit) return hit;
 
-  let delay = 200;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  let delay = 150;
+  for (let attempt = 0; attempt < 2; attempt++) {
     const ac = new AbortController();
     const timeoutId = setTimeout(() => ac.abort(), timeoutMs ?? TIMEOUT);
     const combined = combineSignals(signal, ac.signal);
@@ -159,7 +159,7 @@ async function fetchWithBackoff(url, { signal, timeoutMs } = {}) {
       return json;
     } catch (e) {
       clearTimeout(timeoutId);            // always clear timeout handle
-      if (attempt === 2) throw e;
+      if (attempt === 1) throw e;
       await new Promise(r => setTimeout(r, delay + Math.floor(Math.random()*120)));
       delay *= 2;
     }
