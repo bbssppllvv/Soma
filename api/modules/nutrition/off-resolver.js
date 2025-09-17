@@ -1,10 +1,9 @@
 import { getByBarcode, searchByNameV1, canonicalizeQuery } from './off-client.js';
 import { mapOFFProductToPer100g } from './off-map.js';
 import { getCachedOffProduct, upsertOffProduct } from './off-supabase-cache.js';
+import { isVariantToken } from './variant-rules.js';
 
 const REQUIRE_BRAND = String(process.env.OFF_REQUIRE_BRAND || 'false').toLowerCase() === 'true';
-const BRAND_THRESHOLD = Number(process.env.OFF_BRAND_THRESHOLD || 0.7);
-const DEFAULT_THRESHOLD = 0.8;
 const OFF_BUDGET_MS = Number(process.env.OFF_GLOBAL_BUDGET_MS || 3000);
 
 const SWEET_SENSITIVE_CATEGORIES = new Set(['snack-sweet', 'cookie-biscuit', 'dessert']);
@@ -98,20 +97,6 @@ const FOOD_FORM_HINTS = {
   }
 }; 
 
-function tokenize(value) {
-  return canonicalizeQuery(value || '').split(' ').filter(Boolean);
-}
-
-function tokensFromTags(tags) {
-  if (!Array.isArray(tags)) return [];
-  const tokens = [];
-  for (const raw of tags) {
-    const value = raw.includes(':') ? raw.split(':').pop() : raw;
-    tokens.push(...tokenize(value));
-  }
-  return tokens;
-}
-
 function limitTokens(value = '', maxTokens = 6) {
   return value
     .split(/\s+/)
@@ -121,113 +106,222 @@ function limitTokens(value = '', maxTokens = 6) {
     .trim();
 }
 
-function scoreProduct(item, product) {
-  const queryTokens = tokenize(item?.name || '');
-  const itemBrandTokens = tokenize(item?.brand || '');
-  const name = (product.product_name || '').toLowerCase();
+function normalizeText(value) {
+  return (value || '')
+    .toString()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+function normalizeForMatch(value) {
+  return normalizeText(value).replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function stripLangPrefix(value) {
+  if (typeof value !== 'string') return value;
+  return value.replace(/^[a-z]{2,3}:/i, '');
+}
+
+function escapeRegex(value) {
+  return value.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+}
+
+function buildPhraseRegex(phrase) {
+  const normalized = normalizeForMatch(phrase);
+  if (!normalized) return null;
+  const parts = normalized.split(/\s+/).filter(Boolean).map(escapeRegex);
+  if (parts.length === 0) return null;
+  return new RegExp(`\\b${parts.join('\\s+')}\\b`, 'i');
+}
+
+function buildBrandContext(item) {
+  const raw = item?.brand_normalized || item?.brand;
+  const normalized = normalizeForMatch(raw);
+  if (!normalized) return null;
+  const tokens = normalized.split(/\s+/).filter(token => token.length > 2);
+  return {
+    full: normalized,
+    collapsed: normalized.replace(/\s+/g, ''),
+    tokens: new Set(tokens)
+  };
+}
+
+function extractProductBrandData(product) {
+  const values = new Set();
+  const words = new Set();
+
+  const push = (value) => {
+    const normalized = normalizeForMatch(value);
+    if (!normalized) return;
+    values.add(normalized);
+    const collapsed = normalized.replace(/\s+/g, '');
+    if (collapsed) values.add(collapsed);
+    normalized.split(/\s+/).filter(token => token.length > 2).forEach(token => words.add(token));
+  };
+
+  if (typeof product?.brands === 'string') {
+    product.brands.split(',').forEach(part => push(part));
+  }
+  if (Array.isArray(product?.brands_tags)) {
+    product.brands_tags.forEach(tag => push(stripLangPrefix(tag)));
+  }
+
+  return { values, words };
+}
+
+function computeBrandScore(brandContext, product) {
+  if (!brandContext) {
+    return { score: 0, exact: false, partialHits: 0 };
+  }
+
+  const brandData = extractProductBrandData(product);
   let score = 0;
+  let exact = false;
+
+  if (brandData.values.has(brandContext.full) || brandData.values.has(brandContext.collapsed)) {
+    score += 1000;
+    exact = true;
+  }
+
+  let partialHits = 0;
+  if (!exact) {
+    for (const token of brandContext.tokens) {
+      if (token.length <= 2) continue;
+      if (brandData.words.has(token) || [...brandData.values].some(value => value.includes(token))) {
+        partialHits += 1;
+      }
+    }
+    if (partialHits > 0) {
+      score += Math.min(400, partialHits * 180);
+    }
+  }
+
+  return { score, exact, partialHits };
+}
+
+function computeVariantSignals(product, variantTokens = []) {
+  if (!variantTokens?.length) {
+    return { phraseMatches: 0, tokenMatches: 0 };
+  }
+
+  const normalizedName = normalizeForMatch(product.product_name);
+  const labelTexts = (product.labels_tags || [])
+    .map(tag => normalizeForMatch(stripLangPrefix(tag)))
+    .filter(Boolean);
+  const categoryTexts = (product.categories_tags || [])
+    .map(tag => normalizeForMatch(stripLangPrefix(tag)))
+    .filter(Boolean);
+
+  const tokenMatches = new Set();
+  let phraseMatches = 0;
+
+  for (const rawToken of variantTokens) {
+    const normalizedToken = normalizeForMatch(rawToken);
+    if (!normalizedToken) continue;
+    const regex = buildPhraseRegex(normalizedToken);
+    let phraseFound = false;
+    if (regex && regex.test(normalizedName)) {
+      phraseMatches += 1;
+      phraseFound = true;
+    } else if (regex) {
+      if (labelTexts.some(text => regex.test(text)) || categoryTexts.some(text => regex.test(text))) {
+        phraseMatches += 1;
+        phraseFound = true;
+      }
+    }
+
+    if (
+      phraseFound ||
+      normalizedName.includes(normalizedToken) ||
+      labelTexts.some(text => text.includes(normalizedToken)) ||
+      categoryTexts.some(text => text.includes(normalizedToken))
+    ) {
+      tokenMatches.add(normalizedToken);
+    }
+  }
+
+  return { phraseMatches, tokenMatches: tokenMatches.size };
+}
+
+function computeCategoryPenalty(product, negativeCategoryTags = []) {
+  if (!negativeCategoryTags?.length) return 0;
   const categories = Array.isArray(product.categories_tags) ? product.categories_tags : [];
+  if (categories.length === 0) return 0;
 
-  // Name overlap bonus with exact word matching
-  const nameHits = queryTokens.filter(t => name.includes(t)).length;
-  score += Math.min(0.5, (nameHits / Math.max(1, queryTokens.length)) * 0.5);
-  
-  // Bonus for exact token matches (prefer exact word matches over partial)
-  const exactMatches = queryTokens.filter(t => {
-    const regex = new RegExp(`\\b${t}\\b`, 'i');
-    return regex.test(name);
-  }).length;
-  if (exactMatches > 0) {
-    score += Math.min(0.3, exactMatches * 0.15);
-  }
+  const normalizedCategories = categories
+    .map(tag => normalizeForMatch(stripLangPrefix(tag)))
+    .filter(Boolean);
 
-  // Bonus for nutrient coverage
-  const n = product.nutriments || {};
-  if (
-    n['energy-kcal_100g'] != null ||
-    n['energy_100g'] != null ||
-    n['energy-kj_100g'] != null ||
-    n['proteins_100g'] != null ||
-    n['protein_100g'] != null
-  ) {
-    score += 0.5;
-  }
-
-  // Bonus for health data availability (prefer products with complete data)
-  if (product.nutriscore_grade && product.nutriscore_grade !== 'unknown') {
-    score += 0.3;
-  }
-  if (product.ecoscore_grade && product.ecoscore_grade !== 'unknown') {
-    score += 0.2;
-  }
-  if (product.allergens_tags && product.allergens_tags.length > 0) {
-    score += 0.1;
-  }
-
-  const brandTokens = new Set([
-    ...tokensFromTags(product.brands_tags),
-    ...tokenize(product.brands || '')
-  ]);
-  if (brandTokens.size > 0) {
-    const hitsFromQuery = queryTokens.filter(t => brandTokens.has(t)).length;
-    const hitsFromItemBrand = itemBrandTokens.filter(t => brandTokens.has(t)).length;
-    const brandHits = hitsFromQuery + hitsFromItemBrand;
-    if (brandHits > 0) {
-      score += Math.min(0.4, brandHits * 0.2);
+  for (const tag of negativeCategoryTags) {
+    const normalized = normalizeForMatch(stripLangPrefix(tag));
+    if (!normalized) continue;
+    if (normalizedCategories.some(cat => cat === normalized || cat.includes(normalized))) {
+      return -200;
     }
   }
 
-  const categoryTokens = new Set(tokensFromTags(product.categories_tags));
-  if (categoryTokens.size > 0) {
-    const categoryHits = queryTokens.filter(t => categoryTokens.has(t)).length;
-    if (categoryHits > 0) {
-      score += Math.min(0.3, categoryHits * 0.15);
-    }
+  if (normalizedCategories.some(cat => cat.includes('plant based'))) {
+    return -200;
   }
 
+  return 0;
+}
+
+function computeNameSimilarityScore(product, queryTokens = new Set()) {
+  if (!queryTokens || queryTokens.size === 0) return 0;
+  const productTokens = new Set(normalizeForMatch(product.product_name).split(/\s+/).filter(Boolean));
+  if (productTokens.size === 0) return 0;
+  let shared = 0;
+  for (const token of queryTokens) {
+    if (productTokens.has(token)) shared += 1;
+  }
+  if (shared === 0) return 0;
+  const ratio = shared / Math.max(1, queryTokens.size);
+  return Math.min(60, Math.round(ratio * 60));
+}
+
+function computePreferenceAdjustments(item, product) {
   const canonical = item?.canonical_category || 'unknown';
+  const categories = Array.isArray(product.categories_tags) ? product.categories_tags : [];
+  const productName = (product.product_name || '').toLowerCase();
+  const nutriments = product?.nutriments || {};
+
+  let bonus = 0;
+  let penalty = 0;
+
+  if (!SWEET_SENSITIVE_CATEGORIES.has(canonical)) {
+    const hasSweetTag = categories.some(tag => SWEET_CATEGORY_TAGS.has(tag));
+    const hasSweetKeyword = SWEET_NAME_KEYWORDS.some(word => productName.includes(word));
+    if (hasSweetTag || hasSweetKeyword) {
+      penalty += 120;
+    }
+  }
+
   const positiveHints = CATEGORY_POSITIVE_HINTS[canonical];
   if (positiveHints) {
     const hasPosTag = categories.some(tag => positiveHints.tags.includes(tag));
-    const hasPosKeyword = positiveHints.keywords.some(word => name.includes(word));
+    const hasPosKeyword = positiveHints.keywords.some(word => productName.includes(word));
     if (hasPosTag || hasPosKeyword) {
-      score += 0.25;
-    }
-  }
-
-  const formHints = FOOD_FORM_HINTS[item?.food_form || 'unknown'];
-  if (formHints) {
-    const formTagHit = categories.some(tag => formHints.tags.includes(tag));
-    const formKeywordHit = formHints.keywords.some(word => name.includes(word));
-    if (formTagHit || formKeywordHit) {
-      score += 0.3;
-    }
-  }
-
-  const sweetSensitive = !SWEET_SENSITIVE_CATEGORIES.has(canonical);
-  if (sweetSensitive) {
-    const hasSweetTag = categories.some(tag => SWEET_CATEGORY_TAGS.has(tag));
-    const hasSweetKeyword = SWEET_NAME_KEYWORDS.some(word => name.includes(word));
-    if (hasSweetTag || hasSweetKeyword) {
-      score -= 0.8;
+      bonus += 30;
+    } else {
+      penalty += 60;
     }
   }
 
   const plainSensitive = PLAIN_ELIGIBLE_CATEGORIES.has(canonical) && !item?.brand;
   if (plainSensitive) {
-    if (FLAVOR_KEYWORDS.some(word => name.includes(word))) {
-      score -= 0.6;
+    if (FLAVOR_KEYWORDS.some(word => productName.includes(word))) {
+      penalty += 120;
+    }
+    const sugars = Number(nutriments['sugars_100g']);
+    if (Number.isFinite(sugars) && sugars > 5) {
+      penalty += 80;
     }
   }
 
-  return Math.max(score, 0);
-}
-
-function pickBest(list, scorer, thr){
-  if (!Array.isArray(list) || !list.length) return null;
-  const scored = list.map(p => ({ product:p, score: scorer(p) }))
-                     .sort((a,b)=>b.score-a.score);
-  return (scored[0]?.score ?? 0) >= thr ? scored[0] : null;
+  return { bonus, penalty };
 }
 
 function hasUsefulNutriments(p) {
@@ -243,46 +337,47 @@ function hasUsefulNutriments(p) {
          n['fibre_100g'] != null;
 }
 
-function normalizeUPC(s){ 
-  return String(s||'').replace(/[^0-9]/g,''); 
+function scoreProduct(item, product, context) {
+  const { brandContext, variantTokens, negativeCategoryTags, nameTokens } = context;
+  const breakdown = {};
+
+  const brandScore = computeBrandScore(brandContext, product);
+  breakdown.brand = brandScore.score;
+  let total = brandScore.score;
+
+  const variantSignals = computeVariantSignals(product, variantTokens);
+  const variantPhraseScore = variantSignals.phraseMatches * 80;
+  const variantTokenScore = variantSignals.tokenMatches * 20;
+  breakdown.variant_phrase = variantPhraseScore;
+  breakdown.variant_tokens = variantTokenScore;
+  total += variantPhraseScore + variantTokenScore;
+
+  const categoryPenalty = computeCategoryPenalty(product, negativeCategoryTags);
+  breakdown.category_penalty = categoryPenalty;
+  total += categoryPenalty;
+  
+  if (categoryPenalty < 0) {
+    console.log(`[OFF] Category penalty applied: ${categoryPenalty} for product "${product.product_name}"`);
+  }
+
+  const nameScore = computeNameSimilarityScore(product, nameTokens);
+  breakdown.name = nameScore;
+  total += nameScore;
+
+  const preference = computePreferenceAdjustments(item, product);
+  const preferenceScore = preference.bonus - preference.penalty;
+  breakdown.preference = preferenceScore;
+  total += preferenceScore;
+
+  const nutritionBonus = hasUsefulNutriments(product) ? 30 : 0;
+  breakdown.nutrition = nutritionBonus;
+  total += nutritionBonus;
+
+  return { score: total, breakdown, brandExact: brandScore.exact };
 }
 
-function productMatchesPreferences(item, product) {
-  const canonical = item?.canonical_category || 'unknown';
-  const sweetSensitive = !SWEET_SENSITIVE_CATEGORIES.has(canonical);
-  const categories = Array.isArray(product.categories_tags) ? product.categories_tags : [];
-  const name = (product.product_name || '').toLowerCase();
-  const nutriments = product?.nutriments || {};
-
-  if (sweetSensitive) {
-    const hasSweetTag = categories.some(tag => SWEET_CATEGORY_TAGS.has(tag));
-    const hasSweetKeyword = SWEET_NAME_KEYWORDS.some(word => name.includes(word));
-    if (hasSweetTag || hasSweetKeyword) {
-      return { ok: false, reason: 'bad_category' };
-    }
-  }
-
-  const positiveHints = CATEGORY_POSITIVE_HINTS[canonical];
-  if (positiveHints) {
-    const hasPosTag = categories.some(tag => positiveHints.tags.includes(tag));
-    const hasPosKeyword = positiveHints.keywords.some(word => name.includes(word));
-    if (!(hasPosTag || hasPosKeyword)) {
-      return { ok: false, reason: 'bad_category' };
-    }
-  }
-
-  const plainSensitive = PLAIN_ELIGIBLE_CATEGORIES.has(canonical) && !item?.brand;
-  if (plainSensitive) {
-    if (FLAVOR_KEYWORDS.some(word => name.includes(word))) {
-      return { ok: false, reason: 'flavored' };
-    }
-    const sugars = Number(nutriments['sugars_100g']);
-    if (Number.isFinite(sugars) && sugars > 5) {
-      return { ok: false, reason: 'high_sugar' };
-    }
-  }
-
-  return { ok: true };
+function normalizeUPC(s){ 
+  return String(s||'').replace(/[^0-9]/g,''); 
 }
 
 export async function resolveOneItemOFF(item, { signal } = {}) {
@@ -344,12 +439,37 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     const brandName = item.brand ? canonicalizeQuery(String(item.brand)) : null;
     const cleanName = canonicalQuery || canonicalizeQuery(item.name || '');
     const locale = typeof item.locale === 'string' && item.locale.trim() ? item.locale.trim().toLowerCase() : 'en';
+    const variantWhitelistTokens = Array.isArray(item.required_tokens)
+      ? [...new Set(item.required_tokens.filter(token => isVariantToken(token)))]
+      : [];
+    const negativeCategoryTags = [];
+    if (item.canonical_category === 'dairy') {
+      negativeCategoryTags.push('en:plant-based-milk-alternatives');
+    }
+    const brandContext = buildBrandContext(item);
 
     const brandTokens = brandName ? new Set(brandName.split(' ')) : null;
     const cleanTokens = cleanName ? cleanName.split(' ') : [];
     let nameWithoutBrand = cleanTokens.filter(token => !brandTokens || !brandTokens.has(token)).join(' ');
     if (!nameWithoutBrand && cleanName) {
       nameWithoutBrand = cleanName;
+    }
+
+    const variantWordSet = new Set();
+    for (const token of variantWhitelistTokens) {
+      const parts = canonicalizeQuery(token).split(' ').filter(Boolean);
+      for (const part of parts) {
+        variantWordSet.add(part);
+      }
+    }
+    const nameTokens = new Set(
+      cleanTokens
+        .filter(Boolean)
+        .filter(token => !brandTokens || !brandTokens.has(token))
+        .filter(token => !variantWordSet.has(token))
+    );
+    if (nameTokens.size === 0) {
+      cleanTokens.filter(Boolean).forEach(token => nameTokens.add(token));
     }
 
     const limitedBrandTerm = limitTokens(nameWithoutBrand);
@@ -367,16 +487,11 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     const searchStrategies = [];
     
     // Strategy 1: Brand + simple tokens only  
-    if (brandName && item.required_tokens?.length > 0) {
-      const simpleTokens = item.required_tokens.filter(token => 
-        token.length <= 15 && !token.includes('/') && !token.includes('%') && !token.match(/\d/)
-      );
-      if (simpleTokens.length > 0) {
-        const brandWithTokens = `${brandName} ${simpleTokens.join(' ')}`;
-        searchStrategies.push({ term: limitTokens(brandWithTokens), brand: brandName, strategy: 'brand_with_tokens' });
-      }
+    if (brandName && variantWhitelistTokens.length > 0) {
+      const brandWithTokens = `${brandName} ${variantWhitelistTokens.join(' ')}`;
+      searchStrategies.push({ term: limitTokens(brandWithTokens), brand: brandName, strategy: 'brand_with_tokens' });
     }
-    
+
     // Strategy 3: Original queries as fallback
     for (const q of queries) {
       if (!q.term) continue;
@@ -408,9 +523,11 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       data = await searchByNameV1(term, {
         signal,
         categoryTags,
+        negativeCategoryTags,
         brand,
         maxPages: 1,
-        locale
+        locale,
+        variantTokens: variantWhitelistTokens
       });
       if (Array.isArray(data?.products) && data.products.length > 0) {
         console.log(`[OFF] Search strategy '${strategy}' found ${data.products.length} products`);
@@ -433,6 +550,15 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     const products = data.products;
     console.log(`[OFF] Search returned ${products.length} products from API`);
 
+    // Log raw response (top-N documents)
+    console.log(`[OFF] Raw Response top-${Math.min(products.length, 5)}:`, products.slice(0, 5).map(p => ({
+      code: p.code,
+      product_name: p.product_name,
+      brands: p.brands,
+      brands_tags: p.brands_tags?.slice(0, 3),
+      categories_tags: p.categories_tags?.slice(0, 3)
+    })));
+
     // Require at least one useful per-100g nutrient value
     const useful = products.filter(hasUsefulNutriments);
     console.log(`[OFF] Nutrient filter: ${useful.length}/${products.length} products have useful nutrients`);
@@ -442,164 +568,66 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       return { item, reason: 'no_useful_nutrients', canonical: canonicalQuery };
     }
 
-    // HARD FILTERS: Brand and variant token matching
-    let candidates = useful;
-    
-    // Brand gate: proper brands_tags matching with aliases
-    if (item.brand_normalized) {
-      const normalizedBrand = item.brand_normalized.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      
-      // Generate brand aliases (full name + individual words)
-      const brandAliases = new Set([normalizedBrand]);
-      const brandWords = normalizedBrand.split(' ').filter(w => w.length > 2);
-      brandWords.forEach(word => brandAliases.add(word));
-      
-      candidates = candidates.filter(product => {
-        const brandTags = (product.brands_tags || []).map(tag => 
-          tag.replace(/^[a-z]{2}:/, '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-        );
-        const brandText = (product.brands || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        
-        // DEBUG: Log brand data for first product
-        if (candidates.indexOf(product) === 0) {
-          console.log(`[OFF] DEBUG first product brands:`, {
-            product_name: product.product_name,
-            brands: product.brands,
-            brands_tags: product.brands_tags,
-            normalized_tags: brandTags,
-            normalized_text: brandText,
-            seeking_aliases: [...brandAliases]
-          });
-        }
-        
-        // Check if any brand alias matches any brand tag or text (flexible matching)
-        return [...brandAliases].some(alias => {
-          return brandTags.some(tag => tag.includes(alias)) || 
-                 brandText.includes(alias);
-        });
-      });
-      
-      if (candidates.length === 0) {
-        console.log(`[OFF] === BRAND FILTER FAIL ===`);
-        console.log(`[OFF] No products match brand aliases [${[...brandAliases].join(', ')}] for "${canonicalQuery}"`);
-        console.log(`[OFF] Available brands in search results:`, useful.slice(0, 3).map(p => ({
-          product_name: p.product_name,
-          brands: p.brands,
-          brands_tags: p.brands_tags
-        })));
-        return { item, reason: 'brand_filter_no_match', canonical: canonicalQuery, brand_aliases: [...brandAliases] };
-      }
-      
-      console.log(`[OFF] Brand filter: ${[...brandAliases].length} aliases, ${candidates.length} candidates match`);
-    }
-    
-    // Variant gate: require ALL variant tokens in multiple fields
-    if (item.required_tokens && item.required_tokens.length > 0) {
-      // Filter out overly long/complex tokens (keep only simple modifiers)
-      const simpleTokens = item.required_tokens.filter(token => 
-        token.length <= 15 && !token.includes('/') && !token.includes('%') && !token.match(/\d/)
-      );
-      
-      if (simpleTokens.length > 0) {
-        candidates = candidates.filter(product => {
-          // Normalize and combine searchable fields
-          const productName = (product.product_name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-          const labelTags = (product.labels_tags || []).map(tag => tag.replace(/^[a-z]{2}:/, '').toLowerCase());
-          const categoryTags = (product.categories_tags || []).map(tag => tag.replace(/^[a-z]{2}:/, '').toLowerCase());
-          
-          const searchableText = [productName, ...labelTags, ...categoryTags].join(' ');
-          
-          // Require ALL tokens to be present (every, not some)
-          return simpleTokens.every(token => {
-            const normalizedToken = token.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-            const regex = new RegExp(`\\b${normalizedToken}\\b`, 'i');
-            return regex.test(searchableText);
-          });
-        });
-        
-        if (candidates.length === 0) {
-          console.log(`[OFF] === VARIANT FILTER FAIL ===`);
-          console.log(`[OFF] No products match ALL required tokens [${simpleTokens.join(', ')}] for "${canonicalQuery}"`);
-          console.log(`[OFF] Checked products:`, candidates.slice(0, 3).map(p => ({
-            product_name: p.product_name,
-            labels_tags: p.labels_tags?.slice(0, 3),
-            categories_tags: p.categories_tags?.slice(0, 3)
-          })));
-          return { item, reason: 'variant_filter_no_match', canonical: canonicalQuery, missing_tokens: simpleTokens };
-        }
-        
-        console.log(`[OFF] Variant filter: ALL ${simpleTokens.length} tokens required, ${candidates.length} candidates match`);
-      }
-    }
-    
-    // Category gate: prevent type mismatches (dairy vs plant-based)
-    if (item.canonical_category === 'dairy') {
-      const beforeCategoryFilter = candidates.length;
-      candidates = candidates.filter(product => {
-        const categories = product.categories_tags || [];
-        const hasPlantBased = categories.some(cat => 
-          cat.includes('plant-based') || 
-          cat.includes('vegetal') ||
-          cat.includes('almond') ||
-          cat.includes('soy') ||
-          cat.includes('oat')
-        );
-        return !hasPlantBased;
-      });
-      
-      if (candidates.length === 0) {
-        console.log(`[OFF] Category filter removed all candidates (${beforeCategoryFilter} plant-based products filtered out)`);
-        return { item, reason: 'category_type_mismatch', canonical: canonicalQuery };
-      }
+    const scoringContext = {
+      brandContext,
+      variantTokens: variantWhitelistTokens,
+      negativeCategoryTags,
+      nameTokens
+    };
+
+    const scoredCandidates = useful
+      .map(product => {
+        const { score, breakdown, brandExact } = scoreProduct(item, product, scoringContext);
+        return { product, score, breakdown, brandExact };
+      })
+      .sort((a, b) => b.score - a.score);
+
+    if (scoredCandidates.length === 0) {
+      console.log(`[OFF] No candidates after scoring for "${canonicalQuery}"`);
+      return { item, reason: 'no_candidates', canonical: canonicalQuery };
     }
 
-    console.log(`[OFF] After hard filters: ${candidates.length}/${useful.length} candidates remaining`);
+    console.log(`[OFF] Rerank top candidates:`, scoredCandidates.slice(0, 3).map(({ product, score, brandExact, breakdown }) => ({
+      product_name: product.product_name,
+      score,
+      brandExact,
+      brands: product.brands,
+      breakdown
+    })));
 
-    const filtered = [];
-    for (const prod of candidates) {
-      const pref = productMatchesPreferences(item, prod);
-      if (pref.ok) {
-        filtered.push(prod);
-      }
+    const best = scoredCandidates[0];
+    const scoreThreshold = brandContext ? 200 : 80;
+
+    if (!best || best.score < scoreThreshold) {
+      console.log(`[OFF] Final Decision: REJECTED, reason=low_score, score=${best?.score ?? 'null'}, threshold=${scoreThreshold}, candidates=${scoredCandidates.length}`);
+      console.log(`[OFF] Low score for "${canonicalQuery}": ${best?.score ?? 'null'} (${scoredCandidates.length} candidates)`);
+      return { item, reason: 'low_score', canonical: canonicalQuery, score: best?.score };
     }
 
-    if (filtered.length === 0) {
-      console.log(`[OFF] Category filter removed all OFF hits for "${canonicalQuery}" (canonical_category: ${item?.canonical_category || 'unknown'})`);
-      return { item, reason: 'bad_category', canonical: canonicalQuery };
-    }
+    console.log(`[OFF] Best candidate breakdown:`, best.breakdown);
 
-    const threshold = item?.off_candidate ? BRAND_THRESHOLD : DEFAULT_THRESHOLD;
-
-    const best = filtered
-      .map(p => ({ p, s: scoreProduct(item, p) }))
-      .sort((a,b) => b.s - a.s)[0];
-
-    if (!best || best.s < threshold) {
-      console.log(`[OFF] Low score for "${canonicalQuery}": ${best?.s ?? 'null'} (${filtered.length} filtered products)`);
-      return { item, reason: 'low_score', canonical: canonicalQuery, score: best?.s };
-    }
-
-    if (best.p?.code) {
+    if (best.product?.code) {
       // CACHE DISABLED FOR TESTING
-      // const cached = await getCachedOffProduct(best.p.code, { signal });
-      // await upsertOffProduct(best.p, { previousLastModified: cached?.last_modified_t, signal });
+      // const cached = await getCachedOffProduct(best.product.code, { signal });
+      // await upsertOffProduct(best.product, { previousLastModified: cached?.last_modified_t, signal });
     }
 
     console.log(`[OFF] === SUCCESS ===`);
-    console.log(`[OFF] Found: "${best.p.product_name}" (code: ${best.p.code}, score: ${best.s.toFixed(2)})`);
+    console.log(`[OFF] Final Decision: selected product_code=${best.product.code}, final_score=${best.score.toFixed(2)}, reason=highest_rerank_score`);
+    console.log(`[OFF] Found: "${best.product.product_name}" (code: ${best.product.code}, score: ${best.score.toFixed(2)})`);
     console.log(`[OFF] Product data:`, {
-      code: best.p.code,
-      brands: best.p.brands,
-      brands_tags: best.p.brands_tags,
-      nutriscore: best.p.nutriscore_grade,
-      allergens: best.p.allergens_tags,
-      ingredients_analysis: best.p.ingredients_analysis_tags,
-      labels_tags: best.p.labels_tags?.slice(0, 5), // first 5 labels
-      categories_tags: best.p.categories_tags?.slice(0, 5) // first 5 categories
+      code: best.product.code,
+      brands: best.product.brands,
+      brands_tags: best.product.brands_tags,
+      nutriscore: best.product.nutriscore_grade,
+      allergens: best.product.allergens_tags,
+      ingredients_analysis: best.product.ingredients_analysis_tags,
+      labels_tags: best.product.labels_tags?.slice(0, 5),
+      categories_tags: best.product.categories_tags?.slice(0, 5)
     });
     console.log(`[OFF] === RESOLVING ITEM END ===`);
     
-    return { product: best.p, score: best.s };
+    return { product: best.product, score: best.score };
     
   } catch (e) {
     const isAbort = e?.name === 'AbortError';
