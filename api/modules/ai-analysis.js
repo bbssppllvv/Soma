@@ -170,7 +170,9 @@ async function getOptimizedPhotoAsBase64(photos, botToken) {
     const sharp = await import('sharp');
     const optimized = await sharp.default(Buffer.from(photoBuffer))
       .resize({ width: 1024, withoutEnlargement: true }) // Smaller size for speed
-      .jpeg({ quality: 75, progressive: true }) // Optimized for speed
+      .sharpen({ sigma: 1, m1: 0.5, m2: 2 }) // Enhance text readability
+      .normalize() // Improve contrast for better text recognition
+      .jpeg({ quality: 80, progressive: true }) // Slightly higher quality for text
       .toBuffer();
     
     console.log(`[IMG] Optimized: ${photoBuffer.byteLength} → ${optimized.length} bytes (${Math.round((1 - optimized.length/photoBuffer.byteLength) * 100)}% reduction)`);
@@ -205,7 +207,7 @@ FOCUS PRIORITY: Identify the MAIN/PRIMARY food item in the photo (usually the la
         { 
           type: "input_image", 
           image_url: `data:image/jpeg;base64,${base64Image}`,
-          detail: detailLevel
+          detail: "high" // Always use high detail for better text recognition
         }
       ]
     }],
