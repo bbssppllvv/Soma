@@ -180,25 +180,30 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
       return `• ${item.name || 'Item'} — ${sourceLabel}${portionDetail}`;
     }).join('\n');
 
-    const responseText = `<b>Nutrition Analysis</b>
+    // Generate clean food name from items
+    const cleanFoodName = nutritionData.items && nutritionData.items.length > 0 
+      ? nutritionData.items[0].name || 'Food Item'
+      : nutritionData.food_name || 'Food Item';
+    
+    // Generate clean portion info
+    const portionInfo = nutritionData.items && nutritionData.items.length === 1
+      ? `${nutritionData.items[0].portion_value || nutritionData.items[0].portion || 100}${nutritionData.items[0].portion_unit || nutritionData.items[0].unit || 'g'}`
+      : `${nutritionData.portion_size || 'Standard portion'}`;
 
-<b>Food:</b> ${nutritionData.food_name || 'Mixed Food'}
-<b>Portion:</b> ${nutritionData.portion_size || 'Standard'} (${nutritionData.portion_description || 'medium serving'})
-<b>${sourceLine}</b>
+    const responseText = `🍽 <b>${cleanFoodName}</b>
+📊 <b>Portion:</b> ${portionInfo}
+${sourceLine ? `🔍 <b>Source:</b> ${sourceLine}` : ''}
 
-<b>Per-item sources:</b>
-${perItemSources || '• AI estimate'}
+<b>Nutrition per portion:</b>
+• Calories: ${nutritionData.calories} kcal
+• Protein: ${nutritionData.protein_g}g
+• Fat: ${nutritionData.fat_g}g  
+• Carbs: ${nutritionData.carbs_g}g
+• Fiber: ${nutritionData.fiber_g}g
 
-<b>Nutritional Breakdown:</b>
-Calories: ${nutritionData.calories} kcal
-Protein: ${nutritionData.protein_g}g
-Fat: ${nutritionData.fat_g}g  
-Carbs: ${nutritionData.carbs_g}g
-Fiber: ${nutritionData.fiber_g}g
+📈 <b>Score:</b> ${nutritionData.score}/10 ${scoreExplanation}
 
-<b>Meal Score:</b> ${nutritionData.score}/10 ${scoreExplanation}
-
-${confidenceText}<b>Advice:</b> ${nutritionData.advice_short}
+${confidenceText}💡 <b>Advice:</b> ${nutritionData.advice_short}
 
 Ready to add this to your diet?`;
 

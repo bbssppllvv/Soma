@@ -169,9 +169,17 @@ export function calculateBasicMealScore(nutrition) {
 // Get professional score explanation 
 export function getScoreExplanation(nutrition, userContext) {
   const score = nutrition.score;
-  const isLowCalorieBeverage = nutrition.calories <= 50 && nutrition.protein_g <= 2 && nutrition.fat_g <= 1;
   
-  // Special explanations for beverages
+  // Check if it's actually a beverage (not just low calorie)
+  const isBeverage = nutrition.items?.some(item => 
+    item.canonical_category === 'beverage' || 
+    item.canonical_category === 'drink' ||
+    (item.unit === 'ml' && item.portion >= 200) // Large liquid portions
+  );
+  
+  const isLowCalorieBeverage = isBeverage && nutrition.calories <= 50 && nutrition.protein_g <= 2 && nutrition.fat_g <= 1;
+  
+  // Special explanations for actual beverages
   if (isLowCalorieBeverage) {
     if (score >= 7.0) return '(great beverage choice)';
     if (score >= 6.0) return '(good hydration option)';
