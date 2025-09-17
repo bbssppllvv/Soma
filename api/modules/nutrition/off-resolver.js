@@ -6,6 +6,9 @@ import { isVariantToken } from './variant-rules.js';
 const REQUIRE_BRAND = String(process.env.OFF_REQUIRE_BRAND || 'false').toLowerCase() === 'true';
 const OFF_BUDGET_MS = Number(process.env.OFF_GLOBAL_BUDGET_MS || 3000);
 
+const BRAND_ACCEPT_SCORE = 600; // minimum brand score to consider a match reliable
+const BRAND_MISS_PENALTY = 220; // penalty applied when brand context exists but no match
+
 const SWEET_SENSITIVE_CATEGORIES = new Set(['snack-sweet', 'cookie-biscuit', 'dessert']);
 const SWEET_CATEGORY_TAGS = new Set([
   'en:cookies',
@@ -253,6 +256,10 @@ function computeBrandScore(brandContext, product) {
     if (partialHits > 0) {
       score += Math.min(400, partialHits * 180);
     }
+  }
+
+  if (!exact && partialHits === 0) {
+    score -= BRAND_MISS_PENALTY;
   }
 
   return { score, exact, partialHits };
@@ -659,13 +666,13 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       return { item, reason: 'empty_query', canonical: canonicalQuery };
     }
 
-    let data = null;
+    const responseBatches = [];
 
     for (const { term, brand, strategy } of finalQueries) {
       if (Date.now() - startedAt > OFF_BUDGET_MS) {
         return { item, reason: 'timeout', canonical: canonicalQuery, error: 'budget_exceeded' };
       }
-      data = await searchByNameV1(term, {
+      const batch = await searchByNameV1(term, {
         signal,
         categoryTags,
         negativeCategoryTags,
@@ -674,15 +681,26 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         locale,
         variantTokens: variantWhitelistTokens
       });
-      if (Array.isArray(data?.products) && data.products.length > 0) {
-        console.log(`[OFF] Search strategy '${strategy}' found ${data.products.length} products`);
-        break;
+      if (Array.isArray(batch?.products) && batch.products.length > 0) {
+        console.log(`[OFF] Search strategy '${strategy}' found ${batch.products.length} products`);
+        responseBatches.push({ strategy, products: batch.products });
+
+        if (brandContext) {
+          const hasStrongBrand = batch.products.some(product => computeBrandScore(brandContext, product).score >= BRAND_ACCEPT_SCORE);
+          if (hasStrongBrand) {
+            console.log(`[OFF] Strategy '${strategy}' produced a strong brand match, stopping search.`);
+            break;
+          }
+          console.log(`[OFF] Strategy '${strategy}' lacks strong brand match, continuing to next strategy.`);
+        } else {
+          break;
+        }
       } else {
         console.log(`[OFF] Search strategy '${strategy}' found no products for term="${term}"`);
       }
     }
 
-    if (!data || !Array.isArray(data.products) || data.products.length === 0) {
+    if (responseBatches.length === 0) {
       const reason = brandName ? 'off_not_found_brand' : 'no_hits';
       return {
         item,
@@ -692,24 +710,41 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       };
     }
 
-    const products = data.products;
-    console.log(`[OFF] Search returned ${products.length} products from API`);
+    const dedupedProducts = [];
+    const seen = new Set();
+    for (const { strategy, products } of responseBatches) {
+      for (const product of products) {
+        const key = product?.code || `${normalizeForMatch(product?.product_name || '')}::${normalizeForMatch(product?.brands || '')}`;
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        dedupedProducts.push({ product, strategy });
+      }
+    }
+
+    if (dedupedProducts.length === 0) {
+      return { item, reason: 'no_candidates', canonical: canonicalQuery };
+    }
+
+    console.log(`[OFF] Search returned ${dedupedProducts.length} unique products across ${responseBatches.length} strategies`);
 
     // Log raw response (top-N documents)
-    console.log(`[OFF] Raw Response top-${Math.min(products.length, 5)}:`, products.slice(0, 5).map(p => ({
-      code: p.code,
-      product_name: p.product_name,
-      brands: p.brands,
-      brands_tags: p.brands_tags?.slice(0, 3),
-      categories_tags: p.categories_tags?.slice(0, 3)
+    console.log(`[OFF] Raw Response top-${Math.min(dedupedProducts.length, 5)}:`, dedupedProducts.slice(0, 5).map(({ product, strategy }) => ({
+      strategy,
+      code: product.code,
+      product_name: product.product_name,
+      brands: product.brands,
+      brands_tags: product.brands_tags?.slice(0, 3),
+      categories_tags: product.categories_tags?.slice(0, 3)
     })));
 
     // Require at least one useful per-100g nutrient value
-    const useful = products.filter(hasUsefulNutriments);
-    console.log(`[OFF] Nutrient filter: ${useful.length}/${products.length} products have useful nutrients`);
+    const useful = dedupedProducts
+      .filter(({ product }) => hasUsefulNutriments(product))
+      .map(({ product, strategy }) => ({ product, strategy }));
+    console.log(`[OFF] Nutrient filter: ${useful.length}/${dedupedProducts.length} products have useful nutrients`);
 
     if (useful.length === 0) {
-      console.log(`[OFF] No useful nutrients for "${canonicalQuery}" (${products.length} products found)`);
+      console.log(`[OFF] No useful nutrients for "${canonicalQuery}" (${dedupedProducts.length} products found)`);
       return { item, reason: 'no_useful_nutrients', canonical: canonicalQuery };
     }
 
@@ -721,9 +756,9 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     };
 
     const scoredCandidates = useful
-      .map(product => {
+      .map(({ product, strategy }) => {
         const { score, breakdown, brandExact } = scoreProduct(item, product, scoringContext);
-        return { product, score, breakdown, brandExact };
+        return { product, score, breakdown, brandExact, strategy };
       })
       .sort((a, b) => b.score - a.score);
 
@@ -732,7 +767,8 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       return { item, reason: 'no_candidates', canonical: canonicalQuery };
     }
 
-    console.log(`[OFF] Rerank top candidates:`, scoredCandidates.slice(0, 3).map(({ product, score, brandExact, breakdown }) => ({
+    console.log(`[OFF] Rerank top candidates:`, scoredCandidates.slice(0, 3).map(({ product, score, brandExact, breakdown, strategy }) => ({
+      strategy,
       product_name: product.product_name,
       score,
       brandExact,
@@ -742,6 +778,12 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
 
     const best = scoredCandidates[0];
     const scoreThreshold = brandContext ? 200 : 80;
+
+    if (brandContext && best && best.breakdown?.brand <= 0) {
+      const bestScoreText = best?.score != null ? best.score.toFixed(2) : 'null';
+      console.log(`[OFF] Final Decision: REJECTED, reason=brand_mismatch, score=${bestScoreText}, brand_component=${best.breakdown.brand}`);
+      return { item, reason: 'brand_mismatch', canonical: canonicalQuery, score: best.score };
+    }
 
     if (!best || best.score < scoreThreshold) {
       console.log(`[OFF] Final Decision: REJECTED, reason=low_score, score=${best?.score ?? 'null'}, threshold=${scoreThreshold}, candidates=${scoredCandidates.length}`);

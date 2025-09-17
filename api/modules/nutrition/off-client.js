@@ -4,16 +4,16 @@ const UA   = process.env.OFF_USER_AGENT || 'SomaDietTracker/1.0 (support@yourdom
 const LANG = (process.env.OFF_LANG || 'en').toLowerCase();
 const TIMEOUT = Number(process.env.OFF_TIMEOUT_MS || 6000);
 const TTL = Number(process.env.OFF_CACHE_TTL_MS || 10800000);
-const SEARCH_BUCKET_CAPACITY = Number(process.env.OFF_SEARCH_MAX_TOKENS || 10);
-const SEARCH_BUCKET_REFILL_MS = Number(process.env.OFF_SEARCH_REFILL_MS || 60000);
-const SEARCH_BUCKET_POLL_MS = Number(process.env.OFF_SEARCH_POLL_MS || 500);
+const SEARCH_BUCKET_CAPACITY = Number(process.env.OFF_SEARCH_MAX_TOKENS || 3);
+const SEARCH_BUCKET_REFILL_MS = Number(process.env.OFF_SEARCH_REFILL_MS || 15000);
+const SEARCH_BUCKET_POLL_MS = Number(process.env.OFF_SEARCH_POLL_MS || 1000);
 const SEARCH_PAGE_SIZE = Number(process.env.OFF_SEARCH_PAGE_SIZE || 40); // Larger window to capture variants
-const SAL_TIMEOUT_MS = Number(process.env.OFF_SAL_TIMEOUT_MS || 500);
-const V2_STRICT_TIMEOUT_MS = Number(process.env.OFF_V2_STRICT_TIMEOUT_MS || 900);
-const V2_RELAX_TIMEOUT_MS = Number(process.env.OFF_V2_RELAX_TIMEOUT_MS || 700);
-const V2_BRANDLESS_TIMEOUT_MS = Number(process.env.OFF_V2_BRANDLESS_TIMEOUT_MS || 500);
-const LEGACY_TIMEOUT_MS = Number(process.env.OFF_LEGACY_TIMEOUT_MS || 400);
-const GLOBAL_BUDGET_MS = Number(process.env.OFF_GLOBAL_BUDGET_MS || 3000);
+const SAL_TIMEOUT_MS = Number(process.env.OFF_SAL_TIMEOUT_MS || 800);
+const V2_STRICT_TIMEOUT_MS = Number(process.env.OFF_V2_STRICT_TIMEOUT_MS || 1200);
+const V2_RELAX_TIMEOUT_MS = Number(process.env.OFF_V2_RELAX_TIMEOUT_MS || 1000);
+const V2_BRANDLESS_TIMEOUT_MS = Number(process.env.OFF_V2_BRANDLESS_TIMEOUT_MS || 700);
+const LEGACY_TIMEOUT_MS = Number(process.env.OFF_LEGACY_TIMEOUT_MS || 600);
+const GLOBAL_BUDGET_MS = Number(process.env.OFF_GLOBAL_BUDGET_MS || 5000);
 const HEDGE_DELAY_MS = Number(process.env.OFF_HEDGE_DELAY_MS || 350);
 const HEDGE_TIMEOUT_MS = Number(process.env.OFF_HEDGE_TIMEOUT_MS || 400);
 
@@ -119,7 +119,13 @@ function canonicalTokens(value) {
 
 function buildBrandClause(brand) {
   if (!brand) return null;
-  return `brands:${makeTerm(brand, { boost: 4 })}`;
+  // Normalize brand for better matching
+  const normalizedBrand = brand
+    .replace(/&/g, 'and')
+    .replace(/'/g, '')
+    .replace(/-/g, ' ')
+    .trim();
+  return `brands:${makeTerm(normalizedBrand, { boost: 4 })}`;
 }
 
 function buildCategoryClauses(primary, excludes = []) {
@@ -127,9 +133,10 @@ function buildCategoryClauses(primary, excludes = []) {
   if (primary) {
     clauses.push(`categories_tags:${makeTerm(primary)}`);
   }
-  for (const term of excludes) {
-    clauses.push(`NOT categories_tags:${makeTerm(term)}`);
-  }
+  // Simplified: skip negative categories for now to reduce query complexity
+  // for (const term of excludes) {
+  //   clauses.push(`NOT categories_tags:${makeTerm(term)}`);
+  // }
   return clauses;
 }
 
@@ -142,27 +149,13 @@ function buildVariantClause(tokens = []) {
 
   console.log(`[OFF] Matched variant rules: ${rules.map(r => r.id).join(', ')} for tokens: ${JSON.stringify(tokens)}`);
 
-  const ruleClauses = [];
-  for (const rule of rules) {
-    const segments = [];
-    if (Array.isArray(rule.productTerms) && rule.productTerms.length > 0) {
-      segments.push(`product_name:(${rule.productTerms.join(' OR ')})`);
-    }
-    if (Array.isArray(rule.labelTerms) && rule.labelTerms.length > 0) {
-      const labelTerms = rule.labelTerms.map(term => makeTerm(term));
-      segments.push(`labels_tags:(${joinOr(labelTerms)})`);
-    }
-    if (Array.isArray(rule.categoryTerms) && rule.categoryTerms.length > 0) {
-      const categoryTerms = rule.categoryTerms.map(term => makeTerm(term));
-      segments.push(`categories_tags:(${joinOr(categoryTerms)})`);
-    }
-    if (segments.length > 0) {
-      ruleClauses.push(`(${segments.join(' OR ')})`);
-    }
+  // Ultra-simplified: just use the first token directly in product_name
+  const token = tokens[0];
+  if (token) {
+    return `product_name:${makeTerm(token, { boost: 3 })}`;
   }
-
-  if (ruleClauses.length === 0) return null;
-  return ruleClauses.length === 1 ? ruleClauses[0] : `(${ruleClauses.join(' AND ')})`;
+  
+  return null;
 }
 
 function buildProductNameClause(term, brandTokens = new Set(), variantTokens = new Set()) {
@@ -173,17 +166,15 @@ function buildProductNameClause(term, brandTokens = new Set(), variantTokens = n
   if (tokens.length === 0) return null;
 
   const uniqueTokens = [...new Set(tokens)];
-  const clauses = [];
-
+  
+  // Simplified: just use phrase search with minimal proximity
   if (uniqueTokens.length > 1) {
     const phrase = uniqueTokens.join(' ');
-    clauses.push(`product_name:(${makeTerm(phrase, { proximity: 2, boost: 3 })})`);
+    return `product_name:${makeTerm(phrase, { proximity: 1, boost: 2 })}`;
+  } else {
+    // Single token
+    return `product_name:${makeTerm(uniqueTokens[0], { boost: 2 })}`;
   }
-
-  const singleTerms = uniqueTokens.map(token => makeTerm(token, { boost: uniqueTokens.length > 1 ? 1.5 : 3 }));
-  clauses.push(`product_name:(${joinOr(singleTerms)})`);
-
-  return clauses.length === 1 ? clauses[0] : `(${clauses.join(' OR ')})`;
 }
 
 function buildFallbackNameClause(term) {
@@ -191,50 +182,46 @@ function buildFallbackNameClause(term) {
   return `product_name:${makeTerm(term, { proximity: 3 })}`;
 }
 
+function normalizeBrandForSearch(value) {
+  if (!value) return '';
+  return value
+    .replace(/&/g, 'and')
+    .replace(/'/g, '')
+    .replace(/-/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
 function buildLuceneQuery({ term, brand, primaryCategory = null, excludeCategories = [], variantTokens = [] }) {
-  const brandTokens = new Set(canonicalTokens(brand));
-  const variantTokenSet = new Set();
-  for (const token of variantTokens) {
-    if (!isVariantToken(token)) continue;
-    for (const part of canonicalTokens(token)) {
-      variantTokenSet.add(part);
+  // CRITICAL FIX: SaL API breaks on AND operators
+  // Use simple queries instead of complex Lucene syntax
+  
+  const searchTerms = [];
+  
+  // Add brand to search terms (not as Lucene clause)
+  if (brand) {
+    const normalizedBrand = normalizeBrandForSearch(brand);
+    if (normalizedBrand) {
+      searchTerms.push(normalizedBrand);
     }
   }
-
-  const clauses = [];
-
-  const brandClause = buildBrandClause(brand);
-  if (brandClause) {
-    clauses.push(brandClause);
-    console.log(`[OFF] Lucene brand clause: ${brandClause}`);
-  }
-
-  const categoryClauses = buildCategoryClauses(primaryCategory, excludeCategories);
-  if (categoryClauses.length > 0) {
-    clauses.push(...categoryClauses);
-    console.log(`[OFF] Lucene category clauses: ${categoryClauses.join(' ')}`);
-  }
-
-  const variantClause = buildVariantClause(variantTokens);
-  if (variantClause) {
-    clauses.push(variantClause);
-    console.log(`[OFF] Lucene variant clause: ${variantClause}`);
-  }
-
-  const nameClause = buildProductNameClause(term, brandTokens, variantTokenSet);
-  if (nameClause) {
-    clauses.push(nameClause);
-    console.log(`[OFF] Lucene name clause: ${nameClause}`);
-  } else {
-    const fallback = buildFallbackNameClause(term);
-    if (fallback) {
-      clauses.push(fallback);
-      console.log(`[OFF] Lucene fallback clause: ${fallback}`);
+  
+  // Add product terms
+  if (term) {
+    const cleanTerm = canonicalizeQuery(term);
+    if (cleanTerm) {
+      searchTerms.push(cleanTerm);
     }
   }
-
-  const finalQuery = clauses.filter(Boolean).join(' AND ');
-  console.log(`[OFF] Complete Lucene query: ${finalQuery}`);
+  
+  // Add variant tokens
+  if (variantTokens && variantTokens.length > 0) {
+    searchTerms.push(...variantTokens);
+  }
+  
+  const finalQuery = searchTerms.filter(Boolean).join(' ');
+  console.log(`[OFF] Simple query (no Lucene): "${finalQuery}"`);
   return finalQuery;
 }
 
@@ -290,8 +277,18 @@ function buildSearchQueries(cleanQuery, brand) {
 }
 
 function toBrandSlug(value) {
-  const normalized = canonicalizeQuery(value || '');
-  return normalized.replace(/\s+/g, '-');
+  if (!value) return '';
+  return value
+    .toString()
+    .toLowerCase()
+    // Normalize special characters that cause issues
+    .replace(/&/g, 'and')           // M&M's → mandms  
+    .replace(/'/g, '')              // Ben & Jerry's → ben jerrys
+    .replace(/-/g, ' ')             // Häagen-Dazs → haagen dazs
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ') // Remove other special chars
+    .replace(/\s+/g, '-')           // spaces → hyphens
+    .replace(/^-+|-+$/g, '')        // trim hyphens
+    .trim();
 }
 
 function collectVariantLabelFilters(tokens = []) {
@@ -334,6 +331,17 @@ async function runSearchV3(term, { signal, locale, categoryTags = [], negativeCa
     langs: buildLangsParam(locale),
     boost_phrase: true
   };
+
+  // Add structured filters if we have them (alternative to complex Lucene)
+  if (brandFilter) {
+    const normalizedBrand = normalizeBrandForSearch(brandFilter);
+    if (normalizedBrand) {
+      requestBody.brands = [normalizedBrand];
+    }
+  }
+  if (primaryCategory) {
+    requestBody.categories = [primaryCategory];
+  }
 
   const url = `${SEARCH_BASE}/search`;
   const startedAt = Date.now();
@@ -380,6 +388,9 @@ async function runSearchV3(term, { signal, locale, categoryTags = [], negativeCa
         brand: brandFilter || 'none',
         category: primaryCategory || 'none'
       });
+      // For 5xx errors, return null instead of throwing to allow fallback to v2/legacy
+      console.log(`[OFF] SaL 5xx error, allowing fallback to v2/legacy`);
+      return null;
     }
     throw error;
   }
@@ -754,6 +765,8 @@ async function acquireSearchToken(signal) {
     refillSearchTokens();
     if (searchTokens > 0) {
       searchTokens -= 1;
+      // Add minimum delay between requests to be nice to the API
+      await delay(Math.max(1000, SEARCH_BUCKET_POLL_MS), signal);
       return;
     }
     await delay(SEARCH_BUCKET_POLL_MS, signal);
