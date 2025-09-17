@@ -13,17 +13,50 @@ function buildHeaders() {
   return { 'User-Agent': UA, 'Accept': 'application/json', 'Accept-Language': LANG };
 }
 
+const NOISE_WORDS = [
+  'tub',
+  'package',
+  'pack',
+  'photo',
+  'partially',
+  'visible',
+  'unopened',
+  'container',
+  'label',
+  'fridge',
+  'door',
+  'shelf',
+  'background',
+  'image',
+  'top',
+  'bottom',
+  'middle',
+  'left',
+  'right',
+  'open',
+  'inside',
+  'outside',
+  'front',
+  'rear',
+  'side',
+  'close',
+  'up',
+  'shot',
+  'in',
+  'of',
+  'with'
+];
+
 // Normalize free-form text for search queries
 export function canonicalizeQuery(raw = '') {
   return raw
     .toLowerCase()
-    .replace(/\(.*?\)/g, ' ')                                  // drop parenthetical notes
-    .replace(/\b(plain|boiled|cooked|baked|grilled|roasted|fried|raw|fresh|hard|soft)\b/g, ' ')
-    .replace(/\b(of|or|with|and)\b/g, ' ')
-    .replace(/\b(slices?|slice|wedges?|wedge|sticks?|sprinkled)\b/g, ' ') // remove cutting styles
+    .replace(/\(.*?\)/g, ' ')
     .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .replace(/\b(\w+)s\b/g, '$1')                              // naive plural → singular
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter(word => !NOISE_WORDS.includes(word))
+    .join(' ')
     .trim();
 }
 
@@ -99,7 +132,7 @@ function combineSignals(a, b) {
   return a || b || undefined;
 }
 
-async function fetchWithBackoff(url, { signal } = {}) {
+async function fetchWithBackoff(url, { signal, timeoutMs } = {}) {
   // check cache before hitting the network
   const ck = cacheKey(url);
   const hit = getCache(ck);
@@ -108,7 +141,7 @@ async function fetchWithBackoff(url, { signal } = {}) {
   let delay = 200;
   for (let attempt = 0; attempt < 3; attempt++) {
     const ac = new AbortController();
-    const timeoutId = setTimeout(() => ac.abort(), TIMEOUT);
+    const timeoutId = setTimeout(() => ac.abort(), timeoutMs ?? TIMEOUT);
     const combined = combineSignals(signal, ac.signal);
 
     try {
@@ -136,11 +169,12 @@ export async function getByBarcode(barcode, { signal } = {}) {
 }
 
 // Primary OFF search endpoint (stable)
-export async function searchByNameV1(query, { signal, categoryTags = [], preferPlain = false, brand = null, packaging = null, maxPages = 2 } = {}) {
+export async function searchByNameV1(query, { signal, categoryTags = [], preferPlain = false, brand = null, packaging = null, maxPages = 2, locale = null } = {}) {
   await acquireSearchToken(signal);
 
   const base = process.env.OFF_BASE_URL || 'https://world.openfoodfacts.org';
   const sanitizedQuery = query.trim();
+  const searchLocale = (locale || LANG);
   const searchBaseTerms = new Set();
   searchBaseTerms.add(sanitizedQuery);
   if (packaging && typeof packaging === 'string' && packaging.trim()) {
@@ -161,7 +195,7 @@ export async function searchByNameV1(query, { signal, categoryTags = [], preferP
         json: '1',
         page_size: '10',
         page: String(page),
-        lc: LANG,
+        lc: searchLocale,
         nocache: '1',
         sort_by: 'unique_scans_n',
         fields: FIELDS
@@ -184,7 +218,10 @@ export async function searchByNameV1(query, { signal, categoryTags = [], preferP
 
       const url = `${base}/cgi/search.pl?${params.toString()}`;
       const t0 = Date.now();
-      const data = await fetchWithBackoff(url, { signal });
+      const data = await fetchWithBackoff(url, {
+        signal,
+        timeoutMs: Number(process.env.OFF_SEARCH_TIMEOUT_MS || 600)
+      });
       const dt = Date.now() - t0;
 
       console.log(`[OFF] search term="${term}" brand="${brandFilter || 'none'}" page=${page}`, {

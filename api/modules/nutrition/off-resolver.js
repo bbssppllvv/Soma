@@ -308,12 +308,14 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     const positiveHints = CATEGORY_POSITIVE_HINTS[item?.canonical_category || ''] || null;
     const categoryTags = positiveHints ? positiveHints.tags : [];
     const packagingHint = inferPackagingHint(item);
-    const brandName = item.brand ? String(item.brand).toLowerCase() : null;
-    const rawName = item.name || '';
+    const brandName = item.brand ? canonicalizeQuery(String(item.brand)) : null;
+    const cleanName = canonicalQuery || canonicalizeQuery(item.name || '');
+    const locale = item.locale || 'en';
+
+    const brandedQuery = brandName ? `${brandName} ${cleanName}`.trim() : null;
     const baseQueries = [...new Set([
-      brandName ? `${brandName} ${rawName}`.trim() : null,
-      rawName,
-      canonicalQuery
+      brandedQuery,
+      cleanName
     ].filter(Boolean))];
 
     let data = null;
@@ -325,7 +327,8 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
           categoryTags,
           brand: brandName,
           packaging: packagingHint,
-          maxPages: 3
+          maxPages: 2,
+          locale
         });
         if (Array.isArray(data?.products) && data.products.length > 0) {
           break;
@@ -342,7 +345,8 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
           signal,
           categoryTags,
           packaging: packagingHint,
-          maxPages: brandName ? 2 : 3
+          maxPages: brandName ? 1 : 2,
+          locale
         });
         if (Array.isArray(data?.products) && data.products.length > 0) {
           break;

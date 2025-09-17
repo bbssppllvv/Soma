@@ -188,6 +188,20 @@ function parseQuantityString(rawValue, unitHint) {
   if (!/[a-z]/.test(str) && unitHint) {
     str = `${str} ${String(unitHint).toLowerCase()}`;
   }
+  const multipackMatch = str.match(/(\d+)\s*(?:x|×)\s*(\d+(?:\.\d+)?)\s*(kg|g|mg|l|ml|cl|dl|oz|lb|lbs)?/i);
+  if (multipackMatch) {
+    const count = parseFloat(multipackMatch[1]);
+    const perUnit = parseFloat(multipackMatch[2]);
+    const unit = multipackMatch[3] || unitHint || 'g';
+    if (Number.isFinite(count) && Number.isFinite(perUnit)) {
+      const single = parseQuantityString(`${perUnit} ${unit}`, unit);
+      if (single && Number.isFinite(single.grams)) {
+        single.grams = single.grams * count;
+        single.display = `${count}×${formatPortionDisplay(single.grams / count, single.unit)} (${formatPortionDisplay(single.grams, single.unit)})`;
+        return single;
+      }
+    }
+  }
   const match = str.match(/([\d.,]+)\s*(kg|g|mg|l|ml|cl|dl|oz|lb|lbs)?/);
   if (!match) return null;
   const value = parseFloat(match[1].replace(',', '.'));
@@ -245,7 +259,11 @@ function extractServingInfo(product) {
   const servingSize = product.serving_size;
   const servingQuantity = product.serving_quantity;
   const servingUnit = product.serving_quantity_unit;
-  return parseQuantityString(servingSize ?? servingQuantity, servingQuantity ? servingUnit : undefined);
+  const parsed = parseQuantityString(servingSize ?? servingQuantity, servingQuantity ? servingUnit : undefined);
+  if (!parsed || !Number.isFinite(parsed.grams)) return null;
+  if (parsed.unit === 'g' && parsed.grams < 10) return null;
+  if (parsed.unit === 'ml' && parsed.grams < 10) return null;
+  return parsed;
 }
 
 function extractPackageInfo(product) {
@@ -398,14 +416,10 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
       }
     }
 
-  const backgroundPromises = skipped.map(skip =>
-    resolveOneItemOFF(skip.originals[0]).catch(() => null)
-  );
-
   const tasks = selected.map(({ canonical, originals }) =>
     limit(async () => {
       const ctrl = new AbortController();
-      const perReqTimer = setTimeout(() => ctrl.abort(), Number(process.env.OFF_TIMEOUT_MS || 6000));
+      const perReqTimer = setTimeout(() => ctrl.abort(), Number(process.env.OFF_TIMEOUT_MS || 3000));
       
       // Combine signals
       let offSignal;
@@ -501,9 +515,6 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
 
   try {
     await Promise.allSettled(tasks);
-    if (backgroundPromises.length) {
-      Promise.allSettled(backgroundPromises).catch(() => {});
-    }
   } finally {
     clearTimeout(globalTimer);
   }
