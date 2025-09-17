@@ -180,6 +180,31 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
       return `• ${item.name || 'Item'} — ${sourceLabel}${portionDetail}`;
     }).join('\n');
 
+    // Generate OpenFoodFacts product URL
+    function generateOFFUrl(product, locale = 'en') {
+      if (!product?.code) return null;
+      
+      // Create URL-friendly slug from product name
+      const productName = product.product_name || 'product';
+      const slug = productName
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '') // Remove special chars
+        .replace(/\s+/g, '-') // Replace spaces with dashes
+        .replace(/-+/g, '-') // Remove multiple dashes
+        .replace(/^-|-$/g, ''); // Remove leading/trailing dashes
+      
+      // Use locale-specific domain
+      const domain = locale === 'es' ? 'es.openfoodfacts.org' : 
+                     locale === 'fr' ? 'fr.openfoodfacts.org' :
+                     'world.openfoodfacts.org';
+      
+      const pathPrefix = locale === 'es' ? 'producto' :
+                         locale === 'fr' ? 'produit' : 
+                         'product';
+      
+      return `https://${domain}/${pathPrefix}/${product.code}/${slug}`;
+    }
+
     // Generate health information from OFF data
     function generateHealthInfo(nutritionData) {
       if (!nutritionData.items || nutritionData.items.length === 0) return '';
@@ -238,6 +263,13 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
       // Palm oil warning
       if (analysis.includes('en:palm-oil')) {
         healthInfo.push(`🌴 Contains palm oil`);
+      }
+      
+      // Add OpenFoodFacts link
+      const locale = nutritionData.items[0]?.locale || 'en';
+      const offUrl = generateOFFUrl(product, locale);
+      if (offUrl) {
+        healthInfo.push(`🔗 <a href="${offUrl}">View on OpenFoodFacts</a>`);
       }
       
       return healthInfo.length > 0 ? `\n<b>Health Info:</b>\n${healthInfo.map(info => `• ${info}`).join('\n')}\n` : '';
