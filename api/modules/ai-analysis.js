@@ -404,7 +404,17 @@ function normalizeAnalysisPayload(parsed, { messageText = '' } = {}) {
     if (!offCandidate) {
       console.log(`[analysis] item="${name}" role=${role} source=AI (no brand/upc) brand=${brand || 'null'} upc=${upc || 'null'}`);
     } else {
+      console.log(`[analysis] === GPT EXTRACTED ITEM ===`);
       console.log(`[analysis] item="${name}" role=${role} source=OFF_CANDIDATE brand=${brand || 'null'} upc=${upc || 'null'}`);
+      console.log(`[analysis] GPT fields:`, {
+        name: item.name,
+        brand: item.brand,
+        brand_normalized: item.brand_normalized,
+        clean_name: item.clean_name,
+        required_tokens: item.required_tokens,
+        canonical_category: item.canonical_category,
+        confidence: item.confidence
+      });
     }
     const normalizedUnit = sanitizeUnit(item?.unit);
     const portionUnit = normalizedUnit && /ml|l/.test(normalizedUnit.toLowerCase()) ? 'ml' : 'g';

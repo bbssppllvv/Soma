@@ -292,13 +292,20 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     : item.name;
   
   const canonicalQuery = canonicalizeQuery(fullProductName);
-  console.log(`[OFF] Resolving item:`, { 
+  
+  // COMPREHENSIVE LOGGING for troubleshooting
+  console.log(`[OFF] === RESOLVING ITEM START ===`);
+  console.log(`[OFF] Input item:`, { 
     name: item.name, 
-    canonical: canonicalQuery,
-    brand: item.brand, 
-    upc: item.upc, 
-    confidence: item.confidence 
+    brand: item.brand,
+    brand_normalized: item.brand_normalized,
+    clean_name: item.clean_name,
+    required_tokens: item.required_tokens,
+    canonical_category: item.canonical_category,
+    confidence: item.confidence,
+    locale: item.locale
   });
+  console.log(`[OFF] Canonical query: "${canonicalQuery}" (from: "${fullProductName}")`);
 
   if (REQUIRE_BRAND && !item.off_candidate) {
     console.log(`[OFF] Skipping (no brand/upc): ${item.name}`);
@@ -380,8 +387,15 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     }
 
     const finalQueries = searchStrategies.slice(0, 3); // Try up to 3 strategies
+    
+    console.log(`[OFF] Search strategies generated:`, finalQueries.map(q => ({
+      strategy: q.strategy,
+      term: q.term,
+      brand: q.brand
+    })));
 
     if (finalQueries.length === 0) {
+      console.log(`[OFF] No search strategies generated - empty query`);
       return { item, reason: 'empty_query', canonical: canonicalQuery };
     }
 
@@ -417,9 +431,11 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     }
 
     const products = data.products;
+    console.log(`[OFF] Search returned ${products.length} products from API`);
 
     // Require at least one useful per-100g nutrient value
     const useful = products.filter(hasUsefulNutriments);
+    console.log(`[OFF] Nutrient filter: ${useful.length}/${products.length} products have useful nutrients`);
 
     if (useful.length === 0) {
       console.log(`[OFF] No useful nutrients for "${canonicalQuery}" (${products.length} products found)`);
@@ -464,7 +480,13 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       });
       
       if (candidates.length === 0) {
+        console.log(`[OFF] === BRAND FILTER FAIL ===`);
         console.log(`[OFF] No products match brand aliases [${[...brandAliases].join(', ')}] for "${canonicalQuery}"`);
+        console.log(`[OFF] Available brands in search results:`, useful.slice(0, 3).map(p => ({
+          product_name: p.product_name,
+          brands: p.brands,
+          brands_tags: p.brands_tags
+        })));
         return { item, reason: 'brand_filter_no_match', canonical: canonicalQuery, brand_aliases: [...brandAliases] };
       }
       
@@ -496,7 +518,13 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         });
         
         if (candidates.length === 0) {
+          console.log(`[OFF] === VARIANT FILTER FAIL ===`);
           console.log(`[OFF] No products match ALL required tokens [${simpleTokens.join(', ')}] for "${canonicalQuery}"`);
+          console.log(`[OFF] Checked products:`, candidates.slice(0, 3).map(p => ({
+            product_name: p.product_name,
+            labels_tags: p.labels_tags?.slice(0, 3),
+            categories_tags: p.categories_tags?.slice(0, 3)
+          })));
           return { item, reason: 'variant_filter_no_match', canonical: canonicalQuery, missing_tokens: simpleTokens };
         }
         
@@ -557,12 +585,20 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       // await upsertOffProduct(best.p, { previousLastModified: cached?.last_modified_t, signal });
     }
 
-    console.log(`[OFF] Success for "${canonicalQuery}": ${best.p.product_name} (score: ${best.s.toFixed(2)})`, {
+    console.log(`[OFF] === SUCCESS ===`);
+    console.log(`[OFF] Found: "${best.p.product_name}" (code: ${best.p.code}, score: ${best.s.toFixed(2)})`);
+    console.log(`[OFF] Product data:`, {
       code: best.p.code,
+      brands: best.p.brands,
+      brands_tags: best.p.brands_tags,
       nutriscore: best.p.nutriscore_grade,
       allergens: best.p.allergens_tags,
-      ingredients_analysis: best.p.ingredients_analysis_tags
+      ingredients_analysis: best.p.ingredients_analysis_tags,
+      labels_tags: best.p.labels_tags?.slice(0, 5), // first 5 labels
+      categories_tags: best.p.categories_tags?.slice(0, 5) // first 5 categories
     });
+    console.log(`[OFF] === RESOLVING ITEM END ===`);
+    
     return { product: best.p, score: best.s };
     
   } catch (e) {
