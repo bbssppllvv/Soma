@@ -1,13 +1,16 @@
 const BASE = process.env.OFF_BASE_URL || 'https://world.openfoodfacts.org';
-const UA   = process.env.OFF_USER_AGENT || 'SomaDietTracker/1.0 (contact@example.com)';
-const LANG = process.env.OFF_LANG || 'en';
+const UA   = process.env.OFF_USER_AGENT || 'SomaDietTracker/1.0 (support@yourdomain.com)';
+const LANG = (process.env.OFF_LANG || 'en').toLowerCase();
 const TIMEOUT = Number(process.env.OFF_TIMEOUT_MS || 3500);
 const TTL = Number(process.env.OFF_CACHE_TTL_MS || 10800000);
+const SEARCH_BUCKET_CAPACITY = Number(process.env.OFF_SEARCH_MAX_TOKENS || 10);
+const SEARCH_BUCKET_REFILL_MS = Number(process.env.OFF_SEARCH_REFILL_MS || 60000);
+const SEARCH_BUCKET_POLL_MS = Number(process.env.OFF_SEARCH_POLL_MS || 500);
 
 import { getCache, setCache } from './simple-cache.js';
 
 function buildHeaders() {
-  return { 'User-Agent': UA, 'Accept': 'application/json' };
+  return { 'User-Agent': UA, 'Accept': 'application/json', 'Accept-Language': LANG };
 }
 
 // Нормализация свободного текста для поиска (универсально)
@@ -15,8 +18,9 @@ export function canonicalizeQuery(raw = '') {
   return raw
     .toLowerCase()
     .replace(/\(.*?\)/g, ' ')                                  // (plain cooked) → ''
-    .replace(/\b(plain|boiled|cooked|baked|grilled|roasted|fried|raw|fresh)\b/g, ' ')
-    .replace(/\b(slices?|slice|wedges?|sticks?|sprinkled)\b/g, ' ') // формы и нарезки
+    .replace(/\b(plain|boiled|cooked|baked|grilled|roasted|fried|raw|fresh|hard|soft)\b/g, ' ')
+    .replace(/\b(of|or|with|and)\b/g, ' ')
+    .replace(/\b(slices?|slice|wedges?|wedge|sticks?|sprinkled)\b/g, ' ') // формы и нарезки
     .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .replace(/\s+/g, ' ')
     .replace(/\b(\w+)s\b/g, '$1')                              // plural → singular (грубо)
@@ -27,6 +31,67 @@ export function canonicalizeQuery(raw = '') {
 const FIELDS = 'code,product_name,brands,serving_size,nutriments,categories_tags,last_modified_t';
 
 function cacheKey(url){ return `off:${url}`; }
+
+let searchTokens = SEARCH_BUCKET_CAPACITY;
+let lastRefillTs = Date.now();
+
+function refillSearchTokens() {
+  const now = Date.now();
+  if (searchTokens >= SEARCH_BUCKET_CAPACITY) {
+    lastRefillTs = now;
+    return;
+  }
+
+  const elapsed = now - lastRefillTs;
+  if (elapsed <= 0) return;
+
+  const intervals = Math.floor(elapsed / SEARCH_BUCKET_REFILL_MS);
+  if (intervals <= 0) return;
+
+  searchTokens = Math.min(
+    SEARCH_BUCKET_CAPACITY,
+    searchTokens + intervals * SEARCH_BUCKET_CAPACITY
+  );
+  lastRefillTs = lastRefillTs + intervals * SEARCH_BUCKET_REFILL_MS;
+}
+
+function createAbortError() {
+  const err = new Error('Rate limit wait aborted');
+  err.name = 'AbortError';
+  return err;
+}
+
+function delay(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      return reject(createAbortError());
+    }
+
+    const timer = setTimeout(() => {
+      if (signal) signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+
+    function onAbort() {
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', onAbort);
+      reject(createAbortError());
+    }
+
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+async function acquireSearchToken(signal) {
+  while (true) {
+    refillSearchTokens();
+    if (searchTokens > 0) {
+      searchTokens -= 1;
+      return;
+    }
+    await delay(SEARCH_BUCKET_POLL_MS, signal);
+  }
+}
 
 function combineSignals(a, b) {
   // Node 18.17+ поддерживает AbortSignal.any
@@ -72,25 +137,21 @@ export async function getByBarcode(barcode, { signal } = {}) {
 
 // V1 полнотекстовый поиск (стабильный)
 export async function searchByNameV1(query, { signal } = {}) {
+  await acquireSearchToken(signal);
+
   const base = process.env.OFF_BASE_URL || 'https://world.openfoodfacts.org';
-  const url = `${base}/cgi/search.pl?action=process&search_terms=${encodeURIComponent(query)}&search_simple=1&json=1&page_size=24`;
+  const url = `${base}/cgi/search.pl?action=process&search_terms=${encodeURIComponent(query)}&search_simple=1&json=1&page_size=24&lc=${encodeURIComponent(LANG)}&nocache=1&sort_by=unique_scans_n`;
 
-  const r = await fetch(url, {
-    headers: {
-      'Accept': 'application/json',
-      'User-Agent': process.env.OFF_USER_AGENT || 'SomaDietTracker/1.0 (support@yourdomain.com)'
-    },
-    signal
-  });
+  const t0 = Date.now();
+  const data = await fetchWithBackoff(url, { signal }); // JSON + кеш + ретраи
+  const dt = Date.now() - t0;
 
-  if (!r.ok) throw new Error(`OFF ${r.status}`);
-  const data = await r.json();                         // ← ВАЖНО: именно JSON
-  
   console.log(`[OFF] V1 hits for "${query}":`, {
-    count: data?.count, 
-    products_len: data?.products?.length, 
-    page_size: data?.page_size
+    count: data?.count,
+    products_len: data?.products?.length,
+    page_size: data?.page_size,
+    ms: dt
   });
-  
+
   return data;                                         // {count, products: [...]}
 }

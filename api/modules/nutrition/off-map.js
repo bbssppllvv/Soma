@@ -13,18 +13,26 @@ export function mapOFFProductToPer100g(product) {
 
   // Конвертируем serving в per-100g если нет готовых per-100g значений
   n['energy-kcal_100g']   ??= to100(n['energy-kcal_serving']);
-  n['protein_100g']       ??= to100(n['proteins_serving'] ?? n['protein_serving']);
+  n['energy-kj_100g']     ??= to100(n['energy-kj_serving']);
+  n['proteins_100g']      ??= to100(n['proteins_serving'] ?? n['protein_serving']);
   n['fat_100g']           ??= to100(n['fat_serving']);
   n['carbohydrates_100g'] ??= to100(n['carbohydrates_serving']);
   n['fiber_100g']         ??= to100(n['fiber_serving']);
+  n['fibre_100g']         ??= to100(n['fibre_serving']);
 
-  const kcal = num(n['energy-kcal_100g']) ?? kjToKcal(n['energy_100g']) ?? 0;
+  const kcal =
+    num(n['energy-kcal_100g']) ??
+    kjToKcal(n['energy-kj_100g']) ??
+    kjToKcal(n['energy_100g']) ??
+    0;
+  const proteins = num(n['proteins_100g'] ?? n['protein_100g']) ?? 0;
+  const fiber = num(n['fiber_100g'] ?? n['fibre_100g']) ?? 0;
   return {
     ENERC_KCAL: kcal,
-    PROCNT:     num(n['protein_100g']) ?? 0,
+    PROCNT:     proteins,
     FAT:        num(n['fat_100g']) ?? 0,
     CHOCDF:     num(n['carbohydrates_100g']) ?? 0,
-    FIBTG:      num(n['fiber_100g']) ?? 0,
+    FIBTG:      fiber,
     serving_size: product?.serving_size || null,
     meta: {
       code: product?.code ?? null,
