@@ -9,13 +9,22 @@ const SEARCH_BUCKET_REFILL_MS = Number(process.env.OFF_SEARCH_REFILL_MS || 60000
 const SEARCH_BUCKET_POLL_MS = Number(process.env.OFF_SEARCH_POLL_MS || 500);
 const SEARCH_PAGE_SIZE = Number(process.env.OFF_SEARCH_PAGE_SIZE || 40); // Larger window to capture variants
 const SAL_TIMEOUT_MS = Number(process.env.OFF_SAL_TIMEOUT_MS || 500);
-const FALLBACK_TIMEOUT_MS = Number(process.env.OFF_FALLBACK_TIMEOUT_MS || 1500);
+const V2_STRICT_TIMEOUT_MS = Number(process.env.OFF_V2_STRICT_TIMEOUT_MS || 900);
+const V2_RELAX_TIMEOUT_MS = Number(process.env.OFF_V2_RELAX_TIMEOUT_MS || 700);
+const V2_BRANDLESS_TIMEOUT_MS = Number(process.env.OFF_V2_BRANDLESS_TIMEOUT_MS || 500);
+const LEGACY_TIMEOUT_MS = Number(process.env.OFF_LEGACY_TIMEOUT_MS || 400);
+const GLOBAL_BUDGET_MS = Number(process.env.OFF_GLOBAL_BUDGET_MS || 3000);
 
 import { getCache, setCache } from './simple-cache.js';
 import { matchVariantRules, isVariantToken } from './variant-rules.js';
+import { Agent } from 'undici';
 
 function buildHeaders() {
   return { 'User-Agent': UA, 'Accept': 'application/json', 'Accept-Language': LANG };
+}
+
+function emitMetric(name, labels = {}) {
+  console.log(`[METRIC] ${name}`, labels);
 }
 
 const NOISE_WORDS = [
@@ -111,11 +120,10 @@ function buildBrandClause(brand) {
   return `brands:${makeTerm(brand, { boost: 4 })}`;
 }
 
-function buildCategoryClauses(includes = [], excludes = []) {
+function buildCategoryClauses(primary, excludes = []) {
   const clauses = [];
-  if (includes.length > 0) {
-    const includeTerms = includes.map(term => makeTerm(term));
-    clauses.push(`categories_tags:(${joinOr(includeTerms)})`);
+  if (primary) {
+    clauses.push(`categories_tags:${makeTerm(primary)}`);
   }
   for (const term of excludes) {
     clauses.push(`NOT categories_tags:${makeTerm(term)}`);
@@ -181,7 +189,7 @@ function buildFallbackNameClause(term) {
   return `product_name:${makeTerm(term, { proximity: 3 })}`;
 }
 
-function buildLuceneQuery({ term, brand, includeCategories = [], excludeCategories = [], variantTokens = [] }) {
+function buildLuceneQuery({ term, brand, primaryCategory = null, excludeCategories = [], variantTokens = [] }) {
   const brandTokens = new Set(canonicalTokens(brand));
   const variantTokenSet = new Set();
   for (const token of variantTokens) {
@@ -199,7 +207,7 @@ function buildLuceneQuery({ term, brand, includeCategories = [], excludeCategori
     console.log(`[OFF] Lucene brand clause: ${brandClause}`);
   }
 
-  const categoryClauses = buildCategoryClauses(includeCategories, excludeCategories);
+  const categoryClauses = buildCategoryClauses(primaryCategory, excludeCategories);
   if (categoryClauses.length > 0) {
     clauses.push(...categoryClauses);
     console.log(`[OFF] Lucene category clauses: ${categoryClauses.join(' ')}`);
@@ -279,6 +287,22 @@ function buildSearchQueries(cleanQuery, brand) {
   return [...queries];
 }
 
+function toBrandSlug(value) {
+  const normalized = canonicalizeQuery(value || '');
+  return normalized.replace(/\s+/g, '-');
+}
+
+function collectVariantLabelFilters(tokens = []) {
+  const rules = matchVariantRules(tokens);
+  const labels = new Set();
+  for (const rule of rules) {
+    if (Array.isArray(rule.labelTerms)) {
+      rule.labelTerms.forEach(term => labels.add(term));
+    }
+  }
+  return [...labels];
+}
+
 async function runSearchV3(term, { signal, locale, categoryTags = [], negativeCategoryTags = [], brandFilter = null, variantTokens = [] } = {}) {
   const queryTerm = term?.trim();
   if (!queryTerm && !brandFilter && variantTokens.length === 0) {
@@ -287,10 +311,12 @@ async function runSearchV3(term, { signal, locale, categoryTags = [], negativeCa
 
   await acquireSearchToken(signal);
 
+  const primaryCategory = Array.isArray(categoryTags) ? categoryTags[0] : categoryTags;
+
   const luceneQuery = buildLuceneQuery({
     term: queryTerm,
     brand: brandFilter,
-    includeCategories: categoryTags,
+    primaryCategory,
     excludeCategories: negativeCategoryTags,
     variantTokens
   });
@@ -329,6 +355,8 @@ async function runSearchV3(term, { signal, locale, categoryTags = [], negativeCa
       ms: duration
     });
 
+    emitMetric('off_fallback_step_used', { step: 'sal', hits: products.length });
+
     return {
       count,
       products,
@@ -344,47 +372,69 @@ async function runSearchV3(term, { signal, locale, categoryTags = [], negativeCa
       error: error?.message || 'unknown',
       ms: Date.now() - startedAt
     });
+    if (error?.status >= 500) {
+      emitMetric('off_sal_5xx', {
+        status: error.status,
+        brand: brandFilter || 'none',
+        category: primaryCategory || 'none'
+      });
+    }
     throw error;
   }
 }
 
-async function runSearchV2(term, { signal, locale, categoryTags = [], negativeCategoryTags = [], brandFilter = null, variantTokens = [] } = {}) {
-  const searchTerm = term?.trim();
-  if (!searchTerm && !brandFilter && categoryTags.length === 0) {
-    return null;
-  }
-
-  await acquireSearchToken(signal);
-
-  const params = new URLSearchParams();
-  const limitedTerm = searchTerm ? limitSearchTerms(searchTerm, 8) : '';
-  if (limitedTerm) params.set('search_terms', limitedTerm);
-  params.set('page', '1');
-  params.set('page_size', String(Math.max(1, Math.min(SEARCH_PAGE_SIZE, 50))));
-  params.set('fields', SEARCH_V3_FIELDS.join(','));
-  params.set('sort_by', 'data_quality_score');
-
-  const langs = buildLangsParam(locale);
-  if (langs.length > 0) {
-    params.set('languages_tags', langs.join(','));
-  }
-
-  if (brandFilter) {
-    const normalizedBrand = canonicalizeQuery(brandFilter).replace(/\s+/g, '-');
-    if (normalizedBrand) params.set('brands_tags', normalizedBrand);
-  }
-
-  for (const category of categoryTags) {
-    if (category) params.append('categories_tags', category);
-  }
-
-  const url = `${PRODUCT_BASE}/api/v2/search?${params.toString()}`;
-  const startedAt = Date.now();
+async function runSearchV2({
+  signal,
+  locale,
+  stage,
+  brandSlug = null,
+  primaryCategory = null,
+  labelFilters = [],
+  timeoutMs = V2_STRICT_TIMEOUT_MS,
+  negativeCategoryTags = []
+} = {}) {
+  const controller = new AbortController();
+  const onTimeout = new Error('stage_timeout');
+  const timer = setTimeout(() => controller.abort(onTimeout), timeoutMs);
 
   try {
+    const stageSignal = combineSignals(signal, controller.signal);
+    await acquireSearchToken(stageSignal);
+
+    const params = new URLSearchParams();
+    params.set('page', '1');
+    params.set('page_size', String(Math.max(1, Math.min(SEARCH_PAGE_SIZE, 50))));
+    params.set('fields', SEARCH_V2_FIELDS);
+    params.set('sort_by', 'product_name');
+
+    const langs = buildLangsParam(locale);
+    if (langs.length > 0) {
+      params.set('languages_tags', langs.join(','));
+    }
+
+    if (brandSlug) {
+      params.set('brands_tags', brandSlug);
+    }
+
+    if (primaryCategory) {
+      const categorySlug = stripLangPrefix(primaryCategory || '').toLowerCase();
+      if (categorySlug) {
+        params.set('categories_tags_en', categorySlug);
+      } else {
+        params.set('categories_tags', primaryCategory);
+      }
+    }
+
+    labelFilters.forEach(label => {
+      if (label) params.append('labels_tags', label);
+    });
+
+    const url = `${PRODUCT_BASE}/api/v2/search?${params.toString()}`;
+    const startedAt = Date.now();
+
     const response = await fetchWithBackoff(url, {
-      signal,
-      timeoutMs: FALLBACK_TIMEOUT_MS,
+      signal: stageSignal,
+      timeoutMs,
       maxAttempts: 1,
       retryOnServerError: false,
       logBodyOnError: true
@@ -409,28 +459,49 @@ async function runSearchV2(term, { signal, locale, categoryTags = [], negativeCa
 
     const count = typeof response?.count === 'number' ? response.count : products.length;
 
-    console.log(`[OFF] search v2 term="${limitedTerm || '∅'}" brand="${brandFilter || 'none'}" hits=${products.length}`, {
+    console.log(`[OFF] search v2 stage=${stage} brand="${brandSlug || 'none'}" category="${primaryCategory || 'none'}" hits=${products.length}`, {
       count,
       ms: duration,
-      categories: categoryTags
+      labels: labelFilters
     });
 
     return {
       count,
       products,
-      query_term: limitedTerm,
-      brand_filter: brandFilter,
+      stage,
+      brand_filter: brandSlug,
+      category: primaryCategory,
       source: 'v2'
     };
   } catch (error) {
-    console.log(`[OFF] search v2 error term="${limitedTerm || '∅'}" brand="${brandFilter || 'none'}"`, {
+    const reason = controller.signal.aborted ? controller.signal.reason : null;
+    const stageError = reason === onTimeout ? 'timeout' : error?.message || 'unknown';
+    console.log(`[OFF] search v2 error stage=${stage} brand="${brandSlug || 'none'}" category="${primaryCategory || 'none'}"`, {
       status: error?.status || null,
       request_id: error?.requestId || null,
       body: error?.responseBody || null,
-      error: error?.message || 'unknown',
-      ms: Date.now() - startedAt
+      error: stageError
     });
+    if (reason === onTimeout) {
+      emitMetric('off_v2_timeout', {
+        stage,
+        brand: brandSlug || 'none',
+        category: primaryCategory || 'none'
+      });
+      const timeoutError = new Error('OFF v2 timeout');
+      timeoutError.code = 'timeout';
+      throw timeoutError;
+    }
+    if (error?.code === 'rate_limit_wait_aborted') {
+      emitMetric('off_rate_limit_aborts', {
+        stage,
+        brand: brandSlug || 'none',
+        category: primaryCategory || 'none'
+      });
+    }
     throw error;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -478,7 +549,7 @@ function normalizeV3Product(hit, locale) {
   return normalized;
 }
 
-async function searchByNameLegacy(query, { signal, categoryTags = [], brand = null, maxPages = 1, locale = LANG } = {}) {
+async function searchByNameLegacy(query, { signal, categoryTags = [], brand = null, maxPages = 1, locale = LANG, timeoutMs = LEGACY_TIMEOUT_MS } = {}) {
   const sanitizedQuery = query.trim();
   if (!sanitizedQuery) {
     return { count: 0, products: [], query_term: '', brand_filter: brand || null };
@@ -526,7 +597,7 @@ async function searchByNameLegacy(query, { signal, categoryTags = [], brand = nu
       try {
         data = await fetchWithBackoff(url, {
           signal,
-          timeoutMs: FALLBACK_TIMEOUT_MS,
+          timeoutMs,
           maxAttempts: 1,
           retryOnServerError: false,
           logBodyOnError: true
@@ -610,6 +681,15 @@ const SEARCH_V3_FIELDS = [
   'data_quality_score'
 ];
 
+const SEARCH_V2_FIELDS = 'code,product_name,brands,brands_tags,labels_tags,categories_tags,nutriments';
+
+const HTTP_AGENT = new Agent({
+  connect: { timeout: TIMEOUT },
+  keepAliveTimeout: 60_000,
+  keepAliveMaxTimeout: 60_000,
+  maxSockets: 50
+});
+
 function cacheKey(url){ return `off:${url}`; }
 
 let searchTokens = SEARCH_BUCKET_CAPACITY;
@@ -638,6 +718,7 @@ function refillSearchTokens() {
 function createAbortError() {
   const err = new Error('Rate limit wait aborted');
   err.name = 'AbortError';
+  err.code = 'rate_limit_wait_aborted';
   return err;
 }
 
@@ -692,7 +773,7 @@ async function fetchWithBackoff(url, { signal, timeoutMs, maxAttempts = 2, retry
     const combined = combineSignals(signal, ac.signal);
 
     try {
-      const res = await fetch(url, { headers: buildHeaders(), signal: combined });
+      const res = await fetch(url, { headers: buildHeaders(), signal: combined, dispatcher: HTTP_AGENT });
       clearTimeout(timeoutId);
       const requestId = res.headers.get('x-request-id') || null;
       if (!res.ok) {
@@ -769,7 +850,8 @@ async function fetchWithBackoffPost(url, body, { signal, timeoutMs, maxAttempts 
         method: 'POST',
         headers,
         body: JSON.stringify(body),
-        signal: combined
+        signal: combined,
+        dispatcher: HTTP_AGENT
       });
       
       clearTimeout(timeoutId);
@@ -838,101 +920,161 @@ export async function getByBarcode(barcode, { signal } = {}) {
 export async function searchByNameV1(query, { signal, categoryTags = [], negativeCategoryTags = [], brand = null, maxPages = 1, locale = null, variantTokens = [] } = {}) {
   const localeParam = normalizeLocale(locale);
   const cleanQuery = query.trim();
-  const queries = buildSearchQueries(cleanQuery, brand).slice(0, 2);
+  const brandSlug = brand ? toBrandSlug(brand) : null;
+  const primaryCategory = Array.isArray(categoryTags) ? categoryTags[0] : categoryTags;
+  const labelFilters = collectVariantLabelFilters(variantTokens);
   const attemptedResults = [];
-  let salServerError = false;
+  const stageUsed = [];
+  const startedAt = Date.now();
 
-  // Try Search-a-licious POST API first
-  for (const term of queries) {
-    if (salServerError) break;
+  const remainingBudget = () => GLOBAL_BUDGET_MS - (Date.now() - startedAt);
+  const canRunStage = (desiredTimeout) => Math.max(0, remainingBudget()) > 50 && desiredTimeout > 0;
+  const adjustedTimeout = (desiredTimeout) => {
+    const remaining = Math.max(0, remainingBudget());
+    return Math.max(100, Math.min(desiredTimeout, remaining));
+  };
+
+  const queries = buildSearchQueries(cleanQuery, brand).slice(0, 1);
+  const salTerm = queries[0] || cleanQuery;
+
+  // Stage A: Search-a-licious
+  if (canRunStage(SAL_TIMEOUT_MS)) {
+    emitMetric('off_budget_remaining', { stage: 'sal', ms: Math.max(0, remainingBudget()) });
     try {
-      const v3Result = await runSearchV3(term, {
+      const salResult = await runSearchV3(salTerm, {
         signal,
         locale: localeParam,
-        categoryTags,
-        negativeCategoryTags,
-        brandFilter: brand,
-        variantTokens
-      });
-      if (v3Result) {
-        if (v3Result.products.length > 0) {
-          console.log(`[OFF] Search-a-licious SUCCESS: found ${v3Result.products.length} products, using v3 API`);
-          return v3Result;
-        }
-        attemptedResults.push(v3Result);
-      }
-    } catch (error) {
-      const status = error?.status || null;
-      const isServerError = status != null && status >= 500;
-      console.log(`[OFF] search v3 POST error term="${term}" brand="${brand || 'none'}"`, {
-        status,
-        error: error?.message || 'unknown',
-        server_error: isServerError,
-        will_fallback: true
-      });
-      
-      if (isServerError) {
-        salServerError = true;
-        break;
-      }
-
-      if (error?.name === 'AbortError') {
-        salServerError = true;
-        break;
-      }
-
-      throw error;
-    }
-  }
-
-  // Try API v2 fallback before legacy
-  for (const term of queries) {
-    try {
-      const v2Result = await runSearchV2(term, {
-        signal,
-        locale: localeParam,
-        categoryTags,
+        categoryTags: primaryCategory ? [primaryCategory] : [],
         negativeCategoryTags,
         brandFilter: brand,
         variantTokens
       });
 
-      if (v2Result) {
-        if (v2Result.products.length > 0) {
-          console.log(`[OFF] Search v2 SUCCESS: found ${v2Result.products.length} products`);
-          return v2Result;
-        }
-        attemptedResults.push(v2Result);
+      if (salResult?.products?.length) {
+        stageUsed.push('sal');
+        console.log('[OFF] Stage A (Search-a-licious) succeeded');
+        return salResult;
+      }
+
+      if (salResult) {
+        attemptedResults.push(salResult);
       }
     } catch (error) {
-      console.log(`[OFF] search v2 error term="${term}" brand="${brand || 'none'}"`, {
+      stageUsed.push('sal_error');
+      console.log('[OFF] Stage A (Search-a-licious) failed', {
         status: error?.status || null,
-        error: error?.message || 'unknown'
+        error: error?.message || error || 'unknown'
       });
     }
   }
 
-  // Fallback to legacy search if Search-a-licious failed
-  try {
-    console.log(`[OFF] Falling back to legacy search for "${cleanQuery}"`);
-    const legacyResult = await searchByNameLegacy(cleanQuery, {
-      signal,
-      categoryTags,
-      brand,
-      maxPages,
-      locale: localeParam
-    });
-    if (legacyResult && legacyResult.products.length > 0) {
-      console.log(`[OFF] Legacy search SUCCESS: found ${legacyResult.products.length} products, using legacy API`);
-      return legacyResult;
+  const runV2Stage = async (stage, { brandSlug: stageBrand, labelFilters: stageLabels, timeoutMs }) => {
+    if (!canRunStage(timeoutMs)) {
+      console.log(`[OFF] Stage ${stage} skipped (budget exhausted)`);
+      emitMetric('off_stage_skipped', { stage, reason: 'budget' });
+      return null;
     }
-  } catch (legacyError) {
-    console.log(`[OFF] legacy search error term="${cleanQuery}" brand="${brand || 'none'}"`, {
-      error: legacyError?.message || 'unknown'
+
+    emitMetric('off_budget_remaining', { stage, ms: Math.max(0, remainingBudget()) });
+
+    try {
+      const result = await runSearchV2({
+        signal,
+        locale: localeParam,
+        stage,
+        brandSlug: stageBrand,
+        primaryCategory,
+        labelFilters: stageLabels,
+        timeoutMs: adjustedTimeout(timeoutMs),
+        negativeCategoryTags
+      });
+
+      if (result?.products?.length) {
+        stageUsed.push(stage);
+        emitMetric('off_fallback_step_used', { step: stage, hits: result.products.length });
+        return result;
+      }
+
+      if (result) {
+        attemptedResults.push(result);
+      }
+    } catch (error) {
+      stageUsed.push(`${stage}_error`);
+      console.log(`[OFF] Stage ${stage} failed`, {
+        error: error?.code || error?.message || 'unknown'
+      });
+    }
+
+    return null;
+  };
+
+  // Stage B: v2 STRICT (brand + category + labels)
+  if (brandSlug && primaryCategory) {
+    const strictResult = await runV2Stage('v2_strict', {
+      brandSlug,
+      labelFilters,
+      timeoutMs: V2_STRICT_TIMEOUT_MS
     });
+    if (strictResult) return strictResult;
   }
 
-  // Return best attempt if we have any results, otherwise empty result
+  // Stage C: v2 RELAX (brand + category)
+  if (brandSlug && primaryCategory) {
+    const relaxResult = await runV2Stage('v2_relax', {
+      brandSlug,
+      labelFilters: [],
+      timeoutMs: V2_RELAX_TIMEOUT_MS
+    });
+    if (relaxResult) return relaxResult;
+  }
+
+  // Stage D: v2 BRANDLESS (category + optional labels)
+  if (primaryCategory) {
+    const brandlessResult = await runV2Stage('v2_brandless', {
+      brandSlug: null,
+      labelFilters,
+      timeoutMs: V2_BRANDLESS_TIMEOUT_MS
+    });
+    if (brandlessResult) return brandlessResult;
+  }
+
+  // Stage E: Legacy fallback
+  if (canRunStage(LEGACY_TIMEOUT_MS)) {
+    emitMetric('off_budget_remaining', { stage: 'legacy', ms: Math.max(0, remainingBudget()) });
+    try {
+      console.log(`[OFF] Falling back to legacy search for "${cleanQuery}"`);
+      const legacyResult = await searchByNameLegacy(cleanQuery, {
+        signal,
+        categoryTags: primaryCategory ? [primaryCategory] : [],
+        brand,
+        maxPages,
+        locale: localeParam,
+        timeoutMs: adjustedTimeout(LEGACY_TIMEOUT_MS)
+      });
+      if (legacyResult?.products?.length) {
+        stageUsed.push('legacy');
+        console.log('[OFF] Legacy search SUCCESS');
+        emitMetric('off_fallback_step_used', { step: 'legacy', hits: legacyResult.products.length });
+        return legacyResult;
+      }
+      if (legacyResult) {
+        attemptedResults.push(legacyResult);
+      }
+    } catch (legacyError) {
+      stageUsed.push('legacy_error');
+      console.log(`[OFF] legacy search error term="${cleanQuery}" brand="${brand || 'none'}"`, {
+        error: legacyError?.message || 'unknown'
+      });
+    }
+  }
+
+  console.log('[OFF] No OFF results after staged fallback', { stageUsed });
+  emitMetric('off_pipeline_empty', {
+    brand: brandSlug || 'none',
+    category: primaryCategory || 'none',
+    stages: stageUsed.join(',')
+  });
+
   if (attemptedResults.length > 0) {
     return attemptedResults[attemptedResults.length - 1];
   }

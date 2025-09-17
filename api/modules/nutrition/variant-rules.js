@@ -3,7 +3,7 @@ const VARIANT_RULES = [
     id: 'light',
     matchers: ['light', 'lite', 'ligera', 'ligero', 'balance'],
     productTerms: ['"light"^3', 'ligera^2', 'ligero^2', 'lite^2', 'balance^2'],
-    labelTerms: ['en:light', 'es:ligera', 'es:ligero', 'es:balance']
+    labelTerms: ['en:light', 'es:ligera', 'es:ligero']
   },
   {
     id: 'zero',

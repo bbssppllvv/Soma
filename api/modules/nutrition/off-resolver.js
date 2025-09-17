@@ -153,7 +153,8 @@ function buildBrandContext(item) {
 }
 
 function deriveCategoryFilters(item, variantTokens = []) {
-  const include = new Set();
+  let primary = null;
+  const secondary = new Set();
   const exclude = new Set();
   const canonical = item?.canonical_category || 'unknown';
   const combinedText = normalizeText([
@@ -176,21 +177,30 @@ function deriveCategoryFilters(item, variantTokens = []) {
     });
 
     if (isButter) {
-      include.add('en:butters');
+      primary = 'en:butters';
     }
 
     if (isCheese) {
-      include.add('en:cheeses');
-      include.add('en:cream-cheeses');
+      primary = primary || 'en:cheeses';
+      secondary.add('en:cream-cheeses');
     }
 
-    if (milkSignals || (!isButter && !isCheese) || variantSignal) {
-      include.add('en:milks');
+    if (!primary && (milkSignals || variantSignal || (!isButter && !isCheese))) {
+      primary = 'en:milks';
+    }
+  }
+
+  if (!primary) {
+    const hint = CATEGORY_POSITIVE_HINTS[canonical];
+    if (hint?.tags?.length) {
+      primary = hint.tags[0];
+      hint.tags.slice(1).forEach(tag => secondary.add(tag));
     }
   }
 
   return {
-    include: [...include],
+    primary: primary || null,
+    secondary: [...secondary],
     exclude: [...exclude]
   };
 }
@@ -574,7 +584,12 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       ? [...new Set(item.required_tokens.filter(token => isVariantToken(token)))]
       : [];
     const categoryFilters = deriveCategoryFilters(item, variantWhitelistTokens);
-    const categoryTags = [...new Set([...categoryFilters.include, ...(positiveHints ? positiveHints.tags : [])])];
+    const categoryTags = [];
+    if (categoryFilters.primary) {
+      categoryTags.push(categoryFilters.primary);
+    } else if (positiveHints?.tags?.length) {
+      categoryTags.push(positiveHints.tags[0]);
+    }
     const negativeCategoryTags = [...new Set(categoryFilters.exclude)];
     const brandContext = buildBrandContext(item);
 
