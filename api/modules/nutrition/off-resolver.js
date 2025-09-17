@@ -414,7 +414,12 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       // await upsertOffProduct(best.p, { previousLastModified: cached?.last_modified_t, signal });
     }
 
-    console.log(`[OFF] Success for "${canonicalQuery}": ${best.p.product_name} (score: ${best.s.toFixed(2)})`);
+    console.log(`[OFF] Success for "${canonicalQuery}": ${best.p.product_name} (score: ${best.s.toFixed(2)})`, {
+      code: best.p.code,
+      nutriscore: best.p.nutriscore_grade,
+      allergens: best.p.allergens_tags,
+      ingredients_analysis: best.p.ingredients_analysis_tags
+    });
     return { product: best.p, score: best.s };
     
   } catch (e) {
