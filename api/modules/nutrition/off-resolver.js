@@ -404,8 +404,66 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       return { item, reason: 'no_useful_nutrients', canonical: canonicalQuery };
     }
 
+    // HARD FILTERS: Brand and variant token matching
+    let candidates = useful;
+    
+    // Brand gate: require exact brand match if provided
+    if (item.brand_normalized) {
+      const normalizedBrand = item.brand_normalized.toLowerCase();
+      candidates = candidates.filter(product => {
+        const brandTags = product.brands_tags || [];
+        const brandText = (product.brands || '').toLowerCase();
+        return brandTags.some(tag => tag.toLowerCase().includes(normalizedBrand)) ||
+               brandText.includes(normalizedBrand);
+      });
+      
+      if (candidates.length === 0) {
+        console.log(`[OFF] No products match brand "${item.brand_normalized}" for "${canonicalQuery}"`);
+        return { item, reason: 'brand_filter_no_match', canonical: canonicalQuery };
+      }
+    }
+    
+    // Variant gate: require all variant tokens if provided
+    if (item.required_tokens && item.required_tokens.length > 0) {
+      candidates = candidates.filter(product => {
+        const productName = (product.product_name || '').toLowerCase();
+        return item.required_tokens.every(token => {
+          const regex = new RegExp(`\\b${token.toLowerCase()}\\b`, 'i');
+          return regex.test(productName);
+        });
+      });
+      
+      if (candidates.length === 0) {
+        console.log(`[OFF] No products match required tokens [${item.required_tokens.join(', ')}] for "${canonicalQuery}"`);
+        return { item, reason: 'variant_filter_no_match', canonical: canonicalQuery, missing_tokens: item.required_tokens };
+      }
+    }
+    
+    // Category gate: prevent type mismatches (dairy vs plant-based)
+    if (item.canonical_category === 'dairy') {
+      const beforeCategoryFilter = candidates.length;
+      candidates = candidates.filter(product => {
+        const categories = product.categories_tags || [];
+        const hasPlantBased = categories.some(cat => 
+          cat.includes('plant-based') || 
+          cat.includes('vegetal') ||
+          cat.includes('almond') ||
+          cat.includes('soy') ||
+          cat.includes('oat')
+        );
+        return !hasPlantBased;
+      });
+      
+      if (candidates.length === 0) {
+        console.log(`[OFF] Category filter removed all candidates (${beforeCategoryFilter} plant-based products filtered out)`);
+        return { item, reason: 'category_type_mismatch', canonical: canonicalQuery };
+      }
+    }
+
+    console.log(`[OFF] After hard filters: ${candidates.length}/${useful.length} candidates remaining`);
+
     const filtered = [];
-    for (const prod of useful) {
+    for (const prod of candidates) {
       const pref = productMatchesPreferences(item, prod);
       if (pref.ok) {
         filtered.push(prod);
