@@ -180,6 +180,69 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
       return `• ${item.name || 'Item'} — ${sourceLabel}${portionDetail}`;
     }).join('\n');
 
+    // Generate health information from OFF data
+    function generateHealthInfo(nutritionData) {
+      if (!nutritionData.items || nutritionData.items.length === 0) return '';
+      
+      const item = nutritionData.items[0];
+      const product = item.resolved?.product;
+      if (!product) return '';
+      
+      const healthInfo = [];
+      
+      // Nutri-Score (A-E nutrition quality)
+      if (product.nutriscore_grade && product.nutriscore_grade !== 'unknown') {
+        const grade = product.nutriscore_grade.toUpperCase();
+        const gradeEmoji = { 'A': '🟢', 'B': '🟡', 'C': '🟠', 'D': '🔴', 'E': '⚫' }[grade] || '⚪';
+        healthInfo.push(`${gradeEmoji} Nutri-Score: ${grade}`);
+      }
+      
+      // Eco-Score (A-E environmental impact)
+      if (product.ecoscore_grade && product.ecoscore_grade !== 'unknown' && product.ecoscore_grade !== 'not-applicable') {
+        const grade = product.ecoscore_grade.toUpperCase();
+        const gradeEmoji = { 'A': '🌿', 'B': '🌱', 'C': '🟡', 'D': '🟠', 'E': '🔴' }[grade] || '⚪';
+        healthInfo.push(`${gradeEmoji} Eco-Score: ${grade}`);
+      }
+      
+      // NOVA processing level (1-4)
+      if (product.nova_group) {
+        const nova = product.nova_group;
+        const novaEmoji = { '1': '🥬', '2': '🥘', '3': '🍕', '4': '🍟' }[nova] || '⚪';
+        const novaDesc = { 
+          '1': 'unprocessed', 
+          '2': 'processed culinary', 
+          '3': 'processed foods', 
+          '4': 'ultra-processed' 
+        }[nova] || 'processed';
+        healthInfo.push(`${novaEmoji} Processing: ${novaDesc}`);
+      }
+      
+      // Allergens
+      const allergens = product.allergens_tags || [];
+      if (allergens.length > 0) {
+        const allergenList = allergens
+          .map(a => a.replace('en:', ''))
+          .slice(0, 3)
+          .join(', ');
+        healthInfo.push(`⚠️ Allergens: ${allergenList}`);
+      }
+      
+      // Vegan/Vegetarian info
+      const analysis = product.ingredients_analysis_tags || [];
+      if (analysis.includes('en:vegan')) {
+        healthInfo.push(`🌱 Vegan`);
+      } else if (analysis.includes('en:vegetarian')) {
+        healthInfo.push(`🥬 Vegetarian`);
+      }
+      
+      // Palm oil warning
+      if (analysis.includes('en:palm-oil')) {
+        healthInfo.push(`🌴 Contains palm oil`);
+      }
+      
+      return healthInfo.length > 0 ? `\n<b>Health Info:</b>\n${healthInfo.map(info => `• ${info}`).join('\n')}\n` : '';
+    }
+
     // Generate clean food name from items
     const cleanFoodName = nutritionData.items && nutritionData.items.length > 0 
       ? nutritionData.items[0].name || 'Food Item'
@@ -216,7 +279,7 @@ ${sourceLine ? `🔍 <b>${sourceLine}</b>` : ''}
 
 📈 <b>Score:</b> ${nutritionData.score}/10 ${scoreExplanation}
 
-${confidenceText}💡 <b>Advice:</b> ${nutritionData.advice_short}
+${generateHealthInfo(nutritionData)}${confidenceText}💡 <b>Advice:</b> ${nutritionData.advice_short}
 
 Ready to add this to your diet?`;
 

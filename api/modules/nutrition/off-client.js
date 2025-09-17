@@ -300,7 +300,7 @@ async function searchByNameLegacy(query, { signal, categoryTags = [], brand = nu
 }
 
 // Narrow field list keeps responses small and fast
-const PRODUCT_FIELDS_V3 = 'code,product_name,brands,quantity,serving_size,nutriments,categories_tags,last_modified_t';
+const PRODUCT_FIELDS_V3 = 'code,product_name,brands,quantity,serving_size,nutriments,categories_tags,last_modified_t,nutriscore_grade,ecoscore_grade,nova_group,additives_tags,allergens_tags,ingredients_analysis_tags,labels_tags';
 const LEGACY_SEARCH_FIELDS = 'code,product_name,brands,serving_size,nutriments,categories_tags,last_modified_t';
 const SEARCH_V3_FIELDS = [
   'code',
@@ -312,7 +312,15 @@ const SEARCH_V3_FIELDS = [
   'nutriments',
   'languages_tags',
   'categories_tags',
-  'last_modified_t'
+  'last_modified_t',
+  // Health and quality data
+  'nutriscore_grade',
+  'ecoscore_grade', 
+  'nova_group',
+  'additives_tags',
+  'allergens_tags',
+  'ingredients_analysis_tags',
+  'labels_tags'
 ];
 
 function cacheKey(url){ return `off:${url}`; }
