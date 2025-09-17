@@ -30,6 +30,157 @@ function formatPortionDisplay(value, unit = 'g') {
   return `${rounded} ${unit}`.trim();
 }
 
+const NUMBER_WORDS = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12
+};
+
+const FRACTION_WORDS = {
+  'half': 0.5,
+  'one half': 0.5,
+  'a half': 0.5,
+  'half of': 0.5,
+  'quarter': 0.25,
+  'one quarter': 0.25,
+  'a quarter': 0.25,
+  'third': 1 / 3,
+  'one third': 1 / 3,
+  'two thirds': 2 / 3,
+  'three quarters': 0.75,
+  'three quarter': 0.75
+};
+
+const PACKAGE_KEYWORDS = ['pack', 'package', 'tub', 'bottle', 'can', 'jar', 'wrap', 'bar'];
+
+const VOLUME_KEYWORDS = {
+  glass: 200,
+  glasses: 200,
+  cup: 240,
+  cups: 240,
+  spoon: 15,
+  tablespoon: 15,
+  tablespoons: 15,
+  teaspoon: 5,
+  teaspoons: 5
+};
+
+function parseWordNumber(word) {
+  if (!word) return null;
+  const lower = word.toLowerCase();
+  if (NUMBER_WORDS[lower] != null) return NUMBER_WORDS[lower];
+  const numeric = Number(lower.replace(',', '.'));
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function extractFractionMultiplier(text) {
+  if (!text) return null;
+  const fractionMatch = text.match(/(\d+\s*\/\s*\d+)/);
+  if (fractionMatch) {
+    const [num, den] = fractionMatch[1].split('/').map(part => parseFloat(part.trim()));
+    if (Number.isFinite(num) && Number.isFinite(den) && den !== 0) {
+      return num / den;
+    }
+  }
+  for (const [phrase, value] of Object.entries(FRACTION_WORDS)) {
+    if (text.includes(phrase)) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function extractCountAndUnit(text) {
+  if (!text) return null;
+  const unitPattern = ['slice', 'slices', 'piece', 'pieces', 'cup', 'cups', 'glass', 'glasses', 'tablespoon', 'tablespoons', 'tbsp', 'teaspoon', 'teaspoons', 'tsp', 'ml', 'milliliter', 'milliliters', 'l', 'liter', 'liters', 'g', 'gram', 'grams'];
+  const regex = new RegExp(`(\b(?:\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b)\s*(?:x|×)?\s*(?:of\s+)?(${unitPattern.join('|')})`, 'i');
+  const match = text.match(regex);
+  if (!match) return null;
+  const count = parseWordNumber(match[1]);
+  if (!Number.isFinite(count)) return null;
+  const unit = match[2].toLowerCase();
+  return { count, unit };
+}
+
+function computeUserTextOverride(item, product) {
+  const userText = (item.user_text || '').toLowerCase();
+  if (!userText) return null;
+
+  const packageInfo = extractPackageInfo(product);
+  const servingInfo = extractServingInfo(product);
+  const fraction = extractFractionMultiplier(userText);
+  const referencesPackage = PACKAGE_KEYWORDS.some(keyword => userText.includes(keyword));
+
+  if (fraction != null && packageInfo && referencesPackage && Number.isFinite(packageInfo.grams)) {
+    const grams = packageInfo.grams * fraction;
+    return {
+      grams,
+      unit: packageInfo.unit || 'g',
+      display: formatPortionDisplay(grams, packageInfo.unit || 'g'),
+      source: 'user',
+      reason: 'user_fraction_package'
+    };
+  }
+
+  if (fraction != null && servingInfo && Number.isFinite(servingInfo.grams)) {
+    const grams = servingInfo.grams * fraction;
+    return {
+      grams,
+      unit: servingInfo.unit || 'g',
+      display: formatPortionDisplay(grams, servingInfo.unit || 'g'),
+      source: 'user',
+      reason: 'user_fraction_serving'
+    };
+  }
+
+  const countUnit = extractCountAndUnit(userText);
+  if (countUnit) {
+    const { count, unit } = countUnit;
+    if (VOLUME_KEYWORDS[unit] != null) {
+      const mlValue = count * VOLUME_KEYWORDS[unit];
+      return {
+        grams: mlValue,
+        unit: 'ml',
+        display: `${Math.round(mlValue)} ml`,
+        source: 'user',
+        reason: 'user_volume'
+      };
+    }
+    const grams = toGrams(count, unit, item.name, item);
+    if (Number.isFinite(grams)) {
+      return {
+        grams,
+        unit: unit.toLowerCase().includes('ml') ? 'ml' : 'g',
+        display: formatPortionDisplay(grams, unit.toLowerCase().includes('ml') ? 'ml' : 'g'),
+        source: 'user',
+        reason: 'user_units'
+      };
+    }
+  }
+
+  if (fraction != null && packageInfo && Number.isFinite(packageInfo.grams)) {
+    const grams = packageInfo.grams * fraction;
+    return {
+      grams,
+      unit: packageInfo.unit || 'g',
+      display: formatPortionDisplay(grams, packageInfo.unit || 'g'),
+      source: 'user',
+      reason: 'user_fraction_generic'
+    };
+  }
+
+  return null;
+}
+
 function parseQuantityString(rawValue, unitHint) {
   if (rawValue == null) return null;
   let str = typeof rawValue === 'number' ? String(rawValue) : String(rawValue).trim().toLowerCase();
@@ -105,6 +256,11 @@ function extractPackageInfo(product) {
 }
 
 function determinePortionInfo(item, product) {
+  const userOverride = computeUserTextOverride(item, product);
+  if (userOverride) {
+    return userOverride;
+  }
+
   const userValue = Number(item.portion_value);
   if (item.portion_source === 'user' && Number.isFinite(userValue) && userValue > 0) {
     const unit = item.portion_unit || 'g';

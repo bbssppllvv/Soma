@@ -379,7 +379,8 @@ function normalizeAnalysisPayload(parsed, { messageText = '' } = {}) {
       portion_reason: portionReason,
       portion_value: normalizedPortionValue,
       portion_unit: portionUnit,
-      portion_display: normalizedPortionDisplay
+      portion_display: normalizedPortionDisplay,
+      user_text: messageText
     };
   });
 
