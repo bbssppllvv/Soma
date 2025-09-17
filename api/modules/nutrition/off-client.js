@@ -100,11 +100,22 @@ function buildSearchQueries(cleanQuery, brand) {
   const trimmedQuery = limitSearchTerms(cleanQuery);
   const trimmedBrand = limitSearchTerms(brand ?? '');
 
-  if (trimmedBrand && trimmedQuery) {
-    queries.add(`${trimmedBrand} ${trimmedQuery}`.trim());
+  // Avoid duplicate brand terms in query
+  const queryWords = new Set(trimmedQuery.toLowerCase().split(' ').filter(Boolean));
+  const brandWords = new Set(trimmedBrand.toLowerCase().split(' ').filter(Boolean));
+  
+  // Remove brand words from query to avoid duplication
+  const cleanedQueryWords = [...queryWords].filter(word => !brandWords.has(word));
+  const cleanedQuery = cleanedQueryWords.join(' ');
+
+  if (trimmedBrand && cleanedQuery) {
+    queries.add(`${trimmedBrand} ${cleanedQuery}`.trim());
   }
   if (trimmedQuery) {
     queries.add(trimmedQuery);
+  }
+  if (cleanedQuery && cleanedQuery !== trimmedQuery) {
+    queries.add(cleanedQuery);
   }
   if (queries.size === 0 && trimmedBrand) {
     queries.add(trimmedBrand);
@@ -300,7 +311,7 @@ async function searchByNameLegacy(query, { signal, categoryTags = [], brand = nu
 }
 
 // Narrow field list keeps responses small and fast
-const PRODUCT_FIELDS_V3 = 'code,product_name,brands,quantity,serving_size,nutriments,categories_tags,last_modified_t,nutriscore_grade,ecoscore_grade,nova_group,additives_tags,allergens_tags,ingredients_analysis_tags,labels_tags';
+const PRODUCT_FIELDS_V3 = 'code,product_name,brands,quantity,serving_size,nutriments,categories_tags,last_modified_t,nutriscore_grade,nutriscore_score,nutriscore_data,ecoscore_grade,ecoscore_score,nova_group,nova_groups,additives_tags,additives_n,allergens_tags,ingredients_analysis_tags,ingredients_text,labels_tags,nutrition_grades_tags';
 const LEGACY_SEARCH_FIELDS = 'code,product_name,brands,serving_size,nutriments,categories_tags,last_modified_t';
 const SEARCH_V3_FIELDS = [
   'code',
@@ -315,12 +326,19 @@ const SEARCH_V3_FIELDS = [
   'last_modified_t',
   // Health and quality data
   'nutriscore_grade',
-  'ecoscore_grade', 
+  'nutriscore_score',
+  'nutriscore_data',
+  'ecoscore_grade',
+  'ecoscore_score', 
   'nova_group',
+  'nova_groups',
   'additives_tags',
+  'additives_n',
   'allergens_tags',
   'ingredients_analysis_tags',
-  'labels_tags'
+  'ingredients_text',
+  'labels_tags',
+  'nutrition_grades_tags'
 ];
 
 function cacheKey(url){ return `off:${url}`; }

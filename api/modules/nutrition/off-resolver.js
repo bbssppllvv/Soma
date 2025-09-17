@@ -144,6 +144,17 @@ function scoreProduct(item, product) {
     score += 0.5;
   }
 
+  // Bonus for health data availability (prefer products with complete data)
+  if (product.nutriscore_grade && product.nutriscore_grade !== 'unknown') {
+    score += 0.3;
+  }
+  if (product.ecoscore_grade && product.ecoscore_grade !== 'unknown') {
+    score += 0.2;
+  }
+  if (product.allergens_tags && product.allergens_tags.length > 0) {
+    score += 0.1;
+  }
+
   const brandTokens = new Set([
     ...tokensFromTags(product.brands_tags),
     ...tokenize(product.brands || '')
