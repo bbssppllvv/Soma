@@ -209,7 +209,7 @@ Analyze ALL food visible in the photo, not just what user mentions.`
     }],
     reasoning: { effort: "minimal" },
     text: {
-      verbosity: "minimal", // Even more concise
+      verbosity: "low", // Back to supported value
       format: {
         type: "json_schema",
         name: "nutrition_analysis", 
@@ -232,7 +232,7 @@ function createTextAnalysisRequest(text, userContext, model = 'gpt-5-mini') {
 User needs ${Math.max(0, userContext.goals.cal_goal - userContext.todayTotals.calories)} cal, ${Math.max(0, userContext.goals.protein_goal_g - userContext.todayTotals.protein)}g protein today.`,
     reasoning: { effort: "minimal" },
     text: {
-      verbosity: "minimal", // Even more concise
+      verbosity: "low", // Back to supported value
       format: {
         type: "json_schema",
         name: "nutrition_analysis", 
