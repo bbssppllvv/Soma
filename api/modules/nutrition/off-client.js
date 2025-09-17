@@ -440,10 +440,10 @@ async function fetchWithBackoff(url, { signal, timeoutMs } = {}) {
 }
 
 async function fetchWithBackoffPost(url, body, { signal, timeoutMs } = {}) {
-  // CACHE DISABLED FOR TESTING - Create cache key based on URL and body for POST requests
-  // const ck = cacheKey(url + JSON.stringify(body));
-  // const hit = getCache(ck);
-  // if (hit) return hit;
+  // Create cache key based on URL and body for POST requests
+  const ck = cacheKey(url + JSON.stringify(body));
+  const hit = getCache(ck);
+  if (hit) return hit;
 
   let delay = 150;
   for (let attempt = 0; attempt < 2; attempt++) {
