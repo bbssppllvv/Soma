@@ -186,7 +186,31 @@ export function getScoreExplanation(nutrition, userContext) {
     return '(adequate beverage)';
   }
   
+  // Get food category for better explanations
+  const isCondiment = nutrition.items?.some(item => 
+    item.canonical_category === 'condiment' || 
+    (item.unit === 'ml' && item.portion <= 50)
+  );
+  
+  const isDairy = nutrition.items?.some(item => 
+    item.canonical_category === 'dairy'
+  );
+
   if (!userContext || !userContext.hasProfile) {
+    // Category-specific explanations
+    if (isCondiment) {
+      if (score >= 7.0) return '(good condiment choice)';
+      if (score >= 5.0) return '(adequate seasoning)';
+      return '(high sodium/sugar condiment)';
+    }
+    
+    if (isDairy) {
+      if (score >= 7.0) return '(excellent protein source)';
+      if (score >= 5.5) return '(good protein source)';
+      if (score >= 4.0) return '(adequate dairy choice)';
+      return '(high fat/sugar dairy)';
+    }
+    
     // Basic professional explanation
     if (score >= 8.5) return '(excellent nutritional profile)';
     if (score >= 7.5) return '(very good nutrition)';

@@ -185,14 +185,27 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
       ? nutritionData.items[0].name || 'Food Item'
       : nutritionData.food_name || 'Food Item';
     
-    // Generate clean portion info
-    const portionInfo = nutritionData.items && nutritionData.items.length === 1
-      ? `${nutritionData.items[0].portion_value || nutritionData.items[0].portion || 100}${nutritionData.items[0].portion_unit || nutritionData.items[0].unit || 'g'}`
-      : `${nutritionData.portion_size || 'Standard portion'}`;
+    // Generate clean portion info with smart defaults
+    let portionInfo = `${nutritionData.portion_size || 'Standard portion'}`;
+    
+    if (nutritionData.items && nutritionData.items.length === 1) {
+      const item = nutritionData.items[0];
+      const portionValue = item.portion_value || item.portion || 100;
+      const portionUnit = item.portion_unit || item.unit || 'g';
+      
+      // Smart portion display - use reasonable serving sizes
+      if (portionUnit === 'ml' && portionValue >= 500) {
+        // For liquids >500ml, show as glasses (250ml each)
+        const glasses = Math.round(portionValue / 250);
+        portionInfo = `${glasses} glass${glasses > 1 ? 'es' : ''} (${portionValue}ml)`;
+      } else {
+        portionInfo = `${portionValue}${portionUnit}`;
+      }
+    }
 
     const responseText = `🍽 <b>${cleanFoodName}</b>
 📊 <b>Portion:</b> ${portionInfo}
-${sourceLine ? `🔍 <b>Source:</b> ${sourceLine}` : ''}
+${sourceLine ? `🔍 <b>${sourceLine}</b>` : ''}
 
 <b>Nutrition per portion:</b>
 • Calories: ${nutritionData.calories} kcal
