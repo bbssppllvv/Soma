@@ -423,19 +423,29 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       }
     }
     
-    // Variant gate: require all variant tokens if provided
+    // Variant gate: require at least one key variant token if provided
     if (item.required_tokens && item.required_tokens.length > 0) {
-      candidates = candidates.filter(product => {
-        const productName = (product.product_name || '').toLowerCase();
-        return item.required_tokens.every(token => {
-          const regex = new RegExp(`\\b${token.toLowerCase()}\\b`, 'i');
-          return regex.test(productName);
-        });
-      });
+      // Filter out overly long/complex tokens (keep only simple modifiers)
+      const simpleTokens = item.required_tokens.filter(token => 
+        token.length <= 15 && !token.includes('/') && !token.includes('%')
+      );
       
-      if (candidates.length === 0) {
-        console.log(`[OFF] No products match required tokens [${item.required_tokens.join(', ')}] for "${canonicalQuery}"`);
-        return { item, reason: 'variant_filter_no_match', canonical: canonicalQuery, missing_tokens: item.required_tokens };
+      if (simpleTokens.length > 0) {
+        candidates = candidates.filter(product => {
+          const productName = (product.product_name || '').toLowerCase();
+          // Require at least one key token to match (not all)
+          return simpleTokens.some(token => {
+            const regex = new RegExp(`\\b${token.toLowerCase()}\\b`, 'i');
+            return regex.test(productName);
+          });
+        });
+        
+        if (candidates.length === 0) {
+          console.log(`[OFF] No products match any required tokens [${simpleTokens.join(', ')}] for "${canonicalQuery}"`);
+          return { item, reason: 'variant_filter_no_match', canonical: canonicalQuery, missing_tokens: simpleTokens };
+        }
+        
+        console.log(`[OFF] Variant filter: ${simpleTokens.length} tokens, ${candidates.length} candidates match`);
       }
     }
     

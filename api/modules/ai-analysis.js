@@ -202,7 +202,7 @@ BRAND DETECTION: Look carefully for ANY text, logos, or brand names on packaging
 
 FOCUS PRIORITY: Analyze ONLY the main product in foreground; ignore background items completely.
 
-VARIANT TOKENS: Extract ALL modifier words from packaging (light, zero, semi, sin azucar, tradicional, etc.) into required_tokens array. These are critical for finding correct product variant.
+VARIANT TOKENS: Extract ONLY key single-word modifiers from packaging (light, zero, semi, diet, tradicional, etc.) into required_tokens array. Use simple words only, not phrases. Examples: 'light' not '50% menos grasa', 'zero' not 'sin azucar'.
 
 REQUIRED FIELDS: brand_normalized (lowercase brand), clean_name (product without brand), required_tokens (all modifiers in lowercase). Do not translate - keep original language.`
         },
