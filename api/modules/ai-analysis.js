@@ -170,7 +170,7 @@ async function getOptimizedPhotoAsBase64(photos, botToken) {
     const sharp = await import('sharp');
     const optimized = await sharp.default(Buffer.from(photoBuffer))
       .resize({ width: 1024, withoutEnlargement: true }) // Smaller size for speed
-      .jpeg({ quality: 85, progressive: true }) // Good quality, faster processing
+      .jpeg({ quality: 75, progressive: true }) // Optimized for speed
       .toBuffer();
     
     console.log(`[IMG] Optimized: ${photoBuffer.byteLength} → ${optimized.length} bytes (${Math.round((1 - optimized.length/photoBuffer.byteLength) * 100)}% reduction)`);
