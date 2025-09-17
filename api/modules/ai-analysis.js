@@ -468,13 +468,15 @@ function extractFirstBalancedJson(s) {
 
 const OFF_ENABLED = String(process.env.OFF_ENABLED || 'false').toLowerCase() === 'true';
 
-async function maybeResolveWithOFFIfEnabled(norm, userContext) {
-  if (!OFF_ENABLED) return null;
+async function maybeResolveWithOFFIfEnabled(norm, userContext, { force = false } = {}) {
+  if (!OFF_ENABLED && !force) return null;
   
   // Percentage-based rollout toggle
-  const P = Number(process.env.OFF_ENABLED_PERCENT || 100);
-  const roll = Math.random() * 100 < P;
-  if (!roll) return null;
+  if (!force) {
+    const P = Number(process.env.OFF_ENABLED_PERCENT || 100);
+    const roll = Math.random() * 100 < P;
+    if (!roll) return null;
+  }
   
   if (!Array.isArray(norm.items) || norm.items.length === 0) return null;
 
@@ -529,7 +531,7 @@ async function finalize(parsed, userContext, messageText = '') {
 
   if (offEnabled && hasOffCandidates) {
     offAttempted = true;
-    off = await maybeResolveWithOFFIfEnabled(norm, userContext);
+    off = await maybeResolveWithOFFIfEnabled(norm, userContext, { force: true });
     offReasons = Array.isArray(off?.reasons) ? off.reasons : [];
   } else if (offEnabled && !hasOffCandidates) {
     offReasons = norm.items
@@ -582,25 +584,47 @@ async function finalize(parsed, userContext, messageText = '') {
     final.needs_clarification = true;
     final.advice_short = final.advice_short || 'Please clarify the portion (for example: 100 g or 1 cup).';
     final.score = 0;
-    const offStatus = !offEnabled ? 'disabled' : hasResolvedItems ? 'used' : offAttempted ? 'fallback' : 'skipped';
-    const itemsWithSource = decorateItemsWithSource(final.items || [], offStatus, offReasons, offAttempted);
+    const brandFailure = offAttempted && hasOffCandidates && !hasResolvedItems;
+    const offStatus = !offEnabled ? 'disabled' : hasResolvedItems ? 'used' : brandFailure ? 'error' : offAttempted ? 'fallback' : 'skipped';
+    const itemsWithSource = decorateItemsWithSource(final.items || [], offStatus, offReasons, offAttempted && hasOffCandidates);
     final.items = itemsWithSource;
     final.off_status = offStatus;
     final.off_reasons = offReasons;
+    if (offStatus === 'error') {
+      final.calories = 0;
+      final.protein_g = 0;
+      final.fat_g = 0;
+      final.carbs_g = 0;
+      final.fiber_g = 0;
+      final.confidence = 0;
+      final.advice_short = 'Open Food Facts did not return data for this branded product. Please verify the packaging or try manual entry.';
+    }
     logDecisionSummary(final.items, offStatus, offReasons);
     return final;
   }
 
   final.score = calculateMealScore(final, userContext);
-  const offStatus = !offEnabled ? 'disabled' : hasResolvedItems ? 'used' : offAttempted ? 'fallback' : 'skipped';
-  final.items = decorateItemsWithSource(final.items || [], offStatus, offReasons, offAttempted);
+  const brandFailure = offAttempted && hasOffCandidates && !hasResolvedItems;
+  const offStatus = !offEnabled ? 'disabled' : hasResolvedItems ? 'used' : brandFailure ? 'error' : offAttempted ? 'fallback' : 'skipped';
+  final.items = decorateItemsWithSource(final.items || [], offStatus, offReasons, offAttempted && hasOffCandidates);
   final.off_status = offStatus;
   final.off_reasons = offReasons;
+  if (offStatus === 'error') {
+    final.needs_clarification = true;
+    final.calories = 0;
+    final.protein_g = 0;
+    final.fat_g = 0;
+    final.carbs_g = 0;
+    final.fiber_g = 0;
+    final.confidence = 0;
+    final.score = 0;
+    final.advice_short = 'Open Food Facts did not return data for this branded product. Please verify the packaging or try manual entry.';
+  }
   logDecisionSummary(final.items, offStatus, offReasons);
   return final;
 }
 
-function decorateItemsWithSource(items, offStatus, offReasons, offAttempted) {
+function decorateItemsWithSource(items, offStatus, offReasons, brandAttempted) {
   const reasonMap = new Map();
   offReasons.forEach(r => {
     if (!r?.name || !r.reason) return;
@@ -611,14 +635,16 @@ function decorateItemsWithSource(items, offStatus, offReasons, offAttempted) {
     let source = item.data_source || 'ai';
     if (item.locked_source) {
       source = 'off';
+    } else if (offStatus === 'error' && item.off_candidate) {
+      source = 'off_error';
     } else if (offStatus === 'fallback' && source === 'ai') {
       source = 'ai_fallback';
     }
-    if ((offStatus === 'skipped' || offStatus === 'disabled') && source === 'ai_fallback' && !offAttempted) {
+    if ((offStatus === 'skipped' || offStatus === 'disabled') && source === 'ai_fallback' && !brandAttempted) {
       source = 'ai';
     }
     const reasonKey = String(item.name || '').toLowerCase();
-    const reason = reasonMap.get(reasonKey) || (source === 'off' ? 'off_match' : source === 'ai_fallback' ? offStatus : 'ai');
+    const reason = reasonMap.get(reasonKey) || (source === 'off' ? 'off_match' : source === 'ai_fallback' ? offStatus : source === 'off_error' ? 'off_error' : 'ai');
     const portionValue = Number.isFinite(item.portion_value) ? item.portion_value : null;
     const portionUnit = item.portion_unit || (item.unit && typeof item.unit === 'string' && item.unit.toLowerCase().includes('ml') ? 'ml' : 'g');
     const portionLabel = item.portion_display || (portionValue != null ? formatPortionDisplay(portionValue, portionUnit) : 'n/a');
@@ -636,10 +662,12 @@ function logDecisionSummary(items, offStatus, offReasons) {
   let offUsed = 0;
   let aiOnly = 0;
   let aiFallback = 0;
+  let offError = 0;
   items.forEach(item => {
     const source = item.data_source || 'ai';
     if (source === 'off') offUsed++;
     else if (source === 'ai_fallback') aiFallback++;
+    else if (source === 'off_error') offError++;
     else aiOnly++;
   });
   const reasonCounts = offReasons.reduce((acc, r) => {
@@ -647,7 +675,7 @@ function logDecisionSummary(items, offStatus, offReasons) {
     acc[r.reason] = (acc[r.reason] || 0) + 1;
     return acc;
   }, {});
-  console.log(`[analysis] summary off_status=${offStatus} off_used=${offUsed} ai_only=${aiOnly} ai_fallback=${aiFallback} reasons=${JSON.stringify(reasonCounts)}`);
+  console.log(`[analysis] summary off_status=${offStatus} off_used=${offUsed} off_error=${offError} ai_only=${aiOnly} ai_fallback=${aiFallback} reasons=${JSON.stringify(reasonCounts)}`);
 }
 
 // Parse GPT-5 response with robust fallback

@@ -95,7 +95,18 @@ const FOOD_FORM_HINTS = {
     tags: ['en:beverages', 'en:drinks'],
     keywords: ['drink', 'beverage']
   }
-};
+}; 
+
+function inferPackagingHint(item) {
+  const name = (item?.name || '').toLowerCase();
+  const form = (item?.food_form || '').toLowerCase();
+  const packagingKeywords = ['bottle', 'can', 'tub', 'pack', 'package', 'carton', 'jar', 'bar', 'box'];
+  for (const keyword of packagingKeywords) {
+    if (name.includes(keyword)) return keyword;
+    if (form.includes(keyword)) return keyword;
+  }
+  return null;
+}
 
 function tokenize(value) {
   return canonicalizeQuery(value || '').split(' ').filter(Boolean);
@@ -296,15 +307,60 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
   try {
     const positiveHints = CATEGORY_POSITIVE_HINTS[item?.canonical_category || ''] || null;
     const categoryTags = positiveHints ? positiveHints.tags : [];
-    const preferPlain = !item?.brand && PLAIN_ELIGIBLE_CATEGORIES.has(item?.canonical_category || '');
+    const packagingHint = inferPackagingHint(item);
+    const brandName = item.brand ? String(item.brand).toLowerCase() : null;
+    const rawName = item.name || '';
+    const baseQueries = [...new Set([
+      brandName ? `${brandName} ${rawName}`.trim() : null,
+      rawName,
+      canonicalQuery
+    ].filter(Boolean))];
 
-    const data = await searchByNameV1(canonicalQuery, { signal, categoryTags, preferPlain });
-    const products = Array.isArray(data?.products) ? data.products : [];
-    
-    if (products.length === 0) {
-      console.log(`[OFF] No hits for "${canonicalQuery}"`);
-      return { item, reason: 'no_hits', canonical: canonicalQuery };
+    let data = null;
+
+    if (brandName) {
+      for (const term of baseQueries) {
+        data = await searchByNameV1(term, {
+          signal,
+          categoryTags,
+          brand: brandName,
+          packaging: packagingHint,
+          maxPages: 3
+        });
+        if (Array.isArray(data?.products) && data.products.length > 0) {
+          break;
+        }
+      }
     }
+
+    if (!data || !Array.isArray(data.products) || data.products.length === 0) {
+      if (brandName) {
+        console.error(`[OFF] Brand lookup failed`, { brand: brandName, name: rawName });
+      }
+      for (const term of baseQueries) {
+        data = await searchByNameV1(term, {
+          signal,
+          categoryTags,
+          packaging: packagingHint,
+          maxPages: brandName ? 2 : 3
+        });
+        if (Array.isArray(data?.products) && data.products.length > 0) {
+          break;
+        }
+      }
+    }
+
+    if (!data || !Array.isArray(data.products) || data.products.length === 0) {
+      const reason = brandName ? 'off_not_found_brand' : 'no_hits';
+      return {
+        item,
+        reason,
+        canonical: canonicalQuery,
+        error: `OFF not found for brand="${brandName || 'none'}" name="${rawName}"`
+      };
+    }
+
+    const products = data.products;
 
     // Require at least one useful per-100g nutrient value
     const useful = products.filter(hasUsefulNutriments);

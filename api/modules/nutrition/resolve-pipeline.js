@@ -384,8 +384,17 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
       });
       for (const it of skip.originals) {
         const grams = ensureGramsFallback(it);
+        const fallbackSource = it.off_candidate ? 'off_error' : 'ai_fallback';
+        const portionInfo = determinePortionInfo(it, null);
+        const portionUnit = portionInfo.unit || it.portion_unit || 'g';
+        const portionDisplay = portionInfo.display || formatPortionDisplay(grams, portionUnit);
         results.push({ ...it, grams, resolved: null, nutrients: null,
-                     confidence: Math.min(it.confidence ?? 0.6, 0.6), needs_clarification: true, data_source: 'ai_fallback' });
+                     confidence: Math.min(it.confidence ?? 0.6, 0.6), needs_clarification: true, data_source: fallbackSource,
+                     portion_source: portionInfo.source,
+                     portion_reason: portionInfo.reason,
+                     portion_value: grams,
+                     portion_unit: portionUnit,
+                     portion_display: portionDisplay });
       }
     }
 
@@ -450,9 +459,10 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
             const grams = Number.isFinite(portionInfo.grams) ? portionInfo.grams : ensureGramsFallback(it);
             const portionUnit = portionInfo.unit || it.portion_unit || 'g';
             const portionDisplay = portionInfo.display || formatPortionDisplay(grams, portionUnit);
+            const fallbackSource = it.off_candidate ? 'off_error' : 'ai_fallback';
             results.push({ ...it, grams, resolved: null, nutrients: null,
                            confidence: Math.min(it.confidence ?? 0.6, 0.6), needs_clarification: true,
-                           data_source: 'ai_fallback',
+                           data_source: fallbackSource,
                            portion_source: portionInfo.source,
                            portion_reason: portionInfo.reason,
                            portion_value: grams,
@@ -473,9 +483,10 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
           const grams = Number.isFinite(portionInfo.grams) ? portionInfo.grams : ensureGramsFallback(it);
           const portionUnit = portionInfo.unit || it.portion_unit || 'g';
           const portionDisplay = portionInfo.display || formatPortionDisplay(grams, portionUnit);
+          const fallbackSource = it.off_candidate ? 'off_error' : 'ai_fallback';
           results.push({ ...it, grams, resolved: null, nutrients: null,
                          confidence: Math.min(it.confidence ?? 0.6, 0.6), needs_clarification: true,
-                         data_source: 'ai_fallback',
+                         data_source: fallbackSource,
                          portion_source: portionInfo.source,
                          portion_reason: portionInfo.reason,
                          portion_value: grams,
@@ -504,9 +515,10 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
     const grams = Number.isFinite(portionInfo.grams) ? portionInfo.grams : ensureGramsFallback(it);
     const portionUnit = portionInfo.unit || it.portion_unit || 'g';
     const portionDisplay = portionInfo.display || formatPortionDisplay(grams, portionUnit);
+    const fallbackSource = it.off_candidate ? 'off_error' : 'ai_fallback';
     results.push({ ...it, grams, resolved: null, nutrients: null,
                    confidence: Math.min(it.confidence ?? 0.6, 0.4), needs_clarification: true,
-                   data_source: 'ai_fallback',
+                   data_source: fallbackSource,
                    portion_source: portionInfo.source,
                    portion_reason: portionInfo.reason,
                    portion_value: grams,

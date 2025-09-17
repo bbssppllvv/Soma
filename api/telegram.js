@@ -152,18 +152,22 @@ async function handleFoodAnalysis(message, botToken, openaiKey, supabaseUrl, sup
 
     const sourceLine = offStatus === 'used'
       ? 'Source: Open Food Facts (exact match)'
-      : offStatus === 'disabled'
-        ? 'Source: AI estimate (OFF disabled)'
-        : offStatus === 'fallback'
-          ? `Source: AI estimate (fallback${offReasons.length ? `: ${offReasons.join(', ')}` : ''})`
-          : 'Source: AI estimate';
+      : offStatus === 'error'
+        ? `Source: OFF error (brand not found${offReasons.length ? `: ${offReasons.join(', ')}` : ''})`
+        : offStatus === 'disabled'
+          ? 'Source: AI estimate (OFF disabled)'
+          : offStatus === 'fallback'
+            ? `Source: AI estimate (fallback${offReasons.length ? `: ${offReasons.join(', ')}` : ''})`
+            : 'Source: AI estimate';
 
     const perItemSources = (nutritionData.items || []).map(item => {
       const sourceLabel = item.data_source === 'off'
         ? 'OFF'
-        : item.data_source === 'ai_fallback'
-          ? 'AI fallback'
-          : 'AI';
+        : item.data_source === 'off_error'
+          ? 'OFF error'
+          : item.data_source === 'ai_fallback'
+            ? 'AI fallback'
+            : 'AI';
       const portionUnit = item.portion_unit || (item.unit && typeof item.unit === 'string' && item.unit.toLowerCase().includes('ml') ? 'ml' : 'g');
       const portionValue = Number.isFinite(item.portion_value) ? item.portion_value : null;
       const fallbackDisplay = (() => {

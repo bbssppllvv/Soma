@@ -136,49 +136,81 @@ export async function getByBarcode(barcode, { signal } = {}) {
 }
 
 // Primary OFF search endpoint (stable)
-export async function searchByNameV1(query, { signal, categoryTags = [], preferPlain = false } = {}) {
+export async function searchByNameV1(query, { signal, categoryTags = [], preferPlain = false, brand = null, packaging = null, maxPages = 2 } = {}) {
   await acquireSearchToken(signal);
 
   const base = process.env.OFF_BASE_URL || 'https://world.openfoodfacts.org';
-  const searchQueries = preferPlain ? [`plain ${query}`.trim(), query] : [query];
+  const sanitizedQuery = query.trim();
+  const searchBaseTerms = new Set();
+  searchBaseTerms.add(sanitizedQuery);
+  if (packaging && typeof packaging === 'string' && packaging.trim()) {
+    searchBaseTerms.add(`${sanitizedQuery} ${packaging.trim()}`);
+  }
+  if (preferPlain) {
+    searchBaseTerms.add(`plain ${sanitizedQuery}`.trim());
+  }
 
-  for (const searchTerm of searchQueries) {
-    const params = new URLSearchParams({
-      action: 'process',
-      search_terms: searchTerm,
-      search_simple: '1',
-      json: '1',
-      page_size: '10',
-      lc: LANG,
-      nocache: '1',
-      sort_by: 'unique_scans_n',
-      fields: FIELDS
-    });
+  const baseTerms = [...searchBaseTerms];
 
-    categoryTags.slice(0, 3).forEach((tag, idx) => {
-      params.set(`tagtype_${idx}`, 'categories');
-      params.set(`tag_contains_${idx}`, 'contains');
-      params.set(`tag_${idx}`, tag);
-    });
+  async function runSearch(term, brandFilter) {
+    for (let page = 1; page <= maxPages; page++) {
+      const params = new URLSearchParams({
+        action: 'process',
+        search_terms: term,
+        search_simple: '1',
+        json: '1',
+        page_size: '10',
+        page: String(page),
+        lc: LANG,
+        nocache: '1',
+        sort_by: 'unique_scans_n',
+        fields: FIELDS
+      });
 
-    const url = `${base}/cgi/search.pl?${params.toString()}`;
+      let tagIndex = 0;
+      if (brandFilter) {
+        params.set(`tagtype_${tagIndex}`, 'brands');
+        params.set(`tag_contains_${tagIndex}`, 'contains');
+        params.set(`tag_${tagIndex}`, brandFilter);
+        tagIndex++;
+      }
 
-    const t0 = Date.now();
-    const data = await fetchWithBackoff(url, { signal });
-    const dt = Date.now() - t0;
+      categoryTags.slice(0, 3).forEach(tag => {
+        params.set(`tagtype_${tagIndex}`, 'categories');
+        params.set(`tag_contains_${tagIndex}`, 'contains');
+        params.set(`tag_${tagIndex}`, tag);
+        tagIndex++;
+      });
 
-    console.log(`[OFF] V1 hits for "${searchTerm}":`, {
-      count: data?.count,
-      products_len: data?.products?.length,
-      page_size: data?.page_size,
-      ms: dt,
-      category_tags: categoryTags
-    });
+      const url = `${base}/cgi/search.pl?${params.toString()}`;
+      const t0 = Date.now();
+      const data = await fetchWithBackoff(url, { signal });
+      const dt = Date.now() - t0;
 
-    if (Array.isArray(data?.products) && data.products.length > 0) {
-      return data;
+      console.log(`[OFF] search term="${term}" brand="${brandFilter || 'none'}" page=${page}`, {
+        count: data?.count,
+        products_len: data?.products?.length,
+        ms: dt
+      });
+
+      if (Array.isArray(data?.products) && data.products.length > 0) {
+        return { ...data, query_term: term, brand_filter: brandFilter }; 
+      }
+    }
+    return null;
+  }
+
+  if (brand) {
+    for (const term of baseTerms) {
+      const data = await runSearch(term, brand);
+      if (data) return data;
     }
   }
 
-  return { count: 0, products: [] };
+  for (const term of baseTerms) {
+    const data = await runSearch(term, null);
+    if (data) return data;
+  }
+
+  return { count: 0, products: [], query_term: sanitizedQuery, brand_filter: brand || null };
 }
