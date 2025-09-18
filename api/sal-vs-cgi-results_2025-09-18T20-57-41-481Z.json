@@ -1,0 +1,675 @@
+{
+  "timestamp": "2025-09-18T20:57:41.482Z",
+  "summary": {
+    "totalTests": 9,
+    "salWins": 0,
+    "cgiWins": 3,
+    "ties": 0,
+    "noResults": 6,
+    "avgResponseTime": {
+      "sal": 796,
+      "cgi": 757
+    },
+    "successRate": {
+      "sal": "100.0",
+      "cgi": "100.0"
+    }
+  },
+  "detailedResults": [
+    {
+      "product": "Central Lechera Asturiana Nata Montada",
+      "query": "Central Lechera Asturiana nata montada",
+      "expectedBarcode": "8410297121104",
+      "description": "clásica, обычные сливки",
+      "sal": {
+        "success": true,
+        "responseTime": 1299,
+        "totalResults": 4031454,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "6111035000430",
+            "name": "Sidi Ali",
+            "brands": "Sidi Ali"
+          },
+          {
+            "code": "6111242100992",
+            "name": "Perly",
+            "brands": "Jaouda"
+          },
+          {
+            "code": "6111035002175",
+            "name": "Sidi Ali",
+            "brands": "sidi ali"
+          },
+          {
+            "code": "6111035000058",
+            "name": "Eau minérale naturelle",
+            "brands": "Les Eaux Minérales d'oulmès,Sidi Ali"
+          },
+          {
+            "code": "6111252421568",
+            "name": "اكوافينا",
+            "brands": "AQUAFINA"
+          }
+        ],
+        "error": null
+      },
+      "cgi": {
+        "success": true,
+        "responseTime": 431,
+        "totalResults": 6,
+        "targetPosition": 1,
+        "topResults": [
+          {
+            "code": "8410297121104",
+            "name": "Nata Montada Azucarada en aerosol Asturiana",
+            "brands": "Central Lechera Asturiana"
+          },
+          {
+            "code": "8410297121128",
+            "name": "Nata montada ligera spray",
+            "brands": "central lechera asturiana"
+          },
+          {
+            "code": "8410297121234",
+            "name": "Nata montada azucarada sin lactosa spray",
+            "brands": "Central Lechera Asturiana"
+          },
+          {
+            "code": "04587727",
+            "name": "Nata Montada azucarada sin lactosa",
+            "brands": "Central Lechera Asturiana"
+          },
+          {
+            "code": "8410297121142",
+            "name": "Mi Nata Montada Azucarada",
+            "brands": "Central Lechera Asturiana"
+          }
+        ],
+        "error": null
+      },
+      "winner": "CGI",
+      "notes": [
+        "Только CGI нашёл продукт на позиции 1",
+        "CGI быстрее на 868мс"
+      ]
+    },
+    {
+      "product": "Central Lechera Asturiana Nata ligera",
+      "query": "Central Lechera Asturiana nata ligera",
+      "expectedBarcode": "8410297120176",
+      "description": "лёгкие сливки / líquida para cocinar",
+      "sal": {
+        "success": true,
+        "responseTime": 609,
+        "totalResults": 4031454,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "6111035000430",
+            "name": "Sidi Ali",
+            "brands": "Sidi Ali"
+          },
+          {
+            "code": "6111242100992",
+            "name": "Perly",
+            "brands": "Jaouda"
+          },
+          {
+            "code": "6111035002175",
+            "name": "Sidi Ali",
+            "brands": "sidi ali"
+          },
+          {
+            "code": "6111035000058",
+            "name": "Eau minérale naturelle",
+            "brands": "Les Eaux Minérales d'oulmès,Sidi Ali"
+          },
+          {
+            "code": "6111252421568",
+            "name": "اكوافينا",
+            "brands": "AQUAFINA"
+          }
+        ],
+        "error": null
+      },
+      "cgi": {
+        "success": true,
+        "responseTime": 441,
+        "totalResults": 2,
+        "targetPosition": 2,
+        "topResults": [
+          {
+            "code": "8410297121128",
+            "name": "Nata montada ligera spray",
+            "brands": "central lechera asturiana"
+          },
+          {
+            "code": "8410297120176",
+            "name": "Nata ligera líquida para cocinar",
+            "brands": "Central lechera asturiana"
+          }
+        ],
+        "error": null
+      },
+      "winner": "CGI",
+      "notes": [
+        "Только CGI нашёл продукт на позиции 2",
+        "CGI быстрее на 168мс"
+      ]
+    },
+    {
+      "product": "Central Lechera Asturiana Nata montada sin lactosa",
+      "query": "Central Lechera Asturiana nata montada sin lactosa",
+      "expectedBarcode": "8410297121234",
+      "description": "безлактозные сливки",
+      "sal": {
+        "success": true,
+        "responseTime": 749,
+        "totalResults": 4031454,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "6111035000430",
+            "name": "Sidi Ali",
+            "brands": "Sidi Ali"
+          },
+          {
+            "code": "6111242100992",
+            "name": "Perly",
+            "brands": "Jaouda"
+          },
+          {
+            "code": "6111035002175",
+            "name": "Sidi Ali",
+            "brands": "sidi ali"
+          },
+          {
+            "code": "6111035000058",
+            "name": "Eau minérale naturelle",
+            "brands": "Les Eaux Minérales d'oulmès,Sidi Ali"
+          },
+          {
+            "code": "6111252421568",
+            "name": "اكوافينا",
+            "brands": "AQUAFINA"
+          }
+        ],
+        "error": null
+      },
+      "cgi": {
+        "success": true,
+        "responseTime": 589,
+        "totalResults": 2,
+        "targetPosition": 1,
+        "topResults": [
+          {
+            "code": "8410297121234",
+            "name": "Nata montada azucarada sin lactosa spray",
+            "brands": "Central Lechera Asturiana"
+          },
+          {
+            "code": "04587727",
+            "name": "Nata Montada azucarada sin lactosa",
+            "brands": "Central Lechera Asturiana"
+          }
+        ],
+        "error": null
+      },
+      "winner": "CGI",
+      "notes": [
+        "Только CGI нашёл продукт на позиции 1",
+        "CGI быстрее на 160мс"
+      ]
+    },
+    {
+      "product": "Coca-Cola Zero Sugar (Asian)",
+      "query": "Coca-Cola Zero Sugar",
+      "expectedBarcode": "8851959132074",
+      "description": "азиатский код, встречался в тестах",
+      "sal": {
+        "success": true,
+        "responseTime": 832,
+        "totalResults": 4031454,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "6111035000430",
+            "name": "Sidi Ali",
+            "brands": "Sidi Ali"
+          },
+          {
+            "code": "6111242100992",
+            "name": "Perly",
+            "brands": "Jaouda"
+          },
+          {
+            "code": "6111035002175",
+            "name": "Sidi Ali",
+            "brands": "sidi ali"
+          },
+          {
+            "code": "6111035000058",
+            "name": "Eau minérale naturelle",
+            "brands": "Les Eaux Minérales d'oulmès,Sidi Ali"
+          },
+          {
+            "code": "6111252421568",
+            "name": "اكوافينا",
+            "brands": "AQUAFINA"
+          }
+        ],
+        "error": null
+      },
+      "cgi": {
+        "success": true,
+        "responseTime": 1594,
+        "totalResults": 60,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "5449000131836",
+            "name": "Zero Sugar",
+            "brands": "Coca-Cola"
+          },
+          {
+            "code": "5000112611878",
+            "name": "PET 1.75L COCA COLA® ZÈRO",
+            "brands": "Coca-Cola®"
+          },
+          {
+            "code": "5449000020987",
+            "name": "Coca-Cola Zero Sugar 25cl",
+            "brands": "Coca-Cola"
+          },
+          {
+            "code": "5000112638745",
+            "name": "Coca cola zero sugar",
+            "brands": "Coca-Cola"
+          },
+          {
+            "code": "5000112558265",
+            "name": "PET 50CL COCA COLA ZERO",
+            "brands": "Coca-Cola"
+          }
+        ],
+        "error": null
+      },
+      "winner": "NONE",
+      "notes": [
+        "Ни один API не нашёл целевой продукт",
+        "SAL быстрее на 762мс"
+      ]
+    },
+    {
+      "product": "Coca-Cola Zero (European)",
+      "query": "Coca-Cola Zero",
+      "expectedBarcode": "5000112658637",
+      "description": "европейский код, Нидерланды, 250 мл",
+      "sal": {
+        "success": true,
+        "responseTime": 829,
+        "totalResults": 4031454,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "6111035000430",
+            "name": "Sidi Ali",
+            "brands": "Sidi Ali"
+          },
+          {
+            "code": "6111242100992",
+            "name": "Perly",
+            "brands": "Jaouda"
+          },
+          {
+            "code": "6111035002175",
+            "name": "Sidi Ali",
+            "brands": "sidi ali"
+          },
+          {
+            "code": "6111035000058",
+            "name": "Eau minérale naturelle",
+            "brands": "Les Eaux Minérales d'oulmès,Sidi Ali"
+          },
+          {
+            "code": "6111252421568",
+            "name": "اكوافينا",
+            "brands": "AQUAFINA"
+          }
+        ],
+        "error": null
+      },
+      "cgi": {
+        "success": true,
+        "responseTime": 921,
+        "totalResults": 340,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "5449000214799",
+            "name": "Coke Zero",
+            "brands": "Coca-Cola"
+          },
+          {
+            "code": "5449000131805",
+            "name": "Coca-Cola Zero",
+            "brands": "Coca-Cola"
+          },
+          {
+            "code": "5449000131836",
+            "name": "Zero Sugar",
+            "brands": "Coca-Cola"
+          },
+          {
+            "code": "5000112611878",
+            "name": "PET 1.75L COCA COLA® ZÈRO",
+            "brands": "Coca-Cola®"
+          },
+          {
+            "code": "90375323",
+            "name": "Coca cola zero",
+            "brands": "Coca-Cola"
+          }
+        ],
+        "error": null
+      },
+      "winner": "NONE",
+      "notes": [
+        "Ни один API не нашёл целевой продукт",
+        "SAL быстрее на 92мс"
+      ]
+    },
+    {
+      "product": "Pepsi Max Cherry",
+      "query": "Pepsi Max Cherry",
+      "expectedBarcode": "5352201084422",
+      "description": "вишнёвая Pepsi Max",
+      "sal": {
+        "success": true,
+        "responseTime": 713,
+        "totalResults": 4031454,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "6111035000430",
+            "name": "Sidi Ali",
+            "brands": "Sidi Ali"
+          },
+          {
+            "code": "6111242100992",
+            "name": "Perly",
+            "brands": "Jaouda"
+          },
+          {
+            "code": "6111035002175",
+            "name": "Sidi Ali",
+            "brands": "sidi ali"
+          },
+          {
+            "code": "6111035000058",
+            "name": "Eau minérale naturelle",
+            "brands": "Les Eaux Minérales d'oulmès,Sidi Ali"
+          },
+          {
+            "code": "6111252421568",
+            "name": "اكوافينا",
+            "brands": "AQUAFINA"
+          }
+        ],
+        "error": null
+      },
+      "cgi": {
+        "success": true,
+        "responseTime": 755,
+        "totalResults": 20,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "4062139001729",
+            "name": "Cola - Max Cherry Zero",
+            "brands": "Pepsi, PepsiCo"
+          },
+          {
+            "code": "5410188033779",
+            "name": "Pepsi max Cherry",
+            "brands": "Pepsi"
+          },
+          {
+            "code": "4060800170248",
+            "name": "Pepsi Max Cherry 600ML",
+            "brands": "Pepsi"
+          },
+          {
+            "code": "87171259",
+            "name": "Pepsi Max Cherry 330ml",
+            "brands": "Pepsi"
+          },
+          {
+            "code": "8715600238105",
+            "name": "Pepsi max cherry",
+            "brands": "Pepsi"
+          }
+        ],
+        "error": null
+      },
+      "winner": "NONE",
+      "notes": [
+        "Ни один API не нашёл целевой продукт",
+        "SAL быстрее на 42мс"
+      ]
+    },
+    {
+      "product": "Ben & Jerry's Chocolate Fudge Brownie",
+      "query": "Ben Jerry Chocolate Fudge Brownie",
+      "expectedBarcode": "0076840303236",
+      "description": "dairy ice cream",
+      "sal": {
+        "success": true,
+        "responseTime": 632,
+        "totalResults": 4031454,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "6111035000430",
+            "name": "Sidi Ali",
+            "brands": "Sidi Ali"
+          },
+          {
+            "code": "6111242100992",
+            "name": "Perly",
+            "brands": "Jaouda"
+          },
+          {
+            "code": "6111035002175",
+            "name": "Sidi Ali",
+            "brands": "sidi ali"
+          },
+          {
+            "code": "6111035000058",
+            "name": "Eau minérale naturelle",
+            "brands": "Les Eaux Minérales d'oulmès,Sidi Ali"
+          },
+          {
+            "code": "6111252421568",
+            "name": "اكوافينا",
+            "brands": "AQUAFINA"
+          }
+        ],
+        "error": null
+      },
+      "cgi": {
+        "success": true,
+        "responseTime": 435,
+        "totalResults": 22,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "8711327370708",
+            "name": "Chocolate Fudge Brownie",
+            "brands": "Ben & Jerry's, Unilever"
+          },
+          {
+            "code": "8714100240038",
+            "name": "Chocolate Fudge Brownie Non-Dairy Ice Cream",
+            "brands": "Ben & Jerry's"
+          },
+          {
+            "code": "8711327627086",
+            "name": "Ben & Jerry's Glace en Pot Vegan Chocolate Fudge Brownie 465ml",
+            "brands": "Ben & Jerry's"
+          },
+          {
+            "code": "0076840101535",
+            "name": "Half baked froyo",
+            "brands": "Ben & Jerry's"
+          },
+          {
+            "code": "8711327373723",
+            "name": "Pot Vegan Chocolate Fudge Brownie",
+            "brands": "Ben & Jerry's, Frank Body, Vegan"
+          }
+        ],
+        "error": null
+      },
+      "winner": "NONE",
+      "notes": [
+        "Ни один API не нашёл целевой продукт",
+        "CGI быстрее на 197мс"
+      ]
+    },
+    {
+      "product": "Nutella",
+      "query": "Nutella hazelnut spread",
+      "expectedBarcode": "3017620422003",
+      "description": "classic spread",
+      "sal": {
+        "success": true,
+        "responseTime": 886,
+        "totalResults": 4031454,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "6111035000430",
+            "name": "Sidi Ali",
+            "brands": "Sidi Ali"
+          },
+          {
+            "code": "6111242100992",
+            "name": "Perly",
+            "brands": "Jaouda"
+          },
+          {
+            "code": "6111035002175",
+            "name": "Sidi Ali",
+            "brands": "sidi ali"
+          },
+          {
+            "code": "6111035000058",
+            "name": "Eau minérale naturelle",
+            "brands": "Les Eaux Minérales d'oulmès,Sidi Ali"
+          },
+          {
+            "code": "6111252421568",
+            "name": "اكوافينا",
+            "brands": "AQUAFINA"
+          }
+        ],
+        "error": null
+      },
+      "cgi": {
+        "success": true,
+        "responseTime": 691,
+        "totalResults": 32,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "59032823",
+            "name": "nutella",
+            "brands": "Ferrero,Nutella"
+          },
+          {
+            "code": "8000500179864",
+            "name": "Nutella",
+            "brands": "Ferrero,Nutella"
+          },
+          {
+            "code": "80135876",
+            "name": "N/A",
+            "brands": "Nutella,Ferrero"
+          },
+          {
+            "code": "80861263",
+            "name": "Pâte à tartiner",
+            "brands": "Nutella"
+          },
+          {
+            "code": "8000500426494",
+            "name": "Nutella Plant-Based",
+            "brands": "Nutella, Ferrero"
+          }
+        ],
+        "error": null
+      },
+      "winner": "NONE",
+      "notes": [
+        "Ни один API не нашёл целевой продукт",
+        "CGI быстрее на 195мс"
+      ]
+    },
+    {
+      "product": "H-E-B Red Kidney Beans",
+      "query": "red kidney beans water",
+      "expectedBarcode": "0644216479092",
+      "description": "fallback для Amazon brand",
+      "sal": {
+        "success": true,
+        "responseTime": 617,
+        "totalResults": 4031454,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "6111035000430",
+            "name": "Sidi Ali",
+            "brands": "Sidi Ali"
+          },
+          {
+            "code": "6111242100992",
+            "name": "Perly",
+            "brands": "Jaouda"
+          },
+          {
+            "code": "6111035002175",
+            "name": "Sidi Ali",
+            "brands": "sidi ali"
+          },
+          {
+            "code": "6111035000058",
+            "name": "Eau minérale naturelle",
+            "brands": "Les Eaux Minérales d'oulmès,Sidi Ali"
+          },
+          {
+            "code": "6111252421568",
+            "name": "اكوافينا",
+            "brands": "AQUAFINA"
+          }
+        ],
+        "error": null
+      },
+      "cgi": {
+        "success": true,
+        "responseTime": 960,
+        "totalResults": 0,
+        "targetPosition": -1,
+        "topResults": [],
+        "error": null
+      },
+      "winner": "NONE",
+      "notes": [
+        "Ни один API не нашёл целевой продукт",
+        "SAL быстрее на 343мс"
+      ]
+    }
+  ]
+}

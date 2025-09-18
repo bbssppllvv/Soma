@@ -19,3 +19,6 @@ export const LEGACY_TIMEOUT_MS = Number(process.env.OFF_LEGACY_TIMEOUT_MS || 400
 export const GLOBAL_BUDGET_MS = Number(process.env.OFF_GLOBAL_BUDGET_MS || 8000);
 export const HEDGE_DELAY_MS = Number(process.env.OFF_HEDGE_DELAY_MS || 350);
 export const HEDGE_TIMEOUT_MS = Number(process.env.OFF_HEDGE_TIMEOUT_MS || 400);
+
+// Флаг для переключения на CGI API вместо SAL
+export const USE_CGI_SEARCH = process.env.OFF_USE_CGI_SEARCH === 'true' || false;

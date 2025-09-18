@@ -20,6 +20,8 @@ export const GPT_NUTRITION_SCHEMA = {
           off_primary_tokens: { type: "array", items: { type: "string", maxLength: 40 }, maxItems: 12 },
           off_alt_tokens:      { type: "array", items: { type: "string", maxLength: 40 }, maxItems: 18 },
           off_neg_tokens:      { type: "array", items: { type: "string", maxLength: 40 }, maxItems: 18 },
+          off_attr_want:       { type: "array", items: { type: "string", maxLength: 30 }, maxItems: 8 },
+          off_attr_avoid:      { type: "array", items: { type: "string", maxLength: 30 }, maxItems: 8 },
           upc:             { type: ["string", "null"],  maxLength: 22 },
           cooking_method:  { type: ["string", "null"],  maxLength: 24 },
           confidence:      { type: "number",  minimum: 0, maximum: 1 },
@@ -92,7 +94,7 @@ export const GPT_NUTRITION_SCHEMA = {
         // strict:true requires every property to be listed in required.
         // Optionality is handled through nullable fields.
         required: [
-          "name","portion","unit","brand","brand_normalized","clean_name","required_tokens","off_primary_tokens","off_alt_tokens","off_neg_tokens","upc","cooking_method","confidence","occluded","locale","item_role","canonical_category","food_form"
+          "name","portion","unit","brand","brand_normalized","clean_name","required_tokens","off_primary_tokens","off_alt_tokens","off_neg_tokens","off_attr_want","off_attr_avoid","upc","cooking_method","confidence","occluded","locale","item_role","canonical_category","food_form"
         ]
       }
     },

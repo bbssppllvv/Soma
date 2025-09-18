@@ -1,0 +1,541 @@
+{
+  "timestamp": "2025-09-18T20:51:01.657Z",
+  "summary": {
+    "totalTests": 9,
+    "salWins": 0,
+    "cgiWins": 5,
+    "ties": 0,
+    "noResults": 4,
+    "avgResponseTime": {
+      "sal": 1409,
+      "cgi": 1613
+    },
+    "successRate": {
+      "sal": "100.0",
+      "cgi": "100.0"
+    }
+  },
+  "detailedResults": [
+    {
+      "product": "Central Lechera Asturiana Nata Montada",
+      "query": "Central Lechera Asturiana nata montada",
+      "expectedBarcode": "8410297121104",
+      "description": "clásica, обычные сливки",
+      "sal": {
+        "success": true,
+        "responseTime": 4406,
+        "totalResults": 4031449,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "6111035000430",
+            "name": "Sidi Ali",
+            "brands": "Sidi Ali"
+          },
+          {
+            "code": "6111242100992",
+            "name": "Perly",
+            "brands": "Jaouda"
+          },
+          {
+            "code": "6111035002175",
+            "name": "Sidi Ali",
+            "brands": "sidi ali"
+          }
+        ],
+        "error": null
+      },
+      "cgi": {
+        "success": true,
+        "responseTime": 3636,
+        "totalResults": 6,
+        "targetPosition": 1,
+        "topResults": [
+          {
+            "code": "8410297121104",
+            "name": "Nata Montada Azucarada en aerosol Asturiana",
+            "brands": "Central Lechera Asturiana"
+          },
+          {
+            "code": "8410297121128",
+            "name": "Nata montada ligera spray",
+            "brands": "central lechera asturiana"
+          },
+          {
+            "code": "8410297121234",
+            "name": "Nata montada azucarada sin lactosa spray",
+            "brands": "Central Lechera Asturiana"
+          }
+        ],
+        "error": null
+      },
+      "winner": "CGI",
+      "notes": [
+        "Только CGI нашёл продукт на позиции 1",
+        "CGI быстрее на 770мс"
+      ]
+    },
+    {
+      "product": "Central Lechera Asturiana Nata ligera",
+      "query": "Central Lechera Asturiana nata ligera",
+      "expectedBarcode": "8410297120176",
+      "description": "лёгкие сливки / líquida para cocinar",
+      "sal": {
+        "success": true,
+        "responseTime": 1022,
+        "totalResults": 4031449,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "6111035000430",
+            "name": "Sidi Ali",
+            "brands": "Sidi Ali"
+          },
+          {
+            "code": "6111242100992",
+            "name": "Perly",
+            "brands": "Jaouda"
+          },
+          {
+            "code": "6111035002175",
+            "name": "Sidi Ali",
+            "brands": "sidi ali"
+          }
+        ],
+        "error": null
+      },
+      "cgi": {
+        "success": true,
+        "responseTime": 827,
+        "totalResults": 2,
+        "targetPosition": 2,
+        "topResults": [
+          {
+            "code": "8410297121128",
+            "name": "Nata montada ligera spray",
+            "brands": "central lechera asturiana"
+          },
+          {
+            "code": "8410297120176",
+            "name": "Nata ligera líquida para cocinar",
+            "brands": "Central lechera asturiana"
+          }
+        ],
+        "error": null
+      },
+      "winner": "CGI",
+      "notes": [
+        "Только CGI нашёл продукт на позиции 2",
+        "CGI быстрее на 195мс"
+      ]
+    },
+    {
+      "product": "Central Lechera Asturiana Nata montada sin lactosa",
+      "query": "Central Lechera Asturiana nata montada sin lactosa",
+      "expectedBarcode": "8410297121234",
+      "description": "безлактозные сливки",
+      "sal": {
+        "success": true,
+        "responseTime": 1156,
+        "totalResults": 4031449,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "6111035000430",
+            "name": "Sidi Ali",
+            "brands": "Sidi Ali"
+          },
+          {
+            "code": "6111242100992",
+            "name": "Perly",
+            "brands": "Jaouda"
+          },
+          {
+            "code": "6111035002175",
+            "name": "Sidi Ali",
+            "brands": "sidi ali"
+          }
+        ],
+        "error": null
+      },
+      "cgi": {
+        "success": true,
+        "responseTime": 898,
+        "totalResults": 2,
+        "targetPosition": 1,
+        "topResults": [
+          {
+            "code": "8410297121234",
+            "name": "Nata montada azucarada sin lactosa spray",
+            "brands": "Central Lechera Asturiana"
+          },
+          {
+            "code": "04587727",
+            "name": "Nata Montada azucarada sin lactosa",
+            "brands": "Central Lechera Asturiana"
+          }
+        ],
+        "error": null
+      },
+      "winner": "CGI",
+      "notes": [
+        "Только CGI нашёл продукт на позиции 1",
+        "CGI быстрее на 258мс"
+      ]
+    },
+    {
+      "product": "Coca-Cola Zero Sugar (Asian)",
+      "query": "Coca-Cola Zero Sugar",
+      "expectedBarcode": "8851959132074",
+      "description": "азиатский код, встречался в тестах",
+      "sal": {
+        "success": true,
+        "responseTime": 867,
+        "totalResults": 4031449,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "6111035000430",
+            "name": "Sidi Ali",
+            "brands": "Sidi Ali"
+          },
+          {
+            "code": "6111242100992",
+            "name": "Perly",
+            "brands": "Jaouda"
+          },
+          {
+            "code": "6111035002175",
+            "name": "Sidi Ali",
+            "brands": "sidi ali"
+          }
+        ],
+        "error": null
+      },
+      "cgi": {
+        "success": true,
+        "responseTime": 1229,
+        "totalResults": 151,
+        "targetPosition": 32,
+        "topResults": [
+          {
+            "code": "5449000131836",
+            "name": "Zero Sugar",
+            "brands": "Coca-Cola"
+          },
+          {
+            "code": "5449000131843",
+            "name": "Coca-Cola Zero",
+            "brands": "Coke"
+          },
+          {
+            "code": "5000112611878",
+            "name": "PET 1.75L COCA COLA® ZÈRO",
+            "brands": "Coca-Cola®"
+          }
+        ],
+        "error": null
+      },
+      "winner": "CGI",
+      "notes": [
+        "Только CGI нашёл продукт на позиции 32",
+        "SAL быстрее на 362мс"
+      ]
+    },
+    {
+      "product": "Coca-Cola Zero (European)",
+      "query": "Coca-Cola Zero",
+      "expectedBarcode": "5000112658637",
+      "description": "европейский код, Нидерланды, 250 мл",
+      "sal": {
+        "success": true,
+        "responseTime": 864,
+        "totalResults": 4031449,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "6111035000430",
+            "name": "Sidi Ali",
+            "brands": "Sidi Ali"
+          },
+          {
+            "code": "6111242100992",
+            "name": "Perly",
+            "brands": "Jaouda"
+          },
+          {
+            "code": "6111035002175",
+            "name": "Sidi Ali",
+            "brands": "sidi ali"
+          }
+        ],
+        "error": null
+      },
+      "cgi": {
+        "success": true,
+        "responseTime": 1735,
+        "totalResults": 572,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "5449000214799",
+            "name": "Coke Zero",
+            "brands": "Coca-Cola"
+          },
+          {
+            "code": "5449000131805",
+            "name": "Coca-Cola Zero",
+            "brands": "Coca-Cola"
+          },
+          {
+            "code": "5449000131836",
+            "name": "Zero Sugar",
+            "brands": "Coca-Cola"
+          }
+        ],
+        "error": null
+      },
+      "winner": "NONE",
+      "notes": [
+        "Ни один API не нашёл целевой продукт",
+        "SAL быстрее на 871мс"
+      ]
+    },
+    {
+      "product": "Pepsi Max Cherry",
+      "query": "Pepsi Max Cherry",
+      "expectedBarcode": "5352201084422",
+      "description": "вишнёвая Pepsi Max",
+      "sal": {
+        "success": true,
+        "responseTime": 770,
+        "totalResults": 4031449,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "6111035000430",
+            "name": "Sidi Ali",
+            "brands": "Sidi Ali"
+          },
+          {
+            "code": "6111242100992",
+            "name": "Perly",
+            "brands": "Jaouda"
+          },
+          {
+            "code": "6111035002175",
+            "name": "Sidi Ali",
+            "brands": "sidi ali"
+          }
+        ],
+        "error": null
+      },
+      "cgi": {
+        "success": true,
+        "responseTime": 1402,
+        "totalResults": 44,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "4062139001729",
+            "name": "Cola - Max Cherry Zero",
+            "brands": "Pepsi, PepsiCo"
+          },
+          {
+            "code": "4060800159700",
+            "name": "Pepsi Max Cherry",
+            "brands": "Pepsico"
+          },
+          {
+            "code": "4060800303356",
+            "name": "Pepsi MAX CHERRY",
+            "brands": "Pepsi"
+          }
+        ],
+        "error": null
+      },
+      "winner": "NONE",
+      "notes": [
+        "Ни один API не нашёл целевой продукт",
+        "SAL быстрее на 632мс"
+      ]
+    },
+    {
+      "product": "Ben & Jerry's Chocolate Fudge Brownie",
+      "query": "Ben Jerry Chocolate Fudge Brownie",
+      "expectedBarcode": "0076840303236",
+      "description": "dairy ice cream",
+      "sal": {
+        "success": true,
+        "responseTime": 1693,
+        "totalResults": 4031449,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "6111035000430",
+            "name": "Sidi Ali",
+            "brands": "Sidi Ali"
+          },
+          {
+            "code": "6111242100992",
+            "name": "Perly",
+            "brands": "Jaouda"
+          },
+          {
+            "code": "6111035002175",
+            "name": "Sidi Ali",
+            "brands": "sidi ali"
+          }
+        ],
+        "error": null
+      },
+      "cgi": {
+        "success": true,
+        "responseTime": 1304,
+        "totalResults": 40,
+        "targetPosition": 26,
+        "topResults": [
+          {
+            "code": "8711327370708",
+            "name": "Chocolate Fudge Brownie",
+            "brands": "Ben & Jerry's, Unilever"
+          },
+          {
+            "code": "8714100240038",
+            "name": "Chocolate Fudge Brownie Non-Dairy Ice Cream",
+            "brands": "Ben & Jerry's"
+          },
+          {
+            "code": "8711200562718",
+            "name": "Chocolate Fudge Brownie",
+            "brands": "Ben And Jerrys"
+          }
+        ],
+        "error": null
+      },
+      "winner": "CGI",
+      "notes": [
+        "Только CGI нашёл продукт на позиции 26",
+        "CGI быстрее на 389мс"
+      ]
+    },
+    {
+      "product": "Nutella",
+      "query": "Nutella hazelnut spread",
+      "expectedBarcode": "3017620422003",
+      "description": "classic spread",
+      "sal": {
+        "success": true,
+        "responseTime": 806,
+        "totalResults": 4031450,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "6111035000430",
+            "name": "Sidi Ali",
+            "brands": "Sidi Ali"
+          },
+          {
+            "code": "6111242100992",
+            "name": "Perly",
+            "brands": "Jaouda"
+          },
+          {
+            "code": "6111035002175",
+            "name": "Sidi Ali",
+            "brands": "sidi ali"
+          }
+        ],
+        "error": null
+      },
+      "cgi": {
+        "success": true,
+        "responseTime": 1787,
+        "totalResults": 87,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "59032823",
+            "name": "nutella",
+            "brands": "Ferrero,Nutella"
+          },
+          {
+            "code": "4008400401621",
+            "name": "Nutella",
+            "brands": "Ferrero"
+          },
+          {
+            "code": "8000500179864",
+            "name": "Nutella",
+            "brands": "Ferrero,Nutella"
+          }
+        ],
+        "error": null
+      },
+      "winner": "NONE",
+      "notes": [
+        "Ни один API не нашёл целевой продукт",
+        "SAL быстрее на 981мс"
+      ]
+    },
+    {
+      "product": "H-E-B Red Kidney Beans",
+      "query": "red kidney beans water",
+      "expectedBarcode": "0644216479092",
+      "description": "fallback для Amazon brand",
+      "sal": {
+        "success": true,
+        "responseTime": 1096,
+        "totalResults": 4031450,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "6111035000430",
+            "name": "Sidi Ali",
+            "brands": "Sidi Ali"
+          },
+          {
+            "code": "6111242100992",
+            "name": "Perly",
+            "brands": "Jaouda"
+          },
+          {
+            "code": "6111035002175",
+            "name": "Sidi Ali",
+            "brands": "sidi ali"
+          }
+        ],
+        "error": null
+      },
+      "cgi": {
+        "success": true,
+        "responseTime": 1703,
+        "totalResults": 28,
+        "targetPosition": -1,
+        "topResults": [
+          {
+            "code": "01162615",
+            "name": "Red Kidney Beans in water",
+            "brands": "Sainsbury's"
+          },
+          {
+            "code": "5018374442215",
+            "name": "Red Kidney Beans In Water",
+            "brands": "Tesco"
+          },
+          {
+            "code": "5057753223847",
+            "name": "Red Kidney Beans in water",
+            "brands": "The growers harvest"
+          }
+        ],
+        "error": null
+      },
+      "winner": "NONE",
+      "notes": [
+        "Ни один API не нашёл целевой продукт",
+        "SAL быстрее на 607мс"
+      ]
+    }
+  ]
+}

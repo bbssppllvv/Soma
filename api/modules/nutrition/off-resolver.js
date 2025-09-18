@@ -34,11 +34,17 @@ function shouldContinueSearch(aggregated, page, maxPages, attempt) {
   
   if (aggregated.length === 0) return true;
   
-  // Если есть бренд-фильтр, продолжаем поиск дольше
-  if (attempt.brand && aggregated.length < 8) return true;
+  // Для brand+variant запросов всегда ищем глубже
+  if (attempt.brand && page < 3) return true;
   
-  // Проверяем качество топ-кандидатов
-  const topCandidates = aggregated.slice(0, 5);
+  // Если есть бренд-фильтр, продолжаем поиск дольше
+  if (attempt.brand && aggregated.length < 20) return true;
+  
+  // Для первых 2 страниц всегда продолжаем
+  if (page <= 2) return true;
+  
+  // Проверяем качество топ-кандидатов только после 3 страниц
+  const topCandidates = aggregated.slice(0, 10);
   const hasGoodMatches = topCandidates.some(prod => {
     const corpus = buildProductCorpus(prod);
     // Простая проверка на наличие ключевых токенов
@@ -77,10 +83,13 @@ function buildSearchTerm(item) {
   const direct = typeof item?.off_query === 'string' ? item.off_query.trim() : '';
   if (direct) return direct;
   
-  // Build descriptive query: brand + product type + variants
+  // Build descriptive query: product name first, then variants
   const parts = [];
-  if (item?.brand) parts.push(item.brand);
+  
+  // Приоритет: название продукта, а не бренд
   if (item?.clean_name) parts.push(item.clean_name);
+  else if (item?.name) parts.push(item.name);
+  
   if (Array.isArray(item?.required_tokens) && item.required_tokens.length > 0) {
     parts.push(item.required_tokens.join(' '));
   }
