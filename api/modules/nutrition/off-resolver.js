@@ -1,650 +1,185 @@
-import { getByBarcode, searchByNameV1, canonicalizeQuery, normalizeBrandForSearch } from './off-client.js';
+import { getByBarcode, searchByNameV1, canonicalizeQuery } from './off-client.js';
 import { mapOFFProductToPer100g } from './off-map.js';
 import { getCachedOffProduct, upsertOffProduct } from './off-supabase-cache.js';
 import { isVariantToken } from './variant-rules.js';
+import { BRAND_ACCEPT_SCORE, CATEGORY_POSITIVE_HINTS, OFF_BUDGET_MS, REQUIRE_BRAND } from './off/constants.js';
+import { collectBrandSearchVariants, buildBrandContext, computeBrandScore } from './off/brand.js';
+import { deriveCategoryFilters } from './off/categories.js';
+import { hasUsefulNutriments } from './off/nutrients.js';
+import { scoreProduct } from './off/scoring.js';
+import { limitTokens, normalizeForMatch } from './off/text.js';
 
-const REQUIRE_BRAND = String(process.env.OFF_REQUIRE_BRAND || 'false').toLowerCase() === 'true';
-const OFF_BUDGET_MS = Number(process.env.OFF_GLOBAL_BUDGET_MS || 3000);
-
-const BRAND_ACCEPT_SCORE = 100; // minimum brand score to consider a match reliable (final reduction for M&M's type brands)
-const BRAND_MISS_PENALTY = 100; // penalty applied when brand context exists but no match (reduced for production)
-
-const SWEET_SENSITIVE_CATEGORIES = new Set(['snack-sweet', 'cookie-biscuit', 'dessert']);
-const SWEET_CATEGORY_TAGS = new Set([
-  'en:cookies',
-  'en:biscuits',
-  'en:desserts',
-  'en:snacks-sweet',
-  'en:sweet-snacks',
-  'en:candies',
-  'en:chocolate-products',
-  'en:chocolate-biscuits',
-  'en:chocolate-covered-biscuits'
-]);
-const SWEET_NAME_KEYWORDS = ['cookie', 'biscuit', 'dessert', 'snack', 'brownie', 'cake', 'candy', 'bar', 'chocolate', 'wafer'];
-
-const FLAVOR_KEYWORDS = [
-  'maple',
-  'brown sugar',
-  'honey',
-  'vanilla',
-  'chocolate',
-  'strawberry',
-  'raspberry',
-  'cinnamon',
-  'protein',
-  'flavor',
-  'flavoured',
-  'flavored',
-  'sweetened',
-  'caramel',
-  'butter',
-  'apple'
-];
-
-const PLAIN_ELIGIBLE_CATEGORIES = new Set([
-  'grain',
-  'porridge',
-  'rice',
-  'pasta',
-  'bread',
-  'breakfast-cereal',
-  'legume',
-  'vegetable',
-  'fruit'
-]);
-
-const CATEGORY_POSITIVE_HINTS = {
-  porridge: {
-    tags: ['en:porridges', 'en:oat-flakes', 'en:breakfast-cereals'],
-    keywords: ['porridge', 'oatmeal', 'hot cereal']
-  },
-  'breakfast-cereal': {
-    tags: ['en:breakfast-cereals', 'en:cereals'],
-    keywords: ['cereal', 'flakes']
-  },
-  grain: {
-    tags: ['en:grains', 'en:cereal-grains'],
-    keywords: ['grain']
-  },
-  rice: {
-    tags: ['en:rices'],
-    keywords: ['rice']
-  },
-  dairy: {
-    tags: ['en:milks', 'en:cheeses', 'en:butters', 'en:cream-cheeses'],
-    keywords: ['milk', 'leche', 'queso', 'cheese', 'mantequilla', 'butter', 'philadelphia', 'cream cheese']
-  }
-};
-
-const FOOD_FORM_HINTS = {
-  'hot-cereal': {
-    tags: ['en:porridges', 'en:breakfast-cereals'],
-    keywords: ['porridge', 'hot cereal', 'oatmeal']
-  },
-  flakes: {
-    tags: ['en:oat-flakes', 'en:breakfast-cereals'],
-    keywords: ['flakes']
-  },
-  cookie: {
-    tags: ['en:cookies', 'en:biscuits'],
-    keywords: ['cookie', 'biscuit']
-  },
-  bar: {
-    tags: ['en:energy-bars', 'en:snack-bars'],
-    keywords: ['bar']
-  },
-  salad: {
-    tags: ['en:salads'],
-    keywords: ['salad']
-  },
-  drink: {
-    tags: ['en:beverages', 'en:drinks'],
-    keywords: ['drink', 'beverage']
-  }
-};
-
-function normalizeBrandVariant(value) {
-  if (!value) return null;
-  const lower = value.toString().toLowerCase();
-  const normalized = lower
-    .normalize('NFKD')
-    .replace(/\p{M}/gu, '')
-    .replace(/["'’‘`´]/g, ' ')
-    .replace(/[^a-z0-9\s-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .replace(/-+/g, '-')
-    .trim();
-
-  if (!normalized) return null;
-
-  const tokens = normalized.split(/[\s-]+/).filter(Boolean);
-  if (tokens.length > 1 && tokens.every(token => token.length === 1)) {
-    return tokens.join('');
-  }
-
-  return normalized;
+function buildVariantWhitelistTokens(item) {
+  if (!Array.isArray(item?.required_tokens)) return [];
+  const normalized = item.required_tokens
+    .filter(token => isVariantToken(token))
+    .map(token => canonicalizeQuery(token))
+    .filter(Boolean);
+  return [...new Set(normalized)];
 }
 
-function expandBrandCandidate(value) {
-  if (!value) return [];
-  const str = value.toString().trim();
-  if (!str) return [];
-  const lower = str.toLowerCase();
-  const normalized = lower.normalize('NFKD').replace(/\p{M}/gu, '');
-  const variants = new Set([
-    lower,
-    normalized,
-    normalizeBrandForSearch(lower)
-  ]);
+function buildNameContext(cleanName, brandName, variantWhitelistTokens) {
+  const brandTokens = brandName
+    ? new Set(brandName.replace(/[-_]/g, ' ').split(/\s+/).filter(Boolean))
+    : null;
+  const cleanTokens = cleanName ? cleanName.split(' ') : [];
+  let nameWithoutBrand = cleanTokens.filter(token => !brandTokens || !brandTokens.has(token)).join(' ');
+  if (!nameWithoutBrand && cleanName) {
+    nameWithoutBrand = cleanName;
+  }
 
-  variants.add(normalized.replace(/&/g, ' '));
-  variants.add(normalized.replace(/[+@]/g, ' '));
-  variants.add(normalized.replace(/_/g, ' '));
-  variants.add(normalized.replace(/[^a-z0-9\s-]/g, ' '));
-  variants.add(normalized.replace(/[^a-z0-9]+/g, '-'));
-
-  return [...variants].filter(Boolean);
-}
-
-function brandVariantScore(value) {
-  if (!value) return 0;
-  const tokens = value.split(/[\s-]+/).filter(Boolean);
-  if (tokens.length === 0) return 0;
-  const longTokens = tokens.filter(token => token.length > 1).length;
-  const alnumLength = value.replace(/[^a-z0-9]/g, '').length;
-  let score = longTokens * 100 + Math.min(alnumLength, 40);
-  if (tokens.length === 1) score += 15;
-  if (value.includes(' ')) score += 5;
-  if (value.includes('-')) score += 5;
-  if (longTokens === 0 && tokens.length > 1) score -= 60;
-  return score;
-}
-
-function collectBrandSearchVariants(item) {
-  // SIMPLIFIED: Only 2 main variants to reduce noise (per developer feedback)
-  const variants = [];
-  
-  // Variant 1: Normalized for search (preserves spaces)
-  const brand = item?.brand_normalized || item?.brand;
-  if (brand) {
-    const normalized = normalizeBrandForSearch(brand);
-    if (normalized) {
-      variants.push(normalized);
+  const variantWordSet = new Set();
+  for (const token of variantWhitelistTokens) {
+    const parts = canonicalizeQuery(token).split(' ').filter(Boolean);
+    for (const part of parts) {
+      variantWordSet.add(part);
     }
   }
-  
-  // Variant 2: Slug for v2 API (hyphens instead of spaces)  
-  if (brand) {
-    const slug = brand
-      .toLowerCase()
-      .normalize('NFKD')
-      .replace(/\p{M}/gu, '')
-      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-      .replace(/\s+/g, '-')
-      .replace(/^-+|-+$/g, '');
-    
-    if (slug && slug !== variants[0]) {
-      variants.push(slug);
-    }
+
+  const nameTokens = new Set(
+    cleanTokens
+      .filter(Boolean)
+      .filter(token => !brandTokens || !brandTokens.has(token))
+      .filter(token => !variantWordSet.has(token))
+  );
+
+  if (nameTokens.size === 0) {
+    cleanTokens.filter(Boolean).forEach(token => nameTokens.add(token));
   }
-  
-  // UNIVERSAL: Collapsed variant for brands with special characters
-  // Many brands need collapsed forms for API matching (M&M's, Ben&Jerry's, etc.)
-  if (brand) {
-    const collapsed = brand.toLowerCase()
-      .replace(/[^a-z0-9]/g, ''); // Remove all special chars universally
-    if (collapsed && collapsed !== variants[0] && !variants.includes(collapsed)) {
-      variants.push(collapsed);
-    }
-  }
-  
-  // Fallback: if no variants, use original brand
-  if (variants.length === 0 && item?.brand) {
-    variants.push(item.brand.toLowerCase());
-  }
-  
-  return variants.slice(0, 2); // Maximum 2 variants to reduce noise
-}
 
-function limitTokens(value = '', maxTokens = 6) {
-  return value
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, maxTokens)
-    .join(' ')
-    .trim();
-}
+  const limitedProductTerm = limitTokens(nameWithoutBrand);
+  const limitedCleanTerm = limitTokens(cleanName);
 
-function normalizeText(value) {
-  return (value || '')
-    .toString()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim();
-}
-
-function normalizeForMatch(value) {
-  return normalizeText(value).replace(/[^a-z0-9]+/g, ' ').trim();
-}
-
-function stripLangPrefix(value) {
-  if (typeof value !== 'string') return value;
-  return value.replace(/^[a-z]{2,3}:/i, '');
-}
-
-function escapeRegex(value) {
-  return value.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
-}
-
-function buildPhraseRegex(phrase) {
-  const normalized = normalizeForMatch(phrase);
-  if (!normalized) return null;
-  const parts = normalized.split(/\s+/).filter(Boolean).map(escapeRegex);
-  if (parts.length === 0) return null;
-  return new RegExp(`\\b${parts.join('\\s+')}\\b`, 'i');
-}
-
-function buildBrandContext(item) {
-  const raw = item?.brand_normalized || item?.brand;
-  const normalized = normalizeForMatch(raw);
-  if (!normalized) return null;
-  const tokens = normalized.split(/\s+/).filter(token => token.length > 2);
   return {
-    full: normalized,
-    collapsed: normalized.replace(/\s+/g, ''),
-    tokens: new Set(tokens)
+    brandTokens,
+    nameTokens,
+    nameWithoutBrand,
+    limitedProductTerm,
+    limitedCleanTerm
   };
 }
 
-function deriveCategoryFilters(item, variantTokens = []) {
-  let primary = null;
-  const secondary = new Set();
-  const exclude = new Set();
-  const canonical = item?.canonical_category || 'unknown';
-  const combinedText = normalizeText([
-    item?.brand,
-    item?.brand_normalized,
-    item?.clean_name,
-    item?.name
-  ].filter(Boolean).join(' '));
+function buildSearchStrategies({ brandVariants, limitedProductTerm, limitedCleanTerm, brandName, variantWhitelistTokens }) {
+  const strategies = [];
+  const seen = new Set();
 
-  if (canonical === 'dairy') {
-    exclude.add('en:plant-based-milk-alternatives');
+  const pushStrategy = (termValue, brandValue, strategy) => {
+    if (!termValue) return;
+    const limitedTerm = limitTokens(termValue);
+    if (!limitedTerm) return;
+    const normalizedBrand = brandValue ? limitTokens(brandValue) : null;
+    const key = `${limitedTerm}::${normalizedBrand || ''}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    strategies.push({ term: limitedTerm, brand: normalizedBrand, strategy });
+  };
 
-    const isButter = /\bmantequilla\b|\bbutter\b/.test(combinedText);
-    const isCheese = /\bqueso\b|\bcheese\b|\bphiladelphia\b|cream\s*cheese/.test(combinedText);
-    const milkSignals = /\bleche\b|\bmilk\b|\blacteo\b/.test(combinedText);
+  if (brandVariants.length > 0 && limitedProductTerm) {
+    brandVariants.slice(0, 3).forEach((variant, idx) => {
+      pushStrategy(limitedProductTerm, variant, idx === 0 ? 'brand_primary' : `brand_alt_${idx}`);
+    });
+  }
 
-    const variantSignal = variantTokens.some(token => {
-      const normalized = normalizeText(token);
-      return normalized.includes('semidesnat') || normalized.includes('semi') || normalized.includes('desnatada') || normalized.includes('entera') || normalized.includes('light');
+  if (variantWhitelistTokens.length > 0 && brandVariants.length > 0) {
+    const variantPhrase = variantWhitelistTokens.join(' ');
+    brandVariants.slice(0, 2).forEach((variant, idx) => {
+      const combined = `${variant} ${variantPhrase}`.trim();
+      pushStrategy(combined, variant, idx === 0 ? 'brand_variant_tokens' : `brand_variant_tokens_${idx}`);
+    });
+  }
+
+  if (brandName) {
+    pushStrategy(brandName, brandName, 'brand_only');
+  }
+
+  if (limitedCleanTerm) {
+    pushStrategy(limitedCleanTerm, null, 'clean_name');
+  }
+
+  if (brandName && limitedCleanTerm) {
+    pushStrategy(`${brandName} ${limitedCleanTerm}`, brandName, 'brand_plus_clean');
+  }
+
+  if (!strategies.length && limitedProductTerm) {
+    pushStrategy(limitedProductTerm, null, 'product_only');
+  }
+
+  return strategies.slice(0, 4);
+}
+
+async function fetchProductBatches(strategies, {
+  signal,
+  categoryTags,
+  negativeCategoryTags,
+  locale,
+  variantTokens,
+  brandContext,
+  startedAt
+}) {
+  const responseBatches = [];
+
+  for (const { term, brand, strategy } of strategies) {
+    if (Date.now() - startedAt > OFF_BUDGET_MS) {
+      return { responseBatches, timedOut: true };
+    }
+
+    const batch = await searchByNameV1(term, {
+      signal,
+      categoryTags,
+      negativeCategoryTags,
+      brand,
+      maxPages: 1,
+      locale,
+      variantTokens
     });
 
-    if (isButter) {
-      primary = 'en:butters';
-    }
+    if (Array.isArray(batch?.products) && batch.products.length > 0) {
+      console.log(`[OFF] Search strategy '${strategy}' found ${batch.products.length} products`);
+      responseBatches.push({ strategy, products: batch.products });
 
-    if (isCheese) {
-      primary = primary || 'en:cheeses';
-      secondary.add('en:cream-cheeses');
-    }
+      if (brandContext) {
+        const brandScores = batch.products.map(product => {
+          const score = computeBrandScore(brandContext, product);
+          return { name: product.product_name, brands: product.brands, score: score.score };
+        });
 
-    if (!primary && (milkSignals || variantSignal || (!isButter && !isCheese))) {
-      primary = 'en:milks';
-    }
-  }
+        const hasStrongBrand = brandScores.some(s => s.score >= BRAND_ACCEPT_SCORE);
+        const maxScore = Math.max(...brandScores.map(s => s.score));
 
-  if (!primary) {
-    const hint = CATEGORY_POSITIVE_HINTS[canonical];
-    if (hint?.tags?.length) {
-      primary = hint.tags[0];
-      hint.tags.slice(1).forEach(tag => secondary.add(tag));
-    }
-  }
+        console.log(`[OFF] Brand scores for '${strategy}': max=${maxScore}, threshold=${BRAND_ACCEPT_SCORE}`);
+        console.log(`[OFF] Top brand scores:`, brandScores.slice(0, 3));
 
-  return {
-    primary: primary || null,
-    secondary: [...secondary],
-    exclude: [...exclude]
-  };
-}
+        if (hasStrongBrand) {
+          console.log(`[OFF] Strategy '${strategy}' produced a strong brand match, stopping search.`);
+          break;
+        }
 
-function extractProductBrandData(product) {
-  const values = new Set();
-  const words = new Set();
-
-  const push = (value) => {
-    const normalized = normalizeForMatch(value);
-    if (!normalized) return;
-    values.add(normalized);
-    const collapsed = normalized.replace(/\s+/g, '');
-    if (collapsed) values.add(collapsed);
-    normalized.split(/\s+/).filter(token => token.length > 2).forEach(token => words.add(token));
-  };
-
-  if (typeof product?.brands === 'string') {
-    product.brands.split(',').forEach(part => push(part));
-  }
-  if (Array.isArray(product?.brands_tags)) {
-    product.brands_tags.forEach(tag => push(stripLangPrefix(tag)));
-  }
-
-  return { values, words };
-}
-
-function computeBrandScore(brandContext, product) {
-  if (!brandContext) {
-    return { score: 0, exact: false, partialHits: 0 };
-  }
-
-  const brandData = extractProductBrandData(product);
-  let score = 0;
-  let exact = false;
-
-  if (brandData.values.has(brandContext.full) || brandData.values.has(brandContext.collapsed)) {
-    score += 500; // REDUCED from 1000 to balance with name/variant matching
-    exact = true;
-  }
-
-  let partialHits = 0;
-  if (!exact) {
-    for (const token of brandContext.tokens) {
-      if (token.length <= 2) continue;
-      if (brandData.words.has(token) || [...brandData.values].some(value => value.includes(token))) {
-        partialHits += 1;
+        console.log(`[OFF] Strategy '${strategy}' lacks strong brand match, continuing to next strategy.`);
+      } else {
+        break;
       }
-    }
-    if (partialHits > 0) {
-      score += Math.min(400, partialHits * 180);
-    }
-  }
-
-  if (!exact && partialHits === 0) {
-    // Only apply penalty if brand context exists and no partial matches
-    // But reduce penalty if we're searching for a specific brand
-    score -= BRAND_MISS_PENALTY;
-  } else if (!exact && partialHits > 0) {
-    // Bonus for partial brand matches (better than complete miss)
-    score += Math.min(200, partialHits * 50);
-  }
-
-  return { score, exact, partialHits };
-}
-
-function computeVariantSignals(product, variantTokens = []) {
-  if (!variantTokens?.length) {
-    return { phraseMatches: 0, tokenMatches: 0 };
-  }
-
-  const normalizedName = normalizeForMatch(product.product_name);
-  const labelTexts = (product.labels_tags || [])
-    .map(tag => normalizeForMatch(stripLangPrefix(tag)))
-    .filter(Boolean);
-  const categoryTexts = (product.categories_tags || [])
-    .map(tag => normalizeForMatch(stripLangPrefix(tag)))
-    .filter(Boolean);
-
-  const tokenMatches = new Set();
-  let phraseMatches = 0;
-
-  for (const rawToken of variantTokens) {
-    const normalizedToken = normalizeForMatch(rawToken);
-    if (!normalizedToken) continue;
-    const regex = buildPhraseRegex(normalizedToken);
-    let phraseFound = false;
-    if (regex && regex.test(normalizedName)) {
-      phraseMatches += 1;
-      phraseFound = true;
-    } else if (regex) {
-      if (labelTexts.some(text => regex.test(text)) || categoryTexts.some(text => regex.test(text))) {
-        phraseMatches += 1;
-        phraseFound = true;
-      }
-    }
-
-    if (
-      phraseFound ||
-      normalizedName.includes(normalizedToken) ||
-      labelTexts.some(text => text.includes(normalizedToken)) ||
-      categoryTexts.some(text => text.includes(normalizedToken))
-    ) {
-      tokenMatches.add(normalizedToken);
-    }
-  }
-
-  return { phraseMatches, tokenMatches: tokenMatches.size };
-}
-
-function computeCategoryPenalty(product, negativeCategoryTags = []) {
-  if (!negativeCategoryTags?.length) return 0;
-  const categories = Array.isArray(product.categories_tags) ? product.categories_tags : [];
-  if (categories.length === 0) return 0;
-
-  const normalizedCategories = categories
-    .map(tag => normalizeForMatch(stripLangPrefix(tag)))
-    .filter(Boolean);
-
-  for (const tag of negativeCategoryTags) {
-    const normalized = normalizeForMatch(stripLangPrefix(tag));
-    if (!normalized) continue;
-    if (normalizedCategories.some(cat => cat === normalized || cat.includes(normalized))) {
-      return -200;
-    }
-  }
-
-  if (normalizedCategories.some(cat => cat.includes('plant based'))) {
-    return -200;
-  }
-
-  return 0;
-}
-
-function computeNameSimilarityScore(product, queryTokens = new Set()) {
-  if (!queryTokens || queryTokens.size === 0) return 0;
-  const productTokens = new Set(normalizeForMatch(product.product_name).split(/\s+/).filter(Boolean));
-  if (productTokens.size === 0) return 0;
-  let shared = 0;
-  for (const token of queryTokens) {
-    if (productTokens.has(token)) shared += 1;
-  }
-  if (shared === 0) return 0;
-  const ratio = shared / Math.max(1, queryTokens.size);
-  return Math.min(60, Math.round(ratio * 60));
-}
-
-function computeCategorySpecificityScore(categories = []) {
-  let bestDepth = 0;
-  for (const raw of categories) {
-    const value = stripLangPrefix(raw || '').toLowerCase();
-    if (!value) continue;
-    const depth = value.split('-').length;
-    if (depth > bestDepth) bestDepth = depth;
-  }
-  if (bestDepth <= 1) return 0;
-  return Math.min(20, (bestDepth - 1) * 5);
-}
-
-function parseQuantityToBase(raw) {
-  if (!raw) return null;
-  const value = String(raw).toLowerCase();
-  const match = value.match(/(\d+(?:[\.,]\d+)?)\s*(kg|g|l|ml)\b/);
-  if (!match) return null;
-  const amount = parseFloat(match[1].replace(',', '.'));
-  if (!Number.isFinite(amount)) return null;
-  const unit = match[2];
-  if (unit === 'kg') {
-    return { value: amount * 1000, unit: 'g' };
-  }
-  if (unit === 'g') {
-    return { value: amount, unit: 'g' };
-  }
-  if (unit === 'l') {
-    return { value: amount * 1000, unit: 'ml' };
-  }
-  if (unit === 'ml') {
-    return { value: amount, unit: 'ml' };
-  }
-  return null;
-}
-
-function computeQuantityMatchScore(item, product) {
-  const parsed = parseQuantityToBase(product?.quantity);
-  if (!parsed) return 0;
-
-  const portion = Number(item?.portion);
-  const unit = (item?.unit || '').toLowerCase();
-  if (!Number.isFinite(portion)) return 0;
-
-  let targetValue = null;
-  if (unit === 'g' || unit === 'gram' || unit === 'grams') {
-    targetValue = { value: portion, unit: 'g' };
-  } else if (unit === 'ml' || unit === 'milliliter' || unit === 'milliliters') {
-    targetValue = { value: portion, unit: 'ml' };
-  }
-
-  if (!targetValue || targetValue.unit !== parsed.unit) return 0;
-
-  const diff = Math.abs(parsed.value - targetValue.value);
-  const tolerance = Math.max(20, targetValue.value * 0.15);
-  if (diff <= tolerance) return 15;
-  if (diff <= targetValue.value * 0.3) return 8;
-  return 0;
-}
-
-function computePreferenceAdjustments(item, product) {
-  const canonical = item?.canonical_category || 'unknown';
-  const categories = Array.isArray(product.categories_tags) ? product.categories_tags : [];
-  const productName = (product.product_name || '').toLowerCase();
-  const nutriments = product?.nutriments || {};
-
-  let bonus = 0;
-  let penalty = 0;
-
-  if (!SWEET_SENSITIVE_CATEGORIES.has(canonical)) {
-    const hasSweetTag = categories.some(tag => SWEET_CATEGORY_TAGS.has(tag));
-    const hasSweetKeyword = SWEET_NAME_KEYWORDS.some(word => productName.includes(word));
-    if (hasSweetTag || hasSweetKeyword) {
-      penalty += 120;
-    }
-  }
-
-  const positiveHints = CATEGORY_POSITIVE_HINTS[canonical];
-  if (positiveHints) {
-    const hasPosTag = categories.some(tag => positiveHints.tags.includes(tag));
-    const hasPosKeyword = positiveHints.keywords.some(word => productName.includes(word));
-    if (hasPosTag || hasPosKeyword) {
-      bonus += 30;
     } else {
-      penalty += 60;
+      console.log(`[OFF] Search strategy '${strategy}' found no products for term="${term}"`);
     }
   }
 
-  const plainSensitive = PLAIN_ELIGIBLE_CATEGORIES.has(canonical) && !item?.brand;
-  if (plainSensitive) {
-    if (FLAVOR_KEYWORDS.some(word => productName.includes(word))) {
-      penalty += 120;
-    }
-    const sugars = Number(nutriments['sugars_100g']);
-    if (Number.isFinite(sugars) && sugars > 5) {
-      penalty += 80;
-    }
-  }
-
-  return { bonus, penalty };
+  return { responseBatches, timedOut: false };
 }
 
-function hasUsefulNutriments(p) {
-  const n = p?.nutriments || {};
-  return n['energy-kcal_100g'] != null ||
-         n['energy_100g'] != null ||
-         n['energy-kj_100g'] != null ||
-         n['proteins_100g'] != null ||
-         n['protein_100g'] != null ||
-         n['fat_100g'] != null ||
-         n['carbohydrates_100g'] != null ||
-         n['fiber_100g'] != null ||
-         n['fibre_100g'] != null;
-}
+function dedupeProducts(responseBatches) {
+  const dedupedProducts = [];
+  const seen = new Set();
 
-function scoreProduct(item, product, context) {
-  const { brandContext, variantTokens, negativeCategoryTags, nameTokens } = context;
-  const breakdown = {};
-
-  const brandScore = computeBrandScore(brandContext, product);
-  breakdown.brand = brandScore.score;
-  let total = brandScore.score;
-
-  const variantSignals = computeVariantSignals(product, variantTokens);
-  
-  // CRITICAL FIX: Required tokens must have much higher weight
-  // to prevent brand-only matches from winning over specific products
-  const variantPhraseScore = variantSignals.phraseMatches * 200; // Increased from 80
-  const variantTokenScore = variantSignals.tokenMatches * 100;   // Increased from 20
-  
-  breakdown.variant_phrase = variantPhraseScore;
-  breakdown.variant_tokens = variantTokenScore;
-  total += variantPhraseScore + variantTokenScore;
-  
-  // CRITICAL: If required_tokens exist but NONE match, apply heavy penalty
-  if (variantTokens?.length > 0 && variantSignals.tokenMatches === 0) {
-    const requiredTokensPenalty = -500; // Heavy penalty for missing required tokens
-    breakdown.required_tokens_penalty = requiredTokensPenalty;
-    total += requiredTokensPenalty;
-    console.log(`[OFF] Required tokens penalty applied: ${requiredTokensPenalty} (missing: ${variantTokens.join(', ')})`);
+  for (const { strategy, products } of responseBatches) {
+    for (const product of products) {
+      const key = product?.code || `${normalizeForMatch(product?.product_name || '')}::${normalizeForMatch(product?.brands || '')}`;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      dedupedProducts.push({ product, strategy });
+    }
   }
 
-  const categoryPenalty = computeCategoryPenalty(product, negativeCategoryTags);
-  breakdown.category_penalty = categoryPenalty;
-  total += categoryPenalty;
-
-  const brandTagsBonus = Array.isArray(product.brands_tags) && product.brands_tags.length > 0 ? 25 : 0;
-  breakdown.brand_tags = brandTagsBonus;
-  total += brandTagsBonus;
-
-  const categorySpecificityScore = computeCategorySpecificityScore(product.categories_tags);
-  breakdown.category_specificity = categorySpecificityScore;
-  total += categorySpecificityScore;
-
-  const countryBonus = Array.isArray(product.countries_tags) && product.countries_tags.some(tag => {
-    const normalized = stripLangPrefix(tag || '').toLowerCase();
-    return normalized === 'spain' || normalized === 'espana' || normalized === 'españa';
-  }) ? 10 : 0;
-  breakdown.country = countryBonus;
-  total += countryBonus;
-
-  const nutrimentCount = Object.keys(product?.nutriments || {}).filter(key => key.endsWith('_100g')).length;
-  const nutrimentScore = Math.min(30, nutrimentCount);
-  breakdown.nutriments = nutrimentScore;
-  total += nutrimentScore;
-
-  const quantityBonus = computeQuantityMatchScore(item, product);
-  breakdown.quantity = quantityBonus;
-  total += quantityBonus;
-
-  const dataQualityBonus = typeof product.data_quality_score === 'number'
-    ? Math.max(0, Math.min(20, Math.round(product.data_quality_score)))
-    : 0;
-  breakdown.data_quality = dataQualityBonus;
-  total += dataQualityBonus;
-
-  const nameScore = computeNameSimilarityScore(product, nameTokens);
-  // IMPROVEMENT: Increase name score weight to balance with brand score
-  const enhancedNameScore = nameScore * 3; // Increased weight for name matching
-  breakdown.name = enhancedNameScore;
-  total += enhancedNameScore;
-
-  const preference = computePreferenceAdjustments(item, product);
-  const preferenceScore = preference.bonus - preference.penalty;
-  breakdown.preference = preferenceScore;
-  total += preferenceScore;
-
-  const nutritionBonus = hasUsefulNutriments(product) ? 30 : 0;
-  breakdown.nutrition = nutritionBonus;
-  total += nutritionBonus;
-
-  return { score: total, breakdown, brandExact: brandScore.exact };
+  return dedupedProducts;
 }
 
 function normalizeUPC(s){ 
@@ -732,13 +267,8 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     const brandName = brandVariants[0] || null;
     const cleanName = canonicalQuery || canonicalizeQuery(item.name || '');
     const locale = typeof item.locale === 'string' && item.locale.trim() ? item.locale.trim().toLowerCase() : 'en';
-  // UNIVERSAL: Simple token processing without hardcoded mappings
-  const variantWhitelistTokens = Array.isArray(item.required_tokens)
-    ? [...new Set(item.required_tokens
-        .filter(token => isVariantToken(token))
-        .map(token => canonicalizeQuery(token)) // Normalize for consistent matching
-        .filter(Boolean))]
-    : [];
+
+    const variantWhitelistTokens = buildVariantWhitelistTokens(item);
     const categoryFilters = deriveCategoryFilters(item, variantWhitelistTokens);
     const categoryTags = [];
     if (categoryFilters.primary) {
@@ -749,81 +279,20 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     const negativeCategoryTags = [...new Set(categoryFilters.exclude)];
     const brandContext = buildBrandContext(item);
 
-    const brandTokens = brandName
-      ? new Set(brandName.replace(/[-_]/g, ' ').split(/\s+/).filter(Boolean))
-      : null;
-    const cleanTokens = cleanName ? cleanName.split(' ') : [];
-    let nameWithoutBrand = cleanTokens.filter(token => !brandTokens || !brandTokens.has(token)).join(' ');
-    if (!nameWithoutBrand && cleanName) {
-      nameWithoutBrand = cleanName;
-    }
-
-    const variantWordSet = new Set();
-    for (const token of variantWhitelistTokens) {
-      const parts = canonicalizeQuery(token).split(' ').filter(Boolean);
-      for (const part of parts) {
-        variantWordSet.add(part);
-      }
-    }
-    const nameTokens = new Set(
-      cleanTokens
-        .filter(Boolean)
-        .filter(token => !brandTokens || !brandTokens.has(token))
-        .filter(token => !variantWordSet.has(token))
+    const { nameTokens, limitedProductTerm, limitedCleanTerm } = buildNameContext(
+      cleanName,
+      brandName,
+      variantWhitelistTokens
     );
-    if (nameTokens.size === 0) {
-      cleanTokens.filter(Boolean).forEach(token => nameTokens.add(token));
-    }
 
-    const limitedProductTerm = limitTokens(nameWithoutBrand);
-    const limitedCleanTerm = limitTokens(cleanName);
+    const finalQueries = buildSearchStrategies({
+      brandVariants,
+      limitedProductTerm,
+      limitedCleanTerm,
+      brandName,
+      variantWhitelistTokens
+    });
 
-    const searchStrategies = [];
-    const seenStrategies = new Set();
-
-    const pushStrategy = (termValue, brandValue, strategy) => {
-      if (!termValue) return;
-      const limitedTerm = limitTokens(termValue);
-      if (!limitedTerm) return;
-      const normalizedBrand = brandValue ? limitTokens(brandValue) : null;
-      const key = `${limitedTerm}::${normalizedBrand || ''}`;
-      if (seenStrategies.has(key)) return;
-      seenStrategies.add(key);
-      searchStrategies.push({ term: limitedTerm, brand: normalizedBrand, strategy });
-    };
-
-    if (brandVariants.length > 0 && limitedProductTerm) {
-      brandVariants.slice(0, 3).forEach((variant, idx) => {
-        pushStrategy(limitedProductTerm, variant, idx === 0 ? 'brand_primary' : `brand_alt_${idx}`);
-      });
-    }
-
-    if (variantWhitelistTokens.length > 0 && brandVariants.length > 0) {
-      const variantPhrase = variantWhitelistTokens.join(' ');
-      brandVariants.slice(0, 2).forEach((variant, idx) => {
-        const combined = `${variant} ${variantPhrase}`.trim();
-        pushStrategy(combined, variant, idx === 0 ? 'brand_variant_tokens' : `brand_variant_tokens_${idx}`);
-      });
-    }
-
-    if (brandName) {
-      pushStrategy(brandName, brandName, 'brand_only');
-    }
-
-    if (limitedCleanTerm) {
-      pushStrategy(limitedCleanTerm, null, 'clean_name');
-    }
-
-    if (brandName && limitedCleanTerm) {
-      pushStrategy(`${brandName} ${limitedCleanTerm}`, brandName, 'brand_plus_clean');
-    }
-
-    if (!searchStrategies.length && limitedProductTerm) {
-      pushStrategy(limitedProductTerm, null, 'product_only');
-    }
-
-    const finalQueries = searchStrategies.slice(0, 4); // Try up to 4 strategies
-    
     console.log(`[OFF] Search strategies generated:`, finalQueries.map(q => ({
       strategy: q.strategy,
       term: q.term,
@@ -835,70 +304,65 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       return { item, reason: 'empty_query', canonical: canonicalQuery };
     }
 
-    const responseBatches = [];
+    const { responseBatches, timedOut } = await fetchProductBatches(finalQueries, {
+      signal,
+      categoryTags,
+      negativeCategoryTags,
+      locale,
+      variantTokens: variantWhitelistTokens,
+      brandContext,
+      startedAt
+    });
 
-    for (const { term, brand, strategy } of finalQueries) {
-      if (Date.now() - startedAt > OFF_BUDGET_MS) {
+    if (timedOut) {
+      console.log(`[OFF] Search timed out, but attempting to use partial results if available`);
+      // Don't immediately return - try to use whatever we got
+      if (responseBatches.length === 0) {
         return { item, reason: 'timeout', canonical: canonicalQuery, error: 'budget_exceeded' };
-      }
-      const batch = await searchByNameV1(term, {
-        signal,
-        categoryTags,
-        negativeCategoryTags,
-        brand,
-        maxPages: 1,
-        locale,
-        variantTokens: variantWhitelistTokens
-      });
-      if (Array.isArray(batch?.products) && batch.products.length > 0) {
-        console.log(`[OFF] Search strategy '${strategy}' found ${batch.products.length} products`);
-        responseBatches.push({ strategy, products: batch.products });
-
-        if (brandContext) {
-          const brandScores = batch.products.map(product => {
-            const score = computeBrandScore(brandContext, product);
-            return { name: product.product_name, brands: product.brands, score: score.score };
-          });
-          
-          const hasStrongBrand = brandScores.some(s => s.score >= BRAND_ACCEPT_SCORE);
-          const maxScore = Math.max(...brandScores.map(s => s.score));
-          
-          console.log(`[OFF] Brand scores for '${strategy}': max=${maxScore}, threshold=${BRAND_ACCEPT_SCORE}`);
-          console.log(`[OFF] Top brand scores:`, brandScores.slice(0, 3));
-          
-          if (hasStrongBrand) {
-            console.log(`[OFF] Strategy '${strategy}' produced a strong brand match, stopping search.`);
-            break;
-          }
-          console.log(`[OFF] Strategy '${strategy}' lacks strong brand match, continuing to next strategy.`);
-        } else {
-          break;
-        }
-      } else {
-        console.log(`[OFF] Search strategy '${strategy}' found no products for term="${term}"`);
       }
     }
 
     if (responseBatches.length === 0) {
-      const reason = brandName ? 'off_not_found_brand' : 'no_hits';
-      return {
-        item,
-        reason,
-        canonical: canonicalQuery,
-        error: `OFF not found for brand="${brandName || 'none'}" name="${item.name}"`
-      };
-    }
-
-    const dedupedProducts = [];
-    const seen = new Set();
-    for (const { strategy, products } of responseBatches) {
-      for (const product of products) {
-        const key = product?.code || `${normalizeForMatch(product?.product_name || '')}::${normalizeForMatch(product?.brands || '')}`;
-        if (!key || seen.has(key)) continue;
-        seen.add(key);
-        dedupedProducts.push({ product, strategy });
+      console.log(`[OFF] No response batches - trying broader search without required tokens`);
+      // FALLBACK: Try one more search without variant constraints
+      if (variantWhitelistTokens.length > 0 && brandName) {
+        console.log(`[OFF] Attempting fallback search without required tokens: "${brandName}"`);
+        try {
+          const fallbackBatch = await fetchProductBatches([{
+            term: limitTokens(brandName),
+            brand: brandName,
+            strategy: 'brand_fallback'
+          }], {
+            signal,
+            categoryTags: [],
+            negativeCategoryTags: [],
+            locale,
+            variantTokens: [], // No variant requirements
+            brandContext,
+            startedAt: Date.now()
+          });
+          
+          if (fallbackBatch.responseBatches.length > 0) {
+            console.log(`[OFF] Fallback search found ${fallbackBatch.responseBatches[0]?.products?.length || 0} products`);
+            responseBatches.push(...fallbackBatch.responseBatches);
+          }
+        } catch (fallbackError) {
+          console.log(`[OFF] Fallback search also failed:`, fallbackError.message);
+        }
+      }
+      
+      if (responseBatches.length === 0) {
+        const reason = brandName ? 'off_not_found_brand' : 'no_hits';
+        return {
+          item,
+          reason,
+          canonical: canonicalQuery,
+          error: `OFF not found for brand="${brandName || 'none'}" name="${item.name}"`
+        };
       }
     }
+
+    const dedupedProducts = dedupeProducts(responseBatches);
 
     if (dedupedProducts.length === 0) {
       return { item, reason: 'no_candidates', canonical: canonicalQuery };
@@ -969,14 +433,20 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     })));
 
     const best = scoredCandidates[0];
-    const scoreThreshold = brandContext ? 200 : 80;
+    // REDUCED THRESHOLDS: More lenient acceptance criteria
+    const scoreThreshold = brandContext ? 150 : 60;
 
-    // CRITICAL: Check if required tokens are missing from best candidate
+    // IMPROVED: More lenient required tokens check with intelligent fallback
     if (variantWhitelistTokens.length > 0 && best) {
       const hasRequiredTokens = best.breakdown.variant_phrase > 0 || best.breakdown.variant_tokens > 0;
-      if (!hasRequiredTokens) {
+      const hasStrongBrand = best.breakdown.brand >= 400; // Strong brand match
+      const isReasonableScore = best.score >= 100; // Minimum acceptable score
+      
+      // Only reject if: no required tokens AND (weak brand OR very low score)
+      if (!hasRequiredTokens && (!hasStrongBrand || !isReasonableScore)) {
         console.log(`[OFF] Final Decision: REJECTED, reason=missing_required_tokens, score=${best.score?.toFixed(2)}`);
         console.log(`[OFF] Missing required tokens: ${variantWhitelistTokens.join(', ')} in "${best.product.product_name}"`);
+        console.log(`[OFF] Brand strength: ${best.breakdown.brand}, Score acceptable: ${isReasonableScore}`);
         
         // UNIVERSAL: Deterministic fallback - return top 3 candidates for user override
         const fallbackCandidates = scoredCandidates.slice(0, 3).map(candidate => ({
@@ -997,6 +467,8 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         }
         
         return { item, reason: 'missing_required_tokens', canonical: canonicalQuery, score: best?.score };
+      } else if (!hasRequiredTokens && hasStrongBrand && isReasonableScore) {
+        console.log(`[OFF] ACCEPTING despite missing required tokens: strong brand (${best.breakdown.brand}) + reasonable score (${best.score?.toFixed(2)})`);
       }
     }
 
