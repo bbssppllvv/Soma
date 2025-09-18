@@ -8,6 +8,7 @@ const DEFAULT_CONFIDENCE_FLOOR = 0.65;
 const MAX_PRODUCTS_CONSIDERED = 12;
 const MAX_SEARCH_PAGES = Number(process.env.OFF_SEARCH_MAX_PAGES || 5);
 const NAME_SIMILARITY_THRESHOLD = Number(process.env.OFF_NAME_SIM_THRESHOLD || 0.6);
+const NEGATIVE_TOKEN_PENALTY = Number(process.env.OFF_NEGATIVE_TOKEN_PENALTY || 4);
 
 function toBrandSlug(value) {
   if (!value) return '';
@@ -109,6 +110,7 @@ function collectVariantTokens(item) {
 
   addFromArray(item?.off_variant_tokens);
   addFromArray(item?.required_tokens);
+  addFromArray(item?.off_primary_tokens);
 
   const name = typeof item?.name === 'string' ? item.name : '';
   if (name) {
@@ -135,6 +137,13 @@ function collectVariantTokens(item) {
   }
 
   return [...tokens];
+}
+
+function normalizeNegativeToken(token) {
+  const normalized = normalizeValue(token || '');
+  if (!normalized) return null;
+  if (normalized.length <= 1) return null;
+  return normalized;
 }
 
 function collectFallbackPhrases(item) {
@@ -402,6 +411,14 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     }
   }
 
+  const negativeTokens = new Set();
+  if (Array.isArray(item?.off_neg_tokens)) {
+    for (const token of item.off_neg_tokens) {
+      const normalized = normalizeNegativeToken(token);
+      if (normalized) negativeTokens.add(normalized);
+    }
+  }
+
   const productNameMatches = (product) => {
     if (variantTokens.length === 0) return false;
     const multiWordTokens = variantTokens.filter(token => token.includes(' '));
@@ -455,6 +472,12 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         : Boolean(nameMatch || categoryMatch);
       const names = gatherCandidateNames(product);
       const { bestJaccard, exact, contains } = computeNameMetrics(names, targetNameNormalized, targetTokenSet);
+      const negativeMatches = negativeTokens.size > 0
+        ? names.some(name => {
+            const tokens = tokenizeNormalized(name);
+            return tokens.some(token => negativeTokens.has(token));
+          })
+        : false;
 
       let score = 0;
       if (brandMatch) score += 5;
@@ -464,6 +487,7 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       if (exact) score += 3;
       else if (contains) score += 2;
       score += bestJaccard * 3;
+      if (negativeMatches) score -= NEGATIVE_TOKEN_PENALTY;
 
       candidateInfos.push({
         product,
@@ -474,6 +498,7 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         nameSimilarity: bestJaccard,
         exactMatch: exact,
         containsTarget: contains,
+        negativeMatch: negativeMatches,
         score
       });
     }
@@ -492,7 +517,8 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       score: Number(info.score.toFixed(3)),
       brand: info.brandMatch,
       variant: info.tokenMatch,
-      name_similarity: Number(info.nameSimilarity.toFixed(3))
+      name_similarity: Number(info.nameSimilarity.toFixed(3)),
+      negative_penalty: info.negativeMatch
     }));
 
     const brandMatchCount = candidateInfos.filter(info => info.brandMatch).length;
@@ -527,7 +553,7 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     }
 
     const sortedEligible = [...variantEligible].sort((a, b) => b.score - a.score);
-    const best = sortedEligible[0];
+    const best = sortedEligible.find(info => !info.negativeMatch) || sortedEligible[0];
     const hasNutrients = hasUsefulNutriments(best.product);
     const insightReason = determineSelectionReason(best);
     const eligibleTop = sortedEligible.slice(0, 5).map(info => ({
@@ -535,7 +561,8 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       score: Number(info.score.toFixed(3)),
       brand: info.brandMatch,
       variant: info.tokenMatch,
-      name_similarity: Number(info.nameSimilarity.toFixed(3))
+      name_similarity: Number(info.nameSimilarity.toFixed(3)),
+      negative_penalty: info.negativeMatch
     }));
 
     return {
@@ -548,6 +575,7 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         nameSimilarity: best.nameSimilarity,
         exactMatch: best.exactMatch,
         containsTarget: best.containsTarget,
+        negativeMatch: best.negativeMatch,
         score: best.score,
         insightReason
       },
