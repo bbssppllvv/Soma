@@ -200,24 +200,25 @@ User needs ${Math.max(0, userContext.goals.cal_goal - userContext.todayTotals.ca
 
 BRAND DETECTION: Look for ANY brand text, logos, or names on packaging. Even if partially visible, extract the brand. For multi-word brands (Central Lechera Asturiana), include the complete brand name.
 
-FIELD SEPARATION EXAMPLES:
-- Coca-Cola Zero → name: 'Coca-Cola Zero', brand: 'Coca-Cola', clean_name: 'cola', required_tokens: ['zero']
-- M&M's Peanut Butter → name: 'M&M's Peanut Butter', brand: 'M&M's', clean_name: 'chocolate', required_tokens: ['peanut', 'butter']  
-- Central Lechera Semi → name: 'Central Lechera Asturiana Semi Desnatada', brand: 'Central Lechera Asturiana', clean_name: 'leche', required_tokens: ['semi', 'desnatada']
+FIELD SEPARATION LOGIC:
+- name: Complete product name as written on packaging (include brand + product + variants)
+- brand: Only the brand/manufacturer name (may be multi-word)
+- brand_normalized: Lowercase brand, preserve spaces and basic punctuation, remove only accents
+- clean_name: Core product type without brand or variants (milk, chocolate, cookies, etc.)
+- required_tokens: Specific modifiers/variants from packaging (flavor, type, fat content, etc.)
 
-BRAND_NORMALIZED RULES (CRITICAL - follow exactly):
-- Lowercase + preserve structure: 'Central Lechera Asturiana' → 'central lechera asturiana'
-- Keep punctuation recognizable: 'M&M's' → 'm&ms', 'Coca-Cola' → 'coca-cola', 'Ben & Jerry's' → 'ben & jerrys'
-- Remove accents only: 'Häagen-Dazs' → 'haagen-dazs', 'L'Oréal' → 'loreal'
-- Multi-word brands: preserve all words with spaces
+BRAND_NORMALIZED RULES:
+- Convert to lowercase
+- Remove accents (ñ→n, é→e) but keep letters recognizable  
+- Preserve spaces in multi-word brands
+- Keep basic punctuation (&, ', -) for brand recognition
+- Do not over-simplify - maintain searchable brand identity
 
-FIELD SEPARATION (CRITICAL):
-- name = EXACTLY what's written on package
-- clean_name = product type only (cola, chocolate, mantequilla, leche)  
-- required_tokens = variants only (zero, light, tradicional, semi, desnatada)
-- NO OVERLAP between clean_name and required_tokens
-
-QUALITY CHECK: If required_tokens contains words also in clean_name, you're doing it wrong!`
+FIELD SEPARATION PRINCIPLES:
+- Avoid duplication: each piece of information goes in exactly one field
+- clean_name = product category/type only
+- required_tokens = distinguishing characteristics/variants only
+- Preserve original language throughout all fields`
         },
         { 
           type: "input_image", 

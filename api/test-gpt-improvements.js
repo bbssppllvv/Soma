@@ -5,62 +5,62 @@
  * Симулирует ожидаемые ответы GPT с новыми правилами
  */
 
-// Симулируем ожидаемые ответы GPT с улучшенным prompt'ом
-const EXPECTED_GPT_RESPONSES = [
-  // Coca-Cola Zero case
+// Test patterns for common GPT issues (not specific products)
+const GPT_QUALITY_PATTERNS = [
+  // Pattern 1: Brand + Variant products
   {
-    case: 'Coca-Cola Zero',
-    expected: {
-      name: 'Coca-Cola Zero',
-      brand: 'Coca-Cola',
-      brand_normalized: 'coca-cola',
-      clean_name: 'cola',
-      required_tokens: ['zero'],
-      canonical_category: 'beverage',
-      confidence: 0.8
-    }
+    pattern: 'Brand with variant',
+    example_structure: {
+      name: 'Brand Name Product Variant',
+      brand: 'Brand Name',
+      brand_normalized: 'brand name',
+      clean_name: 'product',
+      required_tokens: ['variant'],
+      canonical_category: 'category'
+    },
+    common_issues: ['name/clean_name duplication', 'missing variant in name', 'brand_normalized inconsistency']
   },
   
-  // M&M's case  
+  // Pattern 2: Multi-word brands
   {
-    case: 'M&M\'s Peanut Butter',
-    expected: {
-      name: 'M&M\'s Peanut Butter',
-      brand: 'M&M\'s',
-      brand_normalized: 'm&ms', // Preserve recognizable form
-      clean_name: 'chocolate',
-      required_tokens: ['peanut', 'butter'],
-      canonical_category: 'snack-sweet',
-      confidence: 0.85
-    }
+    pattern: 'Multi-word brand',
+    example_structure: {
+      name: 'Multi Word Brand Product',
+      brand: 'Multi Word Brand',
+      brand_normalized: 'multi word brand',
+      clean_name: 'product',
+      required_tokens: [],
+      canonical_category: 'category'
+    },
+    common_issues: ['brand fragmentation', 'inconsistent spacing', 'over-normalization']
   },
   
-  // Central Lechera case
+  // Pattern 3: Special characters in brands
   {
-    case: 'Central Lechera Asturiana Semi Desnatada',
-    expected: {
-      name: 'Central Lechera Asturiana Semi Desnatada',
-      brand: 'Central Lechera Asturiana',
-      brand_normalized: 'central lechera asturiana',
-      clean_name: 'leche',
-      required_tokens: ['semi', 'desnatada'],
-      canonical_category: 'dairy',
-      confidence: 0.9
-    }
+    pattern: 'Special character brands',
+    example_structure: {
+      name: 'Brand&Co Product',
+      brand: 'Brand&Co',
+      brand_normalized: 'brand&co',
+      clean_name: 'product',
+      required_tokens: [],
+      canonical_category: 'category'
+    },
+    common_issues: ['special char removal', 'over-normalization', 'loss of brand identity']
   },
   
-  // Central Lechera Mantequilla case
+  // Pattern 4: Compound variants
   {
-    case: 'Central Lechera Asturiana Mantequilla Tradicional',
-    expected: {
-      name: 'Central Lechera Asturiana Mantequilla Tradicional',
-      brand: 'Central Lechera Asturiana',
-      brand_normalized: 'central lechera asturiana',
-      clean_name: 'mantequilla',
-      required_tokens: ['tradicional'],
-      canonical_category: 'dairy',
-      confidence: 0.9
-    }
+    pattern: 'Compound variants',
+    example_structure: {
+      name: 'Brand Product Type Variant',
+      brand: 'Brand',
+      brand_normalized: 'brand',
+      clean_name: 'product',
+      required_tokens: ['type', 'variant'],
+      canonical_category: 'category'
+    },
+    common_issues: ['variant overlap with clean_name', 'missing compound variants', 'incorrect separation']
   }
 ];
 
@@ -102,27 +102,21 @@ function validateGPTResponse(response, expected) {
 }
 
 function testGPTImprovements() {
-  console.log('🧪 GPT Prompt Improvements Test');
-  console.log('===============================\n');
+  console.log('🧪 GPT Prompt Pattern Analysis');
+  console.log('==============================\n');
   
-  console.log('Testing expected GPT responses with improved prompt rules...\n');
+  console.log('Analyzing common GPT data quality patterns...\n');
   
-  for (const testCase of EXPECTED_GPT_RESPONSES) {
-    console.log(`🔍 ${testCase.case}`);
-    console.log('   Expected GPT response:');
-    console.log(`     name: "${testCase.expected.name}"`);
-    console.log(`     brand: "${testCase.expected.brand}"`);
-    console.log(`     brand_normalized: "${testCase.expected.brand_normalized}"`);
-    console.log(`     clean_name: "${testCase.expected.clean_name}"`);
-    console.log(`     required_tokens: [${testCase.expected.required_tokens.map(t => `'${t}'`).join(', ')}]`);
+  for (const pattern of GPT_QUALITY_PATTERNS) {
+    console.log(`🔍 ${pattern.pattern}`);
+    console.log('   Structure template:');
+    console.log(`     name: "${pattern.example_structure.name}"`);
+    console.log(`     brand: "${pattern.example_structure.brand}"`);
+    console.log(`     brand_normalized: "${pattern.example_structure.brand_normalized}"`);
+    console.log(`     clean_name: "${pattern.example_structure.clean_name}"`);
+    console.log(`     required_tokens: [${pattern.example_structure.required_tokens.map(t => `'${t}'`).join(', ')}]`);
     
-    const issues = validateGPTResponse(testCase.expected, testCase.expected);
-    
-    if (issues.length === 0) {
-      console.log('   ✅ PERFECT: No issues detected');
-    } else {
-      console.log(`   🟡 ISSUES: ${issues.join(', ')}`);
-    }
+    console.log(`   Common issues to avoid: ${pattern.common_issues.join(', ')}`);
     console.log('');
   }
   
