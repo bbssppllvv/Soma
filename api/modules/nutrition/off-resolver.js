@@ -14,91 +14,81 @@ function buildSearchTerm(item) {
   const direct = typeof item?.off_query === 'string' ? item.off_query.trim() : '';
   if (direct) return direct;
 
-  const parts = [];
-  if (item?.brand) parts.push(item.brand);
-  if (item?.clean_name) parts.push(item.clean_name);
+  const parts = new Set();
+  if (item?.name) parts.add(item.name);
+  if (item?.brand) parts.add(item.brand);
+  if (item?.clean_name) parts.add(item.clean_name);
   if (Array.isArray(item?.required_tokens) && item.required_tokens.length > 0) {
-    parts.push(item.required_tokens.join(' '));
+    parts.add(item.required_tokens.join(' '));
   }
-  if (parts.length === 0 && item?.name) {
-    parts.push(item.name);
-  }
-  return parts
+
+  const combined = Array.from(parts)
     .join(' ')
     .replace(/\s+/g, ' ')
     .trim();
+
+  return combined || item?.name || '';
 }
 
-function collectQueryTokens(term) {
-  const normalized = normalizeForMatch(term);
-  if (!normalized) return new Set();
-  return new Set(normalized.split(/\s+/).filter(Boolean));
+function normalizeToken(token) {
+  return normalizeForMatch(token || '').replace(/\s+/g, ' ').trim();
 }
 
-function scoreCandidate(item, product, queryTokens) {
-  let score = 0;
-
-  const productName = normalizeForMatch(product?.product_name);
-  const productBrand = normalizeForMatch(product?.brands);
-  const productLabels = (product?.labels_tags || []).map(normalizeForMatch).join(' ');
-  const productCategories = (product?.categories_tags || []).map(normalizeForMatch).join(' ');
-  const productCorpus = `${productName} ${productLabels} ${productCategories}`.trim();
-
-  const itemBrand = normalizeForMatch(item?.brand || item?.brand_normalized);
-  if (itemBrand) {
-    if (productBrand.includes(itemBrand)) {
-      score += 400;
-    } else {
-      const brandParts = itemBrand.split(' ').filter(Boolean);
-      const matches = brandParts.filter(part => part.length > 2 && (productBrand.includes(part) || productCorpus.includes(part)));
-      if (matches.length > 0) {
-        score += 160 + matches.length * 30;
-      } else {
-        score -= 120;
-      }
-    }
+function expandTokenVariants(token) {
+  const normalized = normalizeToken(token);
+  if (!normalized) return [];
+  const variants = new Set([normalized]);
+  if (normalized.includes('creme')) {
+    variants.add(normalized.replace('creme', 'cream'));
   }
-
-  const variantTokens = Array.isArray(item?.required_tokens) ? item.required_tokens : [];
-  for (const rawToken of variantTokens) {
-    const token = normalizeForMatch(rawToken);
-    if (!token) continue;
-    if (productCorpus.includes(token)) {
-      score += 180;
-    } else {
-      score -= 60;
-    }
+  if (normalized.includes('cream')) {
+    variants.add(normalized.replace('cream', 'creme'));
   }
-
-  for (const token of queryTokens) {
-    if (token.length <= 2) continue;
-    if (productName.includes(token)) {
-      score += 20;
-    }
+  if (normalized.includes('&')) {
+    variants.add(normalized.replace(/&/g, 'and'));
   }
-
-  if (item?.canonical_category) {
-    const categoryToken = normalizeForMatch(item.canonical_category);
-    if (categoryToken && productCategories.includes(categoryToken)) {
-      score += 60;
-    }
-  }
-
-  if (hasUsefulNutriments(product)) {
-    score += 120;
-  } else {
-    score -= 200;
-  }
-
-  return score;
+  return [...variants].filter(Boolean);
 }
 
-function toConfidence(score) {
-  if (!Number.isFinite(score)) {
-    return DEFAULT_CONFIDENCE_FLOOR;
+function buildProductCorpus(product) {
+  const segments = [];
+  if (product?.product_name) segments.push(product.product_name);
+  if (product?.brands) segments.push(product.brands);
+  if (Array.isArray(product?.brands_tags)) segments.push(product.brands_tags.join(' '));
+  if (Array.isArray(product?.labels_tags)) segments.push(product.labels_tags.join(' '));
+  if (Array.isArray(product?.categories_tags)) segments.push(product.categories_tags.join(' '));
+  return normalizeForMatch(segments.join(' '));
+}
+
+function countTokenMatches(corpus, tokens = []) {
+  if (!corpus) return 0;
+  let matches = 0;
+  for (const token of tokens) {
+    const variants = expandTokenVariants(token);
+    if (variants.some(variant => variant && corpus.includes(variant))) {
+      matches += 1;
+    }
   }
-  const normalized = score / 500;
-  return Math.max(DEFAULT_CONFIDENCE_FLOOR, Math.min(0.98, normalized));
+  return matches;
+}
+
+function hasBrandMatch(corpus, brandValue) {
+  const normalized = normalizeToken(brandValue);
+  if (!normalized) return false;
+  if (!corpus) return false;
+  if (corpus.includes(normalized)) return true;
+  const parts = normalized.split(' ').filter(part => part.length > 2);
+  if (parts.length === 0) return false;
+  const hits = parts.filter(part => corpus.includes(part));
+  return hits.length === parts.length || hits.length >= 1;
+}
+
+function toConfidence({ brandMatch, tokenMatchCount, hasNutrients }) {
+  let confidence = DEFAULT_CONFIDENCE_FLOOR;
+  if (brandMatch) confidence = Math.max(confidence, 0.82);
+  if (tokenMatchCount > 0) confidence = Math.max(confidence, 0.86 + Math.min(0.08, tokenMatchCount * 0.04));
+  if (hasNutrients) confidence = Math.max(confidence, 0.9);
+  return Math.min(confidence, 0.97);
 }
 
 export async function resolveOneItemOFF(item, { signal } = {}) {
@@ -153,30 +143,30 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     return { item, reason: 'no_hits', canonical: searchTerm };
   }
 
-  const queryTokens = collectQueryTokens(searchTerm);
-  const scored = products
-    .filter(hasUsefulNutriments)
-    .map(product => ({
-      product,
-      score: scoreCandidate(item, product, queryTokens)
-    }))
-    .sort((a, b) => b.score - a.score);
+  const brandPreference = item?.off_brand_filter || item?.brand || item?.brand_normalized || '';
+  const tokenList = Array.isArray(item?.required_tokens) ? item.required_tokens : [];
 
-  if (scored.length === 0) {
-    return { item, reason: 'no_useful_nutrients', canonical: searchTerm };
-  }
+  const ranked = products.map((product, index) => {
+    const corpus = buildProductCorpus(product);
+    const hasNutrients = hasUsefulNutriments(product);
+    const tokenMatchCount = countTokenMatches(corpus, tokenList);
+    const brandMatch = hasBrandMatch(corpus, brandPreference);
+    const baseScore = hasNutrients ? 3 : 1;
+    const score = baseScore + (brandMatch ? 3 : 0) + Math.min(3, tokenMatchCount) + Math.max(0, 2 - index * 0.3);
+    return { product, score, brandMatch, tokenMatchCount, hasNutrients };
+  });
 
-  const positive = scored.find(entry => entry.score > 0);
-  const best = positive || scored[0];
+  ranked.sort((a, b) => b.score - a.score);
 
-  if (!best || best.score <= 0) {
-    return { item, reason: 'low_score', canonical: searchTerm, score: best?.score ?? null };
+  const best = ranked[0];
+  if (!best) {
+    return { item, reason: 'no_candidates', canonical: searchTerm };
   }
 
   return {
     product: best.product,
-    score: best.score,
-    confidence: toConfidence(best.score)
+    score: Math.round(best.score * 100) / 100,
+    confidence: toConfidence(best)
   };
 }
 
