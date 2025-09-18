@@ -7,28 +7,6 @@ import { REQUIRE_BRAND } from './off/constants.js';
 const DEFAULT_CONFIDENCE_FLOOR = 0.65;
 const MAX_PRODUCTS_CONSIDERED = 12;
 
-function toBrandSlug(value) {
-  if (!value) return '';
-  const lower = value
-    .toString()
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/\p{M}/gu, '')
-    .replace(/&/g, ' ')
-    .replace(/["'’‘`´]/g, '')
-    .replace(/_/g, ' ')
-    .replace(/[^a-z0-9\s-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  if (!lower) return '';
-
-  return lower
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
 function normalizeUPC(value) {
   return String(value || '').replace(/[^0-9]/g, '');
 }
@@ -36,39 +14,11 @@ function normalizeUPC(value) {
 function buildSearchTerm(item) {
   const direct = typeof item?.off_query === 'string' ? item.off_query.trim() : '';
   if (direct) return direct;
-  const brandValue = item?.off_brand_filter || item?.brand || item?.brand_normalized || '';
-  const brandSlug = toBrandSlug(brandValue);
-  const variantPhrases = collectVariantPhrases(item);
-
-  const clauses = [];
-  if (brandSlug) {
-    clauses.push(`brands_tags:"${brandSlug}"`);
-  }
-
-  if (variantPhrases.length > 0) {
-    const phraseClauses = variantPhrases
-      .map(phrase => phrase?.trim())
-      .filter(Boolean)
-      .map(phrase => `product_name:"${escapeLucenePhrase(phrase)}"`);
-
-    if (phraseClauses.length > 0) {
-      clauses.push(`(${phraseClauses.join(' OR ')})`);
-    }
-  }
-
-  if (clauses.length > 0) {
-    return clauses.join(' AND ');
-  }
-
   return typeof item?.name === 'string' ? item.name.trim() : '';
 }
 
 function normalizeValue(value) {
   return normalizeForMatch(value || '').replace(/\s+/g, ' ').trim();
-}
-
-function escapeLucenePhrase(value) {
-  return value.replace(/["\\]/g, match => `\\${match}`);
 }
 
 function expandVariantToken(token) {
@@ -102,51 +52,50 @@ function expandVariantToken(token) {
 }
 
 function collectVariantTokens(item) {
-  const tokenSources = [];
-  if (Array.isArray(item?.off_variant_tokens) && item.off_variant_tokens.length > 0) {
-    tokenSources.push(item.off_variant_tokens);
-  } else if (Array.isArray(item?.required_tokens) && item.required_tokens.length > 0) {
-    tokenSources.push(item.required_tokens);
-  }
-
   const tokens = new Set();
 
-  for (const source of tokenSources) {
-    if (!Array.isArray(source)) continue;
-    // Add individual tokens
-    source.forEach(token => {
-      expandVariantToken(token).forEach(value => tokens.add(value));
+  const addPhrase = (phrase) => {
+    if (!phrase) return;
+    expandVariantToken(phrase).forEach(value => {
+      if (value.length > 2) tokens.add(value);
     });
+  };
 
-    // Add combined phrase
-    const phrase = normalizeValue(source.join(' '));
-    if (phrase) {
-      expandVariantToken(phrase).forEach(value => tokens.add(value));
+  const addFromArray = (source) => {
+    if (!Array.isArray(source) || source.length === 0) return;
+    source.forEach(token => addPhrase(token));
+    const joined = source.join(' ').trim();
+    if (joined) addPhrase(joined);
+  };
+
+  addFromArray(item?.off_variant_tokens);
+  addFromArray(item?.required_tokens);
+
+  const name = typeof item?.name === 'string' ? item.name : '';
+  if (name) {
+    const normalizedName = normalizeValue(name);
+    if (normalizedName) {
+      const brandValues = [item?.off_brand_filter, item?.brand, item?.brand_normalized]
+        .map(normalizeValue)
+        .filter(Boolean);
+      const brandWords = new Set();
+      brandValues.forEach(value => {
+        value.split(' ').forEach(word => {
+          if (word.length > 1) brandWords.add(word);
+        });
+      });
+
+      const availableWords = normalizedName
+        .split(' ')
+        .filter(word => word.length > 1 && !brandWords.has(word));
+
+      if (availableWords.length > 0) {
+        addPhrase(availableWords.join(' '));
+      }
     }
   }
 
-  return [...tokens].filter(token => token.length > 2);
-}
-
-function collectVariantPhrases(item) {
-  const phrases = new Set();
-
-  if (Array.isArray(item?.off_variant_tokens) && item.off_variant_tokens.length > 0) {
-    const joined = item.off_variant_tokens.join(' ').trim();
-    if (joined) phrases.add(joined);
-    item.off_variant_tokens.forEach(token => {
-      if (typeof token === 'string' && token.trim().includes(' ')) {
-        phrases.add(token.trim());
-      }
-    });
-  }
-
-  if (phrases.size === 0 && Array.isArray(item?.required_tokens) && item.required_tokens.length > 0) {
-    const joinedRequired = item.required_tokens.join(' ').trim();
-    if (joinedRequired) phrases.add(joinedRequired);
-  }
-
-  return [...phrases].filter(Boolean);
+  return [...tokens];
 }
 
 function buildProductCorpus(product) {
@@ -207,7 +156,7 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
   try {
     searchResult = await searchByNameV1(searchTerm, {
       signal,
-      brand: toBrandSlug(item?.off_brand_filter || item?.brand || item?.brand_normalized || '') || item?.off_brand_filter || item?.brand || null,
+      brand: item?.off_brand_filter || item?.brand || item?.brand_normalized || null,
       locale: item?.locale || null
     });
   } catch (error) {
@@ -238,21 +187,13 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
 
   const preferredBrand = normalizeValue(item?.off_brand_filter || item?.brand || item?.brand_normalized || '');
   const variantTokens = collectVariantTokens(item);
-  const normalizedSearchTerm = normalizeValue(searchTerm);
-
-  if (variantTokens.length > 0 && preferredBrand && normalizedSearchTerm === preferredBrand) {
-    console.log('[OFF] query too generic for variant product', {
-      query: searchTerm,
-      preferredBrand,
-      variantTokens
-    });
-    return { item, reason: 'query_too_generic', canonical: searchTerm };
-  }
 
   const candidates = products.slice(0, MAX_PRODUCTS_CONSIDERED);
 
   const productNameMatches = (product) => {
     if (variantTokens.length === 0) return false;
+    const multiWordTokens = variantTokens.filter(token => token.includes(' '));
+    const tokensToUse = multiWordTokens.length > 0 ? multiWordTokens : variantTokens;
     const names = [];
     if (product?.product_name) names.push(normalizeValue(product.product_name));
     for (const key of Object.keys(product || {})) {
@@ -260,15 +201,17 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         names.push(normalizeValue(product[key]));
       }
     }
-    return names.some(name => variantTokens.some(token => token && name.includes(token)));
+    return names.some(name => tokensToUse.some(token => token && name.includes(token)));
   };
 
   const categoryMatches = (product) => {
     if (variantTokens.length === 0) return false;
+    const multiWordTokens = variantTokens.filter(token => token.includes(' '));
+    const tokensToUse = multiWordTokens.length > 0 ? multiWordTokens : variantTokens;
     const categories = Array.isArray(product?.categories_tags)
       ? product.categories_tags.map(normalizeValue)
       : [];
-    return categories.some(category => variantTokens.some(token => token && category.includes(token)));
+    return categories.some(category => tokensToUse.some(token => token && category.includes(token)));
   };
 
   const isBrandMatch = (product) => {
