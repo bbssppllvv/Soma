@@ -8,9 +8,24 @@ const DEFAULT_CONFIDENCE_FLOOR = 0.65;
 const MAX_PRODUCTS_CONSIDERED = 12;
 
 function toBrandSlug(value) {
-  // Simplified: just return the brand as-is for SAL full-text search
-  // SAL is smart enough to handle brand matching without strict filtering
-  return null; // Disable brand filtering - let SAL find everything
+  if (!value) return '';
+  
+  // Normalize brand for OFF brands_tags format
+  const normalized = value
+    .toString()
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .replace(/&/g, '-')
+    .replace(/["'''`´]/g, '')
+    .replace(/_/g, '-')
+    .replace(/[^a-z0-9\s-]/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .trim();
+
+  return normalized || '';
 }
 
 function normalizeUPC(value) {
@@ -117,24 +132,28 @@ function collectVariantTokens(item) {
 function buildSearchAttempts(item) {
   const attempts = [];
   const baseQuery = buildSearchTerm(item);
+  const brandCandidates = [item?.off_brand_filter, item?.brand, item?.brand_normalized]
+    .map(value => value ? value.toString().trim() : '')
+    .filter(Boolean);
+  const brandSlug = brandCandidates.length > 0 ? toBrandSlug(brandCandidates[0]) : '';
   
-  // KISS: Keep It Simple, Stupid
-  // Just try the GPT query as-is - SAL is smart enough to handle everything
-  if (baseQuery) {
-    attempts.push({ query: baseQuery, brand: null, reason: 'simple_fulltext' });
+  // STRATEGY FROM GUIDE: Hard brand filter + soft text matching
+  // 1. Strict: brand filter + full query (highest precision)
+  if (baseQuery && brandSlug) {
+    attempts.push({ query: baseQuery, brand: brandSlug, reason: 'brand_filtered_search' });
   }
   
-  // Fallback: try just the product name without brand
-  if (item?.clean_name && item?.required_tokens?.length > 0) {
-    const simpleQuery = `${item.clean_name} ${item.required_tokens.join(' ')}`;
-    if (simpleQuery !== baseQuery) {
-      attempts.push({ query: simpleQuery, brand: null, reason: 'product_and_variant' });
+  // 2. Medium: brand filter + product type + variants  
+  if (item?.clean_name && item?.required_tokens?.length > 0 && brandSlug) {
+    const productQuery = `${item.clean_name} ${item.required_tokens.join(' ')}`;
+    if (productQuery !== baseQuery) {
+      attempts.push({ query: productQuery, brand: brandSlug, reason: 'brand_product_variant' });
     }
   }
   
-  // Last resort: just the item name
-  if (item?.name && item.name !== baseQuery) {
-    attempts.push({ query: item.name, brand: null, reason: 'raw_name' });
+  // 3. Fallback: no brand filter (when brand filtering fails)
+  if (baseQuery) {
+    attempts.push({ query: baseQuery, brand: null, reason: 'fulltext_no_brand' });
   }
 
   return attempts;
@@ -230,6 +249,30 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     }
   }
 
+  if (!attemptResult) {
+    console.log('[OFF] SAL search failed, trying direct OFF API fallback');
+    
+    // FALLBACK: Try legacy OFF search when SAL fails completely
+    try {
+      const legacyResult = await searchByNameV1(searchTerm, { 
+        signal, 
+        useLegacyAPI: true,  // Force legacy OFF API
+        locale: item?.locale 
+      });
+      
+      if (legacyResult?.products?.length > 0) {
+        console.log('[OFF] Legacy API rescue successful', {
+          hits: legacyResult.products.length,
+          query: searchTerm
+        });
+        attemptResult = legacyResult;
+        attemptUsed = { query: searchTerm, brand: null, reason: 'legacy_api_fallback' };
+      }
+    } catch (legacyError) {
+      console.log('[OFF] Legacy API also failed', { error: legacyError?.message });
+    }
+  }
+  
   if (!attemptResult) {
     console.log('[OFF] all search attempts failed', { attempts: attemptSummaries, canonical: searchTerm });
     return { item, reason: 'no_hits', canonical: searchTerm };
