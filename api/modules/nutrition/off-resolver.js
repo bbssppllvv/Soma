@@ -662,6 +662,25 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     locale: item.locale
   });
   console.log(`[OFF] Canonical query: "${canonicalQuery}" (from: "${fullProductName}")`);
+  
+  // DEFENSIVE: Check if clean_name contains brand name (GPT error)
+  if (item.clean_name && item.brand) {
+    const cleanLower = item.clean_name.toLowerCase();
+    const brandWords = item.brand.toLowerCase().split(/[\s&'-]+/);
+    const brandInClean = brandWords.some(word => 
+      word.length > 2 && cleanLower.includes(word)
+    );
+    
+    if (brandInClean) {
+      console.log(`[OFF] WARNING: clean_name contains brand name - GPT field separation error`);
+      console.log(`[OFF] clean_name: "${item.clean_name}", brand: "${item.brand}"`);
+      // Use generic product type instead
+      const genericType = item.canonical_category === 'snack-sweet' ? 'chocolate' :
+                         item.canonical_category === 'dairy' ? 'milk' :
+                         item.canonical_category === 'beverage' ? 'drink' : 'product';
+      console.log(`[OFF] Using generic type: "${genericType}" instead of "${item.clean_name}"`);
+    }
+  }
 
   if (REQUIRE_BRAND && !item.off_candidate) {
     console.log(`[OFF] Skipping (no brand/upc): ${item.name}`);

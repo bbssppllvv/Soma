@@ -204,7 +204,7 @@ FIELD SEPARATION LOGIC:
 - name: Complete product name as written on packaging (include brand + product + variants)
 - brand: Only the brand/manufacturer name (may be multi-word)
 - brand_normalized: Lowercase brand, preserve spaces and basic punctuation, remove only accents
-- clean_name: Core product type without brand or variants (milk, chocolate, cookies, etc.)
+- clean_name: Core product type ONLY - never include brand names (milk, chocolate, cookies, candy, etc.)
 - required_tokens: Specific modifiers/variants from packaging in LOWERCASE (flavor, type, fat content, etc.)
 
 BRAND_NORMALIZED RULES:
@@ -216,9 +216,10 @@ BRAND_NORMALIZED RULES:
 
 FIELD SEPARATION PRINCIPLES:
 - Avoid duplication: each piece of information goes in exactly one field
-- clean_name = product category/type only
+- clean_name = product category/type only (NEVER brand names like 'M&M's', 'Coca-Cola')
 - required_tokens = distinguishing characteristics/variants only
-- Preserve original language throughout all fields`
+- Preserve original language throughout all fields
+- CRITICAL: If clean_name contains any brand name, you are making an error`
         },
         { 
           type: "input_image", 
