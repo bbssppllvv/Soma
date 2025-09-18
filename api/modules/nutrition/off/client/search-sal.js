@@ -21,9 +21,12 @@ export async function runSearchV3(term, { signal, locale, brandFilter = null, pa
     q: queryTerm,
     page_size: clampPageSize(pageSize),
     fields: SEARCH_V3_FIELDS,
-    boost_phrase: true,
-    ...filters
+    boost_phrase: true
   };
+
+  if (filters && typeof filters === 'object' && !Array.isArray(filters)) {
+    requestBody.filters = { ...filters };
+  }
 
   const pageNumber = Number.isFinite(page) ? Number(page) : Number.parseInt(page, 10);
   requestBody.page = pageNumber > 0 ? pageNumber : 1;
@@ -43,6 +46,16 @@ export async function runSearchV3(term, { signal, locale, brandFilter = null, pa
     requestBody.langs = langs;
   }
 
+  console.log('[OFF] query', {
+    q: requestBody.q,
+    filters: requestBody.filters || null,
+    page: requestBody.page,
+    page_size: requestBody.page_size,
+    langs: requestBody.langs || null,
+    boost_phrase: requestBody.boost_phrase === true,
+    brand_filter: brandFilter || null
+  });
+
   const url = `${SEARCH_BASE}/search`;
   const startedAt = Date.now();
 
@@ -59,7 +72,13 @@ export async function runSearchV3(term, { signal, locale, brandFilter = null, pa
     const products = hits.map(hit => normalizeV3Product(hit, locale)).filter(Boolean);
     const count = typeof response?.count === 'number' ? response.count : products.length;
 
-    console.log(`[OFF] search q="${queryTerm}" brand="${brandFilter || 'none'}" page=${requestBody.page} hits=${products.length}`, {
+    console.log('[OFF] search page summary', {
+      q: queryTerm,
+      brand: brandFilter || null,
+      page: requestBody.page,
+      hits: products.length,
+      count,
+      codes: products.slice(0, 10).map(prod => prod?.code).filter(Boolean),
       ms: Date.now() - startedAt
     });
 

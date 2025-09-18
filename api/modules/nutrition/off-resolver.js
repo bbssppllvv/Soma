@@ -53,6 +53,12 @@ function normalizeValue(value) {
   return normalizeForMatch(value || '').replace(/\s+/g, ' ').trim();
 }
 
+function quoteForQuery(value) {
+  const str = typeof value === 'string' ? value.trim() : '';
+  if (!str) return null;
+  return `"${str.replace(/"/g, '\\"')}"`;
+}
+
 function expandVariantToken(token) {
   const variants = new Set();
   const raw = (token || '').toString().toLowerCase().trim();
@@ -130,6 +136,55 @@ function collectVariantTokens(item) {
   return [...tokens];
 }
 
+function collectFallbackPhrases(item) {
+  const phrases = [];
+  const seen = new Set();
+
+  const addPhrase = (phrase) => {
+    if (phrase == null) return;
+    const trimmed = phrase.toString().trim();
+    if (!trimmed) return;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    phrases.push(trimmed);
+  };
+
+  const addFromArray = (source) => {
+    if (!Array.isArray(source)) return;
+    source.forEach(addPhrase);
+  };
+
+  addFromArray(item?.off_primary_tokens);
+  addFromArray(item?.off_alt_tokens);
+
+  if (phrases.length === 0) {
+    const variantArray = Array.isArray(item?.off_variant_tokens) ? item.off_variant_tokens : [];
+    const multiWordVariant = variantArray.filter(token => typeof token === 'string' && token.trim().includes(' '));
+    addFromArray(multiWordVariant);
+  }
+
+  if (phrases.length === 0) {
+    const requiredArray = Array.isArray(item?.required_tokens) ? item.required_tokens : [];
+    const multiWordRequired = requiredArray.filter(token => typeof token === 'string' && token.trim().includes(' '));
+    addFromArray(multiWordRequired);
+  }
+
+  if (phrases.length === 0) {
+    addPhrase(item?.clean_name);
+    addPhrase(item?.name);
+  }
+
+  return phrases.slice(0, 6);
+}
+
+function buildOrQuery(phrases) {
+  if (!Array.isArray(phrases) || phrases.length === 0) return null;
+  const quoted = phrases.map(quoteForQuery).filter(Boolean);
+  if (quoted.length === 0) return null;
+  return quoted.join(' OR ');
+}
+
 function buildSearchAttempts(item) {
   const attempts = [];
   const baseQuery = buildSearchTerm(item);
@@ -137,24 +192,52 @@ function buildSearchAttempts(item) {
     .map(value => value ? value.toString().trim() : '')
     .filter(Boolean);
   const brandSlug = brandCandidates.length > 0 ? toBrandSlug(brandCandidates[0]) : '';
+  const canonicalBrand = typeof item?.brand_canonical === 'string' ? item.brand_canonical.trim() : '';
+  const brandFilters = [canonicalBrand, brandSlug].filter(Boolean);
+  const brandFilterObject = brandFilters.length > 0 ? { brands_tags: brandFilters } : null;
+  const brandPageSize = Number(process.env.OFF_BRAND_PAGE_SIZE || 40);
+  const fallbackOrPageSize = Number(process.env.OFF_FALLBACK_PAGE_SIZE || 20);
   
   // STRATEGY FROM GUIDE: Hard brand filter + soft text matching
   // 1. Strict: brand filter + full query (highest precision)
   if (baseQuery && brandSlug) {
-    attempts.push({ query: baseQuery, brand: brandSlug, reason: 'brand_filtered_search' });
+    attempts.push({
+      query: baseQuery,
+      brand: brandSlug,
+      reason: 'brand_filtered_search',
+      pageSize: brandPageSize,
+      filters: brandFilterObject
+    });
   }
   
   // 2. Medium: brand filter + product type + variants  
   if (item?.clean_name && item?.required_tokens?.length > 0 && brandSlug) {
     const productQuery = `${item.clean_name} ${item.required_tokens.join(' ')}`;
     if (productQuery !== baseQuery) {
-      attempts.push({ query: productQuery, brand: brandSlug, reason: 'brand_product_variant' });
+      attempts.push({
+        query: productQuery,
+        brand: brandSlug,
+        reason: 'brand_product_variant',
+        pageSize: brandPageSize,
+        filters: brandFilterObject
+      });
     }
   }
   
   // 3. Fallback: no brand filter (when brand filtering fails)
   if (baseQuery) {
-    attempts.push({ query: baseQuery, brand: null, reason: 'fulltext_no_brand' });
+    attempts.push({ query: baseQuery, brand: null, reason: 'fulltext_no_brand', pageSize: brandPageSize });
+  }
+
+  const fallbackPhrases = collectFallbackPhrases(item);
+  const fallbackOrQuery = buildOrQuery(fallbackPhrases);
+  if (fallbackOrQuery && fallbackOrQuery !== baseQuery) {
+    attempts.push({
+      query: fallbackOrQuery,
+      brand: null,
+      reason: 'fallback_or_tokens',
+      pageSize: fallbackOrPageSize
+    });
   }
 
   return attempts;
@@ -219,48 +302,17 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
   const variantTokens = collectVariantTokens(item);
   const attemptSummaries = [];
 
+  if (attempts.length > 0) {
+    console.log('[OFF] search attempts planned', attempts.map(attempt => ({
+      reason: attempt.reason,
+      query: attempt.query,
+      brand: attempt.brand,
+      pageSize: attempt.pageSize,
+      filters: attempt.filters || null
+    })));
+  }
+
   const debugTokens = [...variantTokens];
-
-  const fetchAttemptProducts = async (attempt) => {
-    const combinedProducts = [];
-    let combinedCount = 0;
-    let lastResponse = null;
-    let usedPages = 0;
-
-    for (let page = 1; page <= MAX_SEARCH_PAGES; page += 1) {
-      const response = await searchByNameV1(attempt.query, {
-        signal,
-        brand: attempt.brand,
-        locale: item?.locale || null,
-        page
-      });
-
-      lastResponse = response;
-      usedPages = page;
-      const products = Array.isArray(response?.products) ? response.products : [];
-      combinedProducts.push(...products);
-      const responseCount = Number(response?.count);
-      if (Number.isFinite(responseCount) && responseCount > combinedCount) {
-        combinedCount = responseCount;
-      }
-
-      const pageSizeUsed = Number(response?.page_size) || products.length;
-      const loadedAllPages = pageSizeUsed <= 0
-        || products.length < pageSizeUsed
-        || (combinedCount > 0 && page * pageSizeUsed >= combinedCount);
-
-      if (loadedAllPages) {
-        break;
-      }
-    }
-
-    return {
-      products: combinedProducts,
-      response: lastResponse,
-      totalCount: combinedCount || lastResponse?.count || combinedProducts.length,
-      pagesUsed: usedPages
-    };
-  };
 
   const productNameMatches = (product) => {
     if (variantTokens.length === 0) return false;
@@ -358,11 +410,6 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       }
 
       if (!selection) {
-        console.log('[OFF] no variant match among top candidates', {
-          query: attempt.query || searchTerm,
-          tokens: variantTokens,
-          preferredBrand
-        });
         return {
           success: false,
           failure: { item, reason: 'variant_mismatch', canonical: attempt.query || searchTerm }
@@ -423,62 +470,118 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
 
   for (const attempt of attempts) {
     try {
-      const { products, pagesUsed } = await fetchAttemptProducts(attempt);
+      const seenCodes = new Set();
+      const aggregated = [];
+      let aggregatedCount = 0;
+      let pagesUsed = 0;
+      let successThisAttempt = false;
 
-      if (!products || products.length === 0) {
-        attemptSummaries.push({ attempt: attempt.reason, query: attempt.query, brand: attempt.brand, result: 'no_hits' });
-        continue;
+      for (let page = 1; page <= MAX_SEARCH_PAGES; page += 1) {
+        const response = await searchByNameV1(attempt.query, {
+          signal,
+          brand: attempt.brand,
+          locale: item?.locale || null,
+          page,
+          pageSize: attempt.pageSize,
+          filters: attempt.filters
+        });
+
+        pagesUsed = page;
+        const products = Array.isArray(response?.products) ? response.products : [];
+        const pageCodes = products.map(prod => prod?.code).filter(Boolean).slice(0, 10);
+        const responseCount = Number(response?.count);
+        if (Number.isFinite(responseCount) && responseCount > aggregatedCount) {
+          aggregatedCount = responseCount;
+        }
+
+        for (const prod of products) {
+          const code = typeof prod?.code === 'string' ? prod.code : null;
+          if (code && seenCodes.has(code)) continue;
+          if (code) seenCodes.add(code);
+          aggregated.push(prod);
+        }
+
+        console.log('[OFF] detailed candidate analysis', {
+          attempt: attempt.reason,
+          page,
+          looking_for_tokens: debugTokens,
+          candidates: products.slice(0, 3).map(prod => {
+            const corpus = buildProductCorpus(prod);
+
+            return {
+              code: prod?.code,
+              name: prod?.product_name,
+              corpus_normalized: corpus,
+              contains_tokens: debugTokens.map(token => ({
+                token,
+                found_in_corpus: corpus.includes(normalizeValue(token))
+              })),
+              why_status: debugTokens.some(token => corpus.includes(normalizeValue(token))) ? 'should_match' : 'no_token_match'
+            };
+          })
+        });
+
+        const brandPassed = aggregated.filter(isBrandMatch).length;
+        const variantPassed = aggregated.filter(isTokenMatch).length;
+        const evaluation = evaluateCandidates(aggregated, attempt);
+
+        if (evaluation.success) {
+          console.log('[OFF] page result', {
+            attempt: attempt.reason,
+            page,
+            aggregated_candidates: aggregated.length,
+            brand_passed: brandPassed,
+            variant_passed: variantPassed,
+            result_code: evaluation.result?.product?.code || null,
+            page_codes: pageCodes
+          });
+          selected = evaluation.result;
+          selectedAttempt = attempt;
+          successThisAttempt = true;
+          break;
+        }
+
+        lastFailure = evaluation.failure;
+
+        console.log('[OFF] page result', {
+          attempt: attempt.reason,
+          page,
+          aggregated_candidates: aggregated.length,
+          brand_passed: brandPassed,
+          variant_passed: variantPassed,
+          next_page: page < MAX_SEARCH_PAGES ? page + 1 : null,
+          page_codes: pageCodes
+        });
+
+        const pageSizeUsed = Number(response?.page_size) || attempt.pageSize || null;
+        const noMorePages = (pageSizeUsed && products.length < pageSizeUsed)
+          || (aggregatedCount > 0 && pageSizeUsed && page * pageSizeUsed >= aggregatedCount);
+
+        if (noMorePages) {
+          break;
+        }
       }
 
-      attemptSummaries.push({
-        attempt: attempt.reason,
-        query: attempt.query,
-        brand: attempt.brand,
-        result: `hits_${products.length}_pages_${pagesUsed}`
-      });
-
-      console.log('[OFF] raw candidates', {
-        query: attempt.query || searchTerm,
-        brand: attempt.brand || null,
-        attempt: attempt.reason || 'unknown',
-        hits: products.map(prod => ({
-          code: prod?.code || null,
-          name: prod?.product_name || null,
-          brands: prod?.brands || null,
-          labels: prod?.labels_tags || null,
-          categories: prod?.categories_tags || null,
-          keywords: prod?._keywords || null,
-          product_name_es: prod?.product_name_es || null,
-          product_name_en: prod?.product_name_en || null
-        }))
-      });
-
-      console.log('[OFF] detailed candidate analysis', {
-        looking_for_tokens: debugTokens,
-        candidates: products.slice(0, 3).map(prod => {
-          const corpus = buildProductCorpus(prod);
-
-          return {
-            code: prod?.code,
-            name: prod?.product_name,
-            corpus_normalized: corpus,
-            contains_tokens: debugTokens.map(token => ({
-              token,
-              found_in_corpus: corpus.includes(normalizeValue(token))
-            })),
-            why_status: debugTokens.some(token => corpus.includes(normalizeValue(token))) ? 'should_match' : 'no_token_match'
-          };
-        })
-      });
-
-      const evaluation = evaluateCandidates(products, attempt);
-      if (evaluation.success) {
-        selected = evaluation.result;
-        selectedAttempt = attempt;
+      if (successThisAttempt) {
+        attemptSummaries.push({
+          attempt: attempt.reason,
+          query: attempt.query,
+          brand: attempt.brand,
+          result: `success_pages_${pagesUsed}`
+        });
         break;
       }
 
-      lastFailure = evaluation.failure;
+      if (aggregated.length === 0) {
+        attemptSummaries.push({ attempt: attempt.reason, query: attempt.query, brand: attempt.brand, result: 'no_hits' });
+      } else {
+        attemptSummaries.push({
+          attempt: attempt.reason,
+          query: attempt.query,
+          brand: attempt.brand,
+          result: `exhausted_pages_${pagesUsed}_candidates_${aggregated.length}`
+        });
+      }
     } catch (error) {
       attemptSummaries.push({ attempt: attempt.reason, query: attempt.query, brand: attempt.brand, result: error?.message || 'unknown_error' });
       lastFailure = { item, reason: 'http_or_json_error', canonical: attempt.query || searchTerm, error: error?.message };
@@ -494,8 +597,11 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
   }
 
   if (!selected) {
-    if (lastFailure) return lastFailure;
-    console.log('[OFF] all search attempts failed', { attempts: attemptSummaries, canonical: searchTerm });
+    if (lastFailure) {
+      console.log('[OFF] all search attempts failed', { attempts: attemptSummaries, canonical: searchTerm, last_reason: lastFailure.reason || null });
+      return lastFailure;
+    }
+    console.log('[OFF] all search attempts failed', { attempts: attemptSummaries, canonical: searchTerm, last_reason: null });
     return { item, reason: 'no_hits', canonical: searchTerm };
   }
 
