@@ -162,52 +162,39 @@ function brandVariantScore(value) {
 }
 
 function collectBrandSearchVariants(item) {
-  const sources = [
-    item?.brand,
-    item?.brand_normalized,
-    item?.brand_slug,
-    normalizeBrandForSearch(item?.brand || ''),
-    normalizeBrandForSearch(item?.brand_normalized || '')
-  ].filter(Boolean);
-
-  const seeds = new Set();
-  for (const src of sources) {
-    expandBrandCandidate(src).forEach(variant => {
-      if (variant) seeds.add(variant);
-    });
-  }
-
-  const candidates = new Map();
-  const register = (raw, boost = 0) => {
-    const normalized = normalizeBrandVariant(raw);
-    if (!normalized) return;
-    const score = brandVariantScore(normalized) + boost;
-    const existing = candidates.get(normalized);
-    if (existing == null || score > existing) {
-      candidates.set(normalized, score);
-    }
-  };
-
-  if (seeds.size === 0 && item?.brand) {
-    seeds.add(item.brand);
-  }
-
-  for (const seed of seeds) {
-    register(seed);
-    if (typeof seed === 'string' && seed.includes('-')) {
-      register(seed.replace(/-/g, ' '), -5);
-    }
-    if (typeof seed === 'string') {
-      const collapsed = seed.replace(/[\s-]+/g, '');
-      if (collapsed.length > 1) {
-        register(collapsed, -10);
-      }
+  // SIMPLIFIED: Only 2 main variants to reduce noise (per developer feedback)
+  const variants = [];
+  
+  // Variant 1: Normalized for search (preserves spaces)
+  const brand = item?.brand_normalized || item?.brand;
+  if (brand) {
+    const normalized = normalizeBrandForSearch(brand);
+    if (normalized) {
+      variants.push(normalized);
     }
   }
-
-  return [...candidates.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([variant]) => variant);
+  
+  // Variant 2: Slug for v2 API (hyphens instead of spaces)  
+  if (brand) {
+    const slug = brand
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/\p{M}/gu, '')
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+      .replace(/\s+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    
+    if (slug && slug !== variants[0]) {
+      variants.push(slug);
+    }
+  }
+  
+  // Fallback: if no variants, use original brand
+  if (variants.length === 0 && item?.brand) {
+    variants.push(item.brand.toLowerCase());
+  }
+  
+  return variants.slice(0, 2); // Maximum 2 variants to reduce noise
 }
 
 function limitTokens(value = '', maxTokens = 6) {
@@ -719,7 +706,8 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
   const variantWhitelistTokens = Array.isArray(item.required_tokens)
     ? [...new Set(item.required_tokens
         .filter(token => isVariantToken(token))
-        .map(token => token.toLowerCase()))] // Normalize to lowercase for consistent matching
+        .map(token => canonicalizeQuery(token)) // Full canonicalization for consistent matching
+        .filter(Boolean))]
     : [];
     const categoryFilters = deriveCategoryFilters(item, variantWhitelistTokens);
     const categoryTags = [];
