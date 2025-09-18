@@ -241,7 +241,7 @@ function buildLuceneQuery({ term, brand, primaryCategory = null, excludeCategori
     searchTerms.push(...variantTokens);
   }
   
-  // IMPROVEMENT: Deduplicate terms to avoid redundancy
+  // IMPROVEMENT: Deduplicate and prioritize important terms
   const allWords = searchTerms
     .filter(Boolean)
     .join(' ')
@@ -249,9 +249,13 @@ function buildLuceneQuery({ term, brand, primaryCategory = null, excludeCategori
     .filter(Boolean);
   
   const uniqueWords = [...new Set(allWords)]; // Remove duplicates
-  const finalQuery = uniqueWords.join(' ');
   
-  console.log(`[OFF] Deduplicated query: "${finalQuery}" (from ${allWords.length} → ${uniqueWords.length} words)`);
+  // CRITICAL: For better matching, prioritize brand + key terms only
+  // Too many words can dilute search relevance
+  const prioritizedWords = uniqueWords.slice(0, 4); // Limit to 4 most important words
+  const finalQuery = prioritizedWords.join(' ');
+  
+  console.log(`[OFF] Optimized query: "${finalQuery}" (from ${allWords.length} → ${prioritizedWords.length} words)`);
   return finalQuery;
 }
 
