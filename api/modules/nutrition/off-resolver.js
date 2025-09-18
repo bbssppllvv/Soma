@@ -95,6 +95,18 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     return { item, reason: 'no_hits', canonical: searchTerm };
   }
 
+  console.log('[OFF] raw candidates', {
+    query: searchTerm,
+    brand: item?.off_brand_filter || item?.brand || null,
+    hits: products.map(prod => ({
+      code: prod?.code || null,
+      name: prod?.product_name || null,
+      brands: prod?.brands || null,
+      labels: prod?.labels_tags || null,
+      categories: prod?.categories_tags || null
+    }))
+  });
+
   const preferredBrand = normalizeValue(item?.off_brand_filter || item?.brand || item?.brand_normalized || '');
   const preferredTokens = Array.isArray(item?.off_variant_tokens)
     ? item.off_variant_tokens
