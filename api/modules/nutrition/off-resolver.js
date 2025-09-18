@@ -250,30 +250,6 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
   }
 
   if (!attemptResult) {
-    console.log('[OFF] SAL search failed, trying direct OFF API fallback');
-    
-    // FALLBACK: Try legacy OFF search when SAL fails completely
-    try {
-      const legacyResult = await searchByNameV1(searchTerm, { 
-        signal, 
-        useLegacyAPI: true,  // Force legacy OFF API
-        locale: item?.locale 
-      });
-      
-      if (legacyResult?.products?.length > 0) {
-        console.log('[OFF] Legacy API rescue successful', {
-          hits: legacyResult.products.length,
-          query: searchTerm
-        });
-        attemptResult = legacyResult;
-        attemptUsed = { query: searchTerm, brand: null, reason: 'legacy_api_fallback' };
-      }
-    } catch (legacyError) {
-      console.log('[OFF] Legacy API also failed', { error: legacyError?.message });
-    }
-  }
-  
-  if (!attemptResult) {
     console.log('[OFF] all search attempts failed', { attempts: attemptSummaries, canonical: searchTerm });
     return { item, reason: 'no_hits', canonical: searchTerm };
   }
