@@ -8,25 +8,9 @@ const DEFAULT_CONFIDENCE_FLOOR = 0.65;
 const MAX_PRODUCTS_CONSIDERED = 12;
 
 function toBrandSlug(value) {
-  if (!value) return '';
-  const normalized = value
-    .toString()
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/\p{M}/gu, '')
-    .replace(/&/g, ' ')
-    .replace(/["'’‘`´]/g, '')
-    .replace(/_/g, ' ')
-    .replace(/[^a-z0-9\s-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  if (!normalized) return '';
-
-  return normalized
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-+|-+$/g, '');
+  // Simplified: just return the brand as-is for SAL full-text search
+  // SAL is smart enough to handle brand matching without strict filtering
+  return null; // Disable brand filtering - let SAL find everything
 }
 
 function normalizeUPC(value) {
@@ -123,43 +107,24 @@ function collectVariantTokens(item) {
 function buildSearchAttempts(item) {
   const attempts = [];
   const baseQuery = buildSearchTerm(item);
-  const brandCandidates = [item?.off_brand_filter, item?.brand, item?.brand_normalized]
-    .map(value => value ? value.toString().trim() : '')
-    .filter(Boolean);
-  const brandSlug = brandCandidates.length > 0 ? toBrandSlug(brandCandidates[0]) : '';
-  const variantTokens = collectVariantTokens(item);
-  const variantPhrases = variantTokens.filter(token => token.includes(' '));
-  const firstVariant = variantPhrases[0] || variantTokens[0] || '';
-
-  const seen = new Set();
-  const pushAttempt = ({ query, brand, reason }) => {
-    if (!query) return;
-    const fingerprint = `${query}::${brand || ''}`;
-    if (seen.has(fingerprint)) return;
-    seen.add(fingerprint);
-    attempts.push({ query, brand: brand || null, reason });
-  };
-
+  
+  // KISS: Keep It Simple, Stupid
+  // Just try the GPT query as-is - SAL is smart enough to handle everything
   if (baseQuery) {
-    if (brandSlug) {
-      pushAttempt({ query: baseQuery, brand: brandSlug, reason: 'brand_and_query' });
+    attempts.push({ query: baseQuery, brand: null, reason: 'simple_fulltext' });
+  }
+  
+  // Fallback: try just the product name without brand
+  if (item?.clean_name && item?.required_tokens?.length > 0) {
+    const simpleQuery = `${item.clean_name} ${item.required_tokens.join(' ')}`;
+    if (simpleQuery !== baseQuery) {
+      attempts.push({ query: simpleQuery, brand: null, reason: 'product_and_variant' });
     }
-    pushAttempt({ query: baseQuery, brand: null, reason: 'query_only' });
   }
-
-  if (firstVariant) {
-    if (brandSlug) {
-      pushAttempt({ query: firstVariant, brand: brandSlug, reason: 'brand_and_variant' });
-    }
-    pushAttempt({ query: firstVariant, brand: null, reason: 'variant_only' });
-  }
-
-  if (brandSlug) {
-    pushAttempt({ query: brandCandidates[0], brand: null, reason: 'brand_phrase' });
-  }
-
-  if (attempts.length === 0 && baseQuery) {
-    pushAttempt({ query: baseQuery, brand: null, reason: 'fallback_query' });
+  
+  // Last resort: just the item name
+  if (item?.name && item.name !== baseQuery) {
+    attempts.push({ query: item.name, brand: null, reason: 'raw_name' });
   }
 
   return attempts;
