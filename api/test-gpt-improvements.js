@@ -134,4 +134,4 @@ function testGPTImprovements() {
 // Run test
 testGPTImprovements();
 
-export { EXPECTED_GPT_RESPONSES, validateGPTResponse };
+export { validateGPTResponse };
