@@ -6,8 +6,8 @@ import { isVariantToken } from './variant-rules.js';
 const REQUIRE_BRAND = String(process.env.OFF_REQUIRE_BRAND || 'false').toLowerCase() === 'true';
 const OFF_BUDGET_MS = Number(process.env.OFF_GLOBAL_BUDGET_MS || 3000);
 
-const BRAND_ACCEPT_SCORE = 400; // minimum brand score to consider a match reliable (reduced after brand score rebalancing)
-const BRAND_MISS_PENALTY = 220; // penalty applied when brand context exists but no match
+const BRAND_ACCEPT_SCORE = 200; // minimum brand score to consider a match reliable (further reduced for production)
+const BRAND_MISS_PENALTY = 100; // penalty applied when brand context exists but no match (reduced for production)
 
 const SWEET_SENSITIVE_CATEGORIES = new Set(['snack-sweet', 'cookie-biscuit', 'dessert']);
 const SWEET_CATEGORY_TAGS = new Set([
@@ -946,10 +946,20 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       }
     }
 
-    if (brandContext && best && best.breakdown?.brand <= 0) {
+    // CRITICAL FIX: If product has required_tokens, allow it even with poor brand score
+    const hasRequiredTokensInBest = variantWhitelistTokens.length === 0 || 
+      (best?.breakdown?.variant_phrase > 0 || best?.breakdown?.variant_tokens > 0);
+    
+    if (brandContext && best && best.breakdown?.brand < -200 && !hasRequiredTokensInBest) {
+      // Only reject if brand component is very negative AND no required_tokens match
       const bestScoreText = best?.score != null ? best.score.toFixed(2) : 'null';
-      console.log(`[OFF] Final Decision: REJECTED, reason=brand_mismatch, score=${bestScoreText}, brand_component=${best.breakdown.brand}`);
-      return { item, reason: 'brand_mismatch', canonical: canonicalQuery, score: best.score };
+      console.log(`[OFF] Final Decision: REJECTED, reason=severe_brand_mismatch, score=${bestScoreText}, brand_component=${best.breakdown.brand}`);
+      return { item, reason: 'severe_brand_mismatch', canonical: canonicalQuery, score: best.score };
+    }
+    
+    // Special case: If best candidate has required_tokens but poor brand, accept it
+    if (hasRequiredTokensInBest && best?.breakdown?.brand < 0) {
+      console.log(`[OFF] Accepting product with required_tokens despite poor brand score (${best.breakdown.brand})`);
     }
 
     if (!best || best.score < scoreThreshold) {
