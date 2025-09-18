@@ -11,7 +11,7 @@ function clampPageSize(value) {
   return Math.max(1, Math.min(numeric, 100));
 }
 
-export async function runSearchV3(term, { signal, locale, brandFilter = null, pageSize = SEARCH_PAGE_SIZE, filters = {}, page = 1 } = {}) {
+export async function runSearchV3(term, { signal, locale, brandFilter = null, pageSize = SEARCH_PAGE_SIZE, filters = {}, page = 1, maxPages = null } = {}) {
   const queryTerm = typeof term === 'string' ? term.trim() : '';
   if (!queryTerm) {
     return { count: 0, products: [], query_term: '', brand_filter: brandFilter ?? null, page_size: clampPageSize(pageSize), page: 1 };
