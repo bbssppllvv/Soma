@@ -233,13 +233,23 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       });
 
       const products = Array.isArray(response?.products) ? response.products : [];
-      if (products.length > 0) {
+      
+      // Accept result if we have enough candidates OR this is our last attempt
+      const isLastAttempt = attempts.indexOf(attempt) === attempts.length - 1;
+      const hasEnoughCandidates = products.length >= 3;
+      
+      if (products.length > 0 && (hasEnoughCandidates || isLastAttempt)) {
         attemptResult = response;
         attemptUsed = attempt;
+        attemptSummaries.push({ attempt: attempt.reason, query: attempt.query, brand: attempt.brand, result: `accepted_${products.length}_hits` });
         break;
       }
-
-      attemptSummaries.push({ attempt: attempt.reason, query: attempt.query, brand: attempt.brand, result: 'no_hits' });
+      
+      if (products.length > 0) {
+        attemptSummaries.push({ attempt: attempt.reason, query: attempt.query, brand: attempt.brand, result: `too_few_hits_${products.length}` });
+      } else {
+        attemptSummaries.push({ attempt: attempt.reason, query: attempt.query, brand: attempt.brand, result: 'no_hits' });
+      }
     } catch (error) {
       attemptSummaries.push({ attempt: attempt.reason, query: attempt.query, brand: attempt.brand, result: error?.message || 'unknown_error' });
     }
@@ -248,6 +258,15 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
   if (!attemptResult) {
     console.log('[OFF] all search attempts failed', { attempts: attemptSummaries, canonical: searchTerm });
     return { item, reason: 'no_hits', canonical: searchTerm };
+  }
+
+  // Log all attempts for debugging
+  if (attemptSummaries.length > 1) {
+    console.log('[OFF] search attempts summary', { 
+      total_attempts: attemptSummaries.length,
+      attempts: attemptSummaries,
+      selected: attemptUsed?.reason
+    });
   }
 
   const products = Array.isArray(attemptResult?.products) ? attemptResult.products : [];
