@@ -7,6 +7,28 @@ import { REQUIRE_BRAND } from './off/constants.js';
 const DEFAULT_CONFIDENCE_FLOOR = 0.65;
 const MAX_PRODUCTS_CONSIDERED = 12;
 
+function toBrandSlug(value) {
+  if (!value) return '';
+  const normalized = value
+    .toString()
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .replace(/&/g, ' ')
+    .replace(/["'’‘`´]/g, '')
+    .replace(/_/g, ' ')
+    .replace(/[^a-z0-9\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!normalized) return '';
+
+  return normalized
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 function normalizeUPC(value) {
   return String(value || '').replace(/[^0-9]/g, '');
 }
@@ -98,6 +120,51 @@ function collectVariantTokens(item) {
   return [...tokens];
 }
 
+function buildSearchAttempts(item) {
+  const attempts = [];
+  const baseQuery = buildSearchTerm(item);
+  const brandCandidates = [item?.off_brand_filter, item?.brand, item?.brand_normalized]
+    .map(value => value ? value.toString().trim() : '')
+    .filter(Boolean);
+  const brandSlug = brandCandidates.length > 0 ? toBrandSlug(brandCandidates[0]) : '';
+  const variantTokens = collectVariantTokens(item);
+  const variantPhrases = variantTokens.filter(token => token.includes(' '));
+  const firstVariant = variantPhrases[0] || variantTokens[0] || '';
+
+  const seen = new Set();
+  const pushAttempt = ({ query, brand, reason }) => {
+    if (!query) return;
+    const fingerprint = `${query}::${brand || ''}`;
+    if (seen.has(fingerprint)) return;
+    seen.add(fingerprint);
+    attempts.push({ query, brand: brand || null, reason });
+  };
+
+  if (baseQuery) {
+    if (brandSlug) {
+      pushAttempt({ query: baseQuery, brand: brandSlug, reason: 'brand_and_query' });
+    }
+    pushAttempt({ query: baseQuery, brand: null, reason: 'query_only' });
+  }
+
+  if (firstVariant) {
+    if (brandSlug) {
+      pushAttempt({ query: firstVariant, brand: brandSlug, reason: 'brand_and_variant' });
+    }
+    pushAttempt({ query: firstVariant, brand: null, reason: 'variant_only' });
+  }
+
+  if (brandSlug) {
+    pushAttempt({ query: brandCandidates[0], brand: null, reason: 'brand_phrase' });
+  }
+
+  if (attempts.length === 0 && baseQuery) {
+    pushAttempt({ query: baseQuery, brand: null, reason: 'fallback_query' });
+  }
+
+  return attempts;
+}
+
 function buildProductCorpus(product) {
   const fields = [product?.product_name, product?.brands];
   if (Array.isArray(product?.brands_tags)) fields.push(product.brands_tags.join(' '));
@@ -152,30 +219,42 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     return { item, reason: 'empty_query' };
   }
 
-  let searchResult;
-  try {
-    searchResult = await searchByNameV1(searchTerm, {
-      signal,
-      brand: item?.off_brand_filter || item?.brand || item?.brand_normalized || null,
-      locale: item?.locale || null
-    });
-  } catch (error) {
-    return {
-      item,
-      reason: 'http_or_json_error',
-      canonical: searchTerm,
-      error: error?.message || 'unknown'
-    };
+  const attempts = buildSearchAttempts(item);
+  let attemptResult = null;
+  let attemptUsed = null;
+  const attemptSummaries = [];
+
+  for (const attempt of attempts) {
+    try {
+      const response = await searchByNameV1(attempt.query, {
+        signal,
+        brand: attempt.brand,
+        locale: item?.locale || null
+      });
+
+      const products = Array.isArray(response?.products) ? response.products : [];
+      if (products.length > 0) {
+        attemptResult = response;
+        attemptUsed = attempt;
+        break;
+      }
+
+      attemptSummaries.push({ attempt: attempt.reason, query: attempt.query, brand: attempt.brand, result: 'no_hits' });
+    } catch (error) {
+      attemptSummaries.push({ attempt: attempt.reason, query: attempt.query, brand: attempt.brand, result: error?.message || 'unknown_error' });
+    }
   }
 
-  const products = Array.isArray(searchResult?.products) ? searchResult.products : [];
-  if (products.length === 0) {
+  if (!attemptResult) {
+    console.log('[OFF] all search attempts failed', { attempts: attemptSummaries, canonical: searchTerm });
     return { item, reason: 'no_hits', canonical: searchTerm };
   }
 
+  const products = Array.isArray(attemptResult?.products) ? attemptResult.products : [];
   console.log('[OFF] raw candidates', {
-    query: searchTerm,
-    brand: item?.off_brand_filter || item?.brand || null,
+    query: attemptUsed?.query || searchTerm,
+    brand: attemptUsed?.brand || null,
+    attempt: attemptUsed?.reason || 'unknown',
     hits: products.map(prod => ({
       code: prod?.code || null,
       name: prod?.product_name || null,
@@ -253,11 +332,11 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
 
     if (!selection) {
       console.log('[OFF] no variant match among top candidates', {
-        query: searchTerm,
+        query: attemptUsed?.query || searchTerm,
         tokens: variantTokens,
         preferredBrand
       });
-      return { item, reason: 'variant_mismatch', canonical: searchTerm };
+      return { item, reason: 'variant_mismatch', canonical: attemptUsed?.query || searchTerm };
     }
   } else {
     selection = findFirstMatch(candidates, product => {
@@ -271,7 +350,7 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
   }
 
   if (!selection) {
-    return { item, reason: 'no_candidates', canonical: searchTerm };
+    return { item, reason: 'no_candidates', canonical: attemptUsed?.query || searchTerm };
   }
 
   const hasNutrients = hasUsefulNutriments(selection);
@@ -279,16 +358,16 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
   const tokenMatch = Boolean(selection && isTokenMatch(selection));
 
   if (variantTokens.length > 0 && !tokenMatch) {
-    return { item, reason: 'variant_mismatch', canonical: searchTerm };
+    return { item, reason: 'variant_mismatch', canonical: attemptUsed?.query || searchTerm };
   }
 
   if (!brandMatch && preferredBrand) {
-    return { item, reason: 'brand_mismatch', canonical: searchTerm };
+    return { item, reason: 'brand_mismatch', canonical: attemptUsed?.query || searchTerm };
   }
 
   if (selectionInsight) {
     console.log('[OFF] selected candidate', {
-      query: searchTerm,
+      query: attemptUsed?.query || searchTerm,
       reason: selectionInsight.reason,
       code: selection?.code || null,
       name: selection?.product_name || null,
