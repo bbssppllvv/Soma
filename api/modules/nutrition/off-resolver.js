@@ -20,7 +20,17 @@ function normalizeUPC(value) {
 function buildSearchTerm(item) {
   const direct = typeof item?.off_query === 'string' ? item.off_query.trim() : '';
   if (direct) return direct;
-  return typeof item?.name === 'string' ? item.name.trim() : '';
+  
+  // Build descriptive query: brand + product type + variants
+  const parts = [];
+  if (item?.brand) parts.push(item.brand);
+  if (item?.clean_name) parts.push(item.clean_name);
+  if (Array.isArray(item?.required_tokens) && item.required_tokens.length > 0) {
+    parts.push(item.required_tokens.join(' '));
+  }
+  
+  const combined = parts.join(' ').trim();
+  return combined || item?.name || '';
 }
 
 function normalizeValue(value) {
