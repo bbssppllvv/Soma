@@ -130,9 +130,14 @@ async function executeCGIPrimary(query, options, strategy, startTime, expectedBa
   const { signal, locale, brandFilter, pageSize, filters, page } = options;
   
   try {
-    // Пробуем CGI
+    // Пробуем CGI с поддержкой точных фраз
     console.log('[SMART_ROUTING] Trying CGI primary');
-    const cgiResult = await runSearchCGI(query, {
+    
+    // Если запрос в кавычках (exact phrase), используем его как есть
+    const isExactPhrase = query.startsWith('"') && query.endsWith('"');
+    const searchQuery = isExactPhrase ? query.slice(1, -1) : query; // Убираем кавычки для CGI
+    
+    const cgiResult = await runSearchCGI(searchQuery, {
       signal: createTimeoutSignal(signal, ROUTING_CONFIG.CGI_TIMEOUT_MS),
       locale,
       brandFilter,
@@ -151,7 +156,8 @@ async function executeCGIPrimary(query, options, strategy, startTime, expectedBa
         ...cgiResult,
         api_used: 'cgi',
         strategy: 'cgi_primary_success',
-        latency_ms: cgiLatency
+        latency_ms: cgiLatency,
+        exact_phrase_used: isExactPhrase
       };
     }
     

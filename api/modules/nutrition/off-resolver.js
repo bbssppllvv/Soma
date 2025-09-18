@@ -98,8 +98,126 @@ function buildSearchTerm(item) {
   return combined || item?.name || '';
 }
 
+/**
+ * Обнаруживает смешение языков в запросе
+ */
+function detectLanguageMixing(query, cleanName, locale) {
+  if (!query || !cleanName) return false;
+  
+  // Простая эвристика: если clean_name на английском, а исходное название на другом языке
+  const queryLower = query.toLowerCase();
+  const cleanLower = cleanName.toLowerCase();
+  
+  // Проверяем наличие английских слов в clean_name при неанглийском locale
+  const englishWords = ['cream', 'milk', 'chocolate', 'cheese', 'bread', 'water', 'sugar', 'salt'];
+  const hasEnglishInClean = englishWords.some(word => cleanLower.includes(word));
+  
+  // Проверяем наличие неанглийских слов в исходном запросе
+  const spanishWords = ['nata', 'leche', 'chocolate', 'queso', 'pan', 'agua', 'azucar', 'sal'];
+  const hasSpanishInQuery = spanishWords.some(word => queryLower.includes(word));
+  
+  // Смешение если clean_name переведен на английский, а query на испанском
+  const isMixed = hasEnglishInClean && hasSpanishInQuery && locale === 'es';
+  
+  if (isMixed) {
+    console.log('[OFF] Language mixing detected', {
+      query: query,
+      clean_name: cleanName,
+      locale: locale,
+      has_english_clean: hasEnglishInClean,
+      has_spanish_query: hasSpanishInQuery
+    });
+  }
+  
+  return isMixed;
+}
+
+/**
+ * Фильтрует avoided термы из fallback фраз
+ */
+function filterOutAvoidedTerms(phrases, item) {
+  if (!Array.isArray(phrases) || phrases.length === 0) return phrases;
+  
+  const avoidedTerms = [
+    ...(Array.isArray(item?.off_attr_avoid) ? item.off_attr_avoid : []),
+    ...(Array.isArray(item?.off_neg_tokens) ? item.off_neg_tokens : [])
+  ].map(term => term.toLowerCase().trim()).filter(Boolean);
+  
+  if (avoidedTerms.length === 0) return phrases;
+  
+  const cleanedPhrases = phrases.filter(phrase => {
+    if (!phrase) return false;
+    const phraseLower = phrase.toLowerCase();
+    
+    // Исключаем фразы содержащие avoided термы
+    const hasAvoidedTerm = avoidedTerms.some(avoided => 
+      phraseLower.includes(avoided) || phrase.includes(avoided)
+    );
+    
+    return !hasAvoidedTerm;
+  });
+  
+  console.log('[OFF] Filtered avoided terms', {
+    original_phrases: phrases.length,
+    avoided_terms: avoidedTerms,
+    cleaned_phrases: cleanedPhrases.length,
+    removed: phrases.length - cleanedPhrases.length
+  });
+  
+  return cleanedPhrases;
+}
+
 function normalizeValue(value) {
   return normalizeForMatch(value || '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Извлекает атрибуты продукта для проверки avoided terms
+ */
+function extractProductAttributes(product) {
+  if (!product) return [];
+  
+  const attributes = [];
+  
+  // Название продукта
+  if (product.product_name) {
+    attributes.push(normalizeValue(product.product_name));
+  }
+  
+  // Labels (light, zero, bio, etc.)
+  if (Array.isArray(product.labels_tags)) {
+    attributes.push(...product.labels_tags.map(tag => 
+      tag.replace(/^[a-z]{2}:/, '').replace(/-/g, ' ')
+    ));
+  }
+  
+  // Categories
+  if (Array.isArray(product.categories_tags)) {
+    attributes.push(...product.categories_tags.map(tag => 
+      tag.replace(/^[a-z]{2}:/, '').replace(/-/g, ' ')
+    ));
+  }
+  
+  // Ingredients analysis (vegan, vegetarian, etc.)
+  if (Array.isArray(product.ingredients_analysis_tags)) {
+    attributes.push(...product.ingredients_analysis_tags.map(tag => 
+      tag.replace(/^[a-z]{2}:/, '').replace(/-/g, ' ')
+    ));
+  }
+  
+  // Brands (для исключения неправильных брендов)
+  if (product.brands) {
+    if (Array.isArray(product.brands)) {
+      attributes.push(...product.brands.map(normalizeValue));
+    } else {
+      attributes.push(normalizeValue(product.brands));
+    }
+  }
+  
+  return attributes
+    .map(attr => normalizeValue(attr))
+    .filter(Boolean)
+    .filter(attr => attr.length > 1); // Исключаем слишком короткие
 }
 
 function quoteForQuery(value) {
@@ -380,79 +498,150 @@ function determineSelectionReason(info) {
 
 function buildSearchAttempts(item) {
   const attempts = [];
-  const baseQuery = buildSearchTerm(item);
+  
+  // Extract brand information
   const brandCandidates = [item?.off_brand_filter, item?.brand, item?.brand_normalized]
     .map(value => value ? value.toString().trim() : '')
     .filter(Boolean);
   const brandSlug = brandCandidates.length > 0 ? toBrandSlug(brandCandidates[0]) : '';
+  const brandName = brandCandidates.length > 0 ? brandCandidates[0] : '';
   const canonicalBrand = typeof item?.brand_canonical === 'string' ? item.brand_canonical.trim() : '';
   const brandFilters = [canonicalBrand, brandSlug].filter(Boolean);
   const brandFilterObject = brandFilters.length > 0 ? { brands_tags: brandFilters } : null;
+  
+  // Page sizes
   const brandPageSize = Number(process.env.OFF_BRAND_PAGE_SIZE || 40);
   const fallbackOrPageSize = Number(process.env.OFF_FALLBACK_PAGE_SIZE || 20);
   
-  // STRATEGY FROM GUIDE: Hard brand filter + soft text matching
-  // 1. Strict: brand filter + full query (highest precision)
-  if (baseQuery && brandSlug) {
+  // НОВАЯ СТРАТЕГИЯ: Locale-safe CGI-first без смешения языков
+  
+  // 1. PRIMARY: CGI с точной фразой из off_primary_tokens[0] в кавычках
+  const primaryToken = Array.isArray(item?.off_primary_tokens) && item.off_primary_tokens.length > 0 
+    ? item.off_primary_tokens[0].trim() 
+    : null;
+    
+  if (primaryToken && brandName) {
     attempts.push({
-      query: baseQuery,
+      query: `"${primaryToken}"`, // В кавычках для точного поиска
       brand: brandSlug,
-      reason: 'brand_filtered_search',
+      brandName: brandName, // Для CGI API
+      reason: 'cgi_primary_exact_phrase',
       pageSize: brandPageSize,
-      filters: brandFilterObject
+      filters: brandFilterObject,
+      preferCGI: true, // Флаг для smart routing
+      isExactPhrase: true
     });
   }
   
-  // 2. Medium: brand filter + product type + variants  
-  if (item?.clean_name && item?.required_tokens?.length > 0 && brandSlug) {
-    const productQuery = `${item.clean_name} ${item.required_tokens.join(' ')}`;
-    if (productQuery !== baseQuery) {
+  // 2. SECONDARY: CGI без кавычек, но с исходной фразой (не переводом)
+  if (primaryToken && brandName && primaryToken !== `"${primaryToken}"`) {
+    attempts.push({
+      query: primaryToken,
+      brand: brandSlug,
+      brandName: brandName,
+      reason: 'cgi_primary_no_quotes',
+      pageSize: brandPageSize,
+      filters: brandFilterObject,
+      preferCGI: true
+    });
+  }
+  
+  // 3. FALLBACK: только если нет primaryToken, используем buildSearchTerm
+  const baseQuery = buildSearchTerm(item);
+  if (!primaryToken && baseQuery && brandSlug) {
+    // Проверяем, не смешанный ли язык
+    const isLanguageMixed = detectLanguageMixing(baseQuery, item?.clean_name, item?.locale);
+    
+    if (!isLanguageMixed) {
       attempts.push({
-        query: productQuery,
+        query: baseQuery,
         brand: brandSlug,
-        reason: 'brand_product_variant',
+        brandName: brandName,
+        reason: 'brand_filtered_search_safe',
         pageSize: brandPageSize,
-        filters: brandFilterObject
+        filters: brandFilterObject,
+        preferCGI: true
+      });
+    } else {
+      console.log('[OFF] Language mixing detected, skipping mixed query', {
+        base_query: baseQuery,
+        clean_name: item?.clean_name,
+        locale: item?.locale
       });
     }
   }
   
-  // 3. Fallback: no brand filter (when brand filtering fails)
-  if (baseQuery) {
-    attempts.push({ query: baseQuery, brand: null, reason: 'fulltext_no_brand', pageSize: brandPageSize });
+  // 4. SAL FALLBACK: только при низкой отдаче CGI
+  // Используем исходную фразу, не clean_name если он переведен
+  const salQuery = primaryToken || item?.name || baseQuery;
+  if (salQuery) {
+    attempts.push({
+      query: salQuery,
+      brand: brandSlug,
+      reason: 'sal_fallback_controlled',
+      pageSize: brandPageSize,
+      filters: brandFilterObject,
+      preferSAL: true,
+      fallbackOnly: true // Используется только при неудаче CGI
+    });
   }
-
-  const fallbackPhrases = collectFallbackPhrases(item);
   
-  // Use split-OR strategy for large fallback queries (Nutella case)
-  if (fallbackPhrases.length > 3) {
-    const splitQueries = splitOrQuery(fallbackPhrases, 3);
-    console.log(`[OFF] Using split-OR strategy: ${fallbackPhrases.length} phrases → ${splitQueries.length} queries`);
-    
-    splitQueries.forEach((splitQuery, index) => {
-      if (splitQuery && splitQuery !== baseQuery) {
+  // 5. RESCUE: точная фраза без бренда (если CGI+brand не дал результатов)
+  if (primaryToken) {
+    attempts.push({
+      query: `"${primaryToken}"`,
+      brand: null,
+      reason: 'rescue_exact_phrase_no_brand',
+      pageSize: fallbackOrPageSize,
+      preferCGI: true,
+      isRescue: true
+    });
+  }
+  
+  // 6. DEEP FALLBACK: OR-запросы без avoided термов
+  const fallbackPhrases = collectFallbackPhrases(item);
+  const cleanedPhrases = filterOutAvoidedTerms(fallbackPhrases, item);
+  
+  if (cleanedPhrases.length > 0) {
+    if (cleanedPhrases.length > 3) {
+      const splitQueries = splitOrQuery(cleanedPhrases, 3);
+      console.log(`[OFF] Using cleaned split-OR: ${cleanedPhrases.length} phrases → ${splitQueries.length} queries`);
+      
+      splitQueries.forEach((splitQuery, index) => {
+        if (splitQuery) {
+          attempts.push({
+            query: splitQuery,
+            brand: null,
+            reason: `fallback_clean_split_or_${index + 1}`,
+            pageSize: fallbackOrPageSize,
+            isSplitOr: true,
+            splitIndex: index,
+            isDeepFallback: true
+          });
+        }
+      });
+    } else {
+      const cleanOrQuery = buildOrQuery(cleanedPhrases);
+      if (cleanOrQuery) {
         attempts.push({
-          query: splitQuery,
+          query: cleanOrQuery,
           brand: null,
-          reason: `fallback_split_or_${index + 1}`,
+          reason: 'fallback_clean_or_tokens',
           pageSize: fallbackOrPageSize,
-          isSplitOr: true,
-          splitIndex: index
+          isDeepFallback: true
         });
       }
-    });
-  } else {
-    // Use traditional OR query for smaller sets
-    const fallbackOrQuery = buildOrQuery(fallbackPhrases);
-    if (fallbackOrQuery && fallbackOrQuery !== baseQuery) {
-      attempts.push({
-        query: fallbackOrQuery,
-        brand: null,
-        reason: 'fallback_or_tokens',
-        pageSize: fallbackOrPageSize
-      });
     }
   }
+
+  console.log('[OFF] Search attempts built', {
+    total_attempts: attempts.length,
+    primary_token: primaryToken || 'none',
+    brand: brandName || 'none',
+    cgi_preferred: attempts.filter(a => a.preferCGI).length,
+    sal_fallback: attempts.filter(a => a.preferSAL).length,
+    rescue_attempts: attempts.filter(a => a.isRescue).length
+  });
 
   return attempts;
 }
@@ -704,9 +893,39 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     const requireBrand = Boolean(preferredBrand && attempt.brand);
     const requireVariant = variantTokens.length > 0;
 
+    // НОВАЯ ЛОГИКА: Двухфазный отбор с жёстким атрибутным gate
+    const avoidedTerms = [
+      ...(Array.isArray(item?.off_attr_avoid) ? item.off_attr_avoid : []),
+      ...(Array.isArray(item?.off_neg_tokens) ? item.off_neg_tokens : [])
+    ].map(term => term.toLowerCase().trim()).filter(Boolean);
+
+    // Фаза А: фильтруем "чистые" кандидаты (без avoided атрибутов)
+    const cleanCandidates = products.filter(product => {
+      if (avoidedTerms.length === 0) return true;
+      
+      const productAttrs = extractProductAttributes(product);
+      const hasAvoidedAttr = avoidedTerms.some(avoided => 
+        productAttrs.some(attr => attr.includes(avoided) || avoided.includes(attr))
+      );
+      
+      return !hasAvoidedAttr;
+    });
+
+    // Фаза B: если нет чистых кандидатов, разрешаем "грязные" с пониженной уверенностью
+    const candidatesToEvaluate = cleanCandidates.length > 0 ? cleanCandidates : products;
+    const isCleanPhase = cleanCandidates.length > 0;
+    
+    console.log('[OFF] Attribute gate filtering', {
+      total_products: products.length,
+      avoided_terms: avoidedTerms,
+      clean_candidates: cleanCandidates.length,
+      using_clean_phase: isCleanPhase,
+      degraded_selection: !isCleanPhase
+    });
+
     const candidateInfos = [];
 
-    for (const product of products) {
+    for (const product of candidatesToEvaluate) {
       const brandMatch = isBrandMatch(product);
       const nameMatch = productNameMatches(product);
       const categoryMatch = categoryMatches(product);
@@ -748,20 +967,27 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       }
 
       let score = 0;
+      
+      // ОБНОВЛЕННАЯ ЛОГИКА: снижаем бренд-бусты для грязной фазы
+      const brandBoostMultiplier = isCleanPhase ? BRAND_BOOST_MULTIPLIER : (BRAND_BOOST_MULTIPLIER * 0.5);
+      
       if (brandMatch) {
-        // Базовый бонус за бренд
-        score += 5;
+        // Базовый бонус за бренд (снижен для грязной фазы)
+        score += isCleanPhase ? 5 : 2;
         
         // Дополнительный boost для точного совпадения бренда при brand+variant запросах
         if (attempt.brand && variantTokens.length > 0) {
-          score += 3 * BRAND_BOOST_MULTIPLIER;
+          const boost = 3 * brandBoostMultiplier;
+          score += boost;
           console.log('[OFF] Brand boost applied', {
             product_code: product?.code,
-            brand_boost: 3 * BRAND_BOOST_MULTIPLIER,
+            brand_boost: boost,
+            phase: isCleanPhase ? 'clean' : 'degraded',
             reason: 'exact_brand_match_with_variant'
           });
         }
       }
+      
       if (tokenMatch) score += 4;
       if (nameMatch) score += 1;
       if (categoryMatch) score += 0.5;
@@ -771,8 +997,24 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       
       // Attribute scoring
       if (wantedAttrMatch) score += 2; // Boost for wanted attributes
-      if (avoidedAttrMatch) score -= 3; // Penalty for avoided attributes
+      
+      // ЖЁСТКИЙ ШТРАФ: в грязной фазе сильно штрафуем avoided атрибуты
+      if (avoidedAttrMatch) {
+        const penalty = isCleanPhase ? 3 : 10; // Больше штраф в грязной фазе
+        score -= penalty;
+        console.log('[OFF] Avoided attribute penalty', {
+          product_code: product?.code,
+          penalty: penalty,
+          phase: isCleanPhase ? 'clean' : 'degraded'
+        });
+      }
+      
       if (negativeMatches) score -= NEGATIVE_TOKEN_PENALTY;
+      
+      // Общий штраф за грязную фазу
+      if (!isCleanPhase) {
+        score *= 0.7; // 30% штраф за использование "грязных" кандидатов
+      }
 
       candidateInfos.push({
         product,
@@ -840,9 +1082,36 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     }
 
     const sortedEligible = [...variantEligible].sort((a, b) => b.score - a.score);
-    const best = sortedEligible.find(info => !info.negativeMatch) || sortedEligible[0];
+    
+    // CLEAN-FIRST ВЫБОР: приоритет кандидатам без avoided атрибутов
+    let best = null;
+    
+    if (isCleanPhase) {
+      // В чистой фазе выбираем лучший без негативных совпадений
+      best = sortedEligible.find(info => !info.negativeMatch && info.brandMatch) || 
+             sortedEligible.find(info => !info.negativeMatch) || 
+             sortedEligible[0];
+    } else {
+      // В грязной фазе предупреждаем о деградации
+      best = sortedEligible[0];
+      console.log('[OFF] DEGRADED SELECTION WARNING', {
+        product_code: best?.product?.code,
+        reason: 'no_clean_candidates_available',
+        avoided_terms: avoidedTerms,
+        confidence_penalty: 'applied'
+      });
+    }
+    
     const hasNutrients = hasUsefulNutriments(best.product);
     const insightReason = determineSelectionReason(best);
+    
+    // Добавляем метаданные о фазе отбора
+    const selectionMeta = {
+      selection_phase: isCleanPhase ? 'clean' : 'degraded',
+      avoided_terms_count: avoidedTerms.length,
+      clean_candidates_available: cleanCandidates.length,
+      degraded_pick: !isCleanPhase
+    };
     const eligibleTop = sortedEligible.slice(0, 5).map(info => ({
       code: info.product?.code || null,
       score: Number(info.score.toFixed(3)),
