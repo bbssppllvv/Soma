@@ -11,10 +11,10 @@ function clampPageSize(value) {
   return Math.max(1, Math.min(numeric, 100));
 }
 
-export async function runSearchV3(term, { signal, locale, brandFilter = null, pageSize = SEARCH_PAGE_SIZE, filters = {} } = {}) {
+export async function runSearchV3(term, { signal, locale, brandFilter = null, pageSize = SEARCH_PAGE_SIZE, filters = {}, page = 1 } = {}) {
   const queryTerm = typeof term === 'string' ? term.trim() : '';
   if (!queryTerm) {
-    return { count: 0, products: [], query_term: '', brand_filter: brandFilter ?? null };
+    return { count: 0, products: [], query_term: '', brand_filter: brandFilter ?? null, page_size: clampPageSize(pageSize), page: 1 };
   }
 
   const requestBody = {
@@ -25,13 +25,22 @@ export async function runSearchV3(term, { signal, locale, brandFilter = null, pa
     ...filters
   };
 
+  const pageNumber = Number.isFinite(page) ? Number(page) : Number.parseInt(page, 10);
+  requestBody.page = pageNumber > 0 ? pageNumber : 1;
+
+  if (brandFilter) {
+    const existingFilters = typeof requestBody.filters === 'object' && requestBody.filters !== null
+      ? { ...requestBody.filters }
+      : {};
+    const mergedBrandTags = Array.isArray(existingFilters.brands_tags)
+      ? [...new Set([...existingFilters.brands_tags, brandFilter])]
+      : [brandFilter];
+    requestBody.filters = { ...existingFilters, brands_tags: mergedBrandTags };
+  }
+
   const langs = buildLangsParam(locale);
   if (langs.length > 0) {
     requestBody.langs = langs;
-  }
-
-  if (brandFilter) {
-    requestBody.brands = [brandFilter];
   }
 
   const url = `${SEARCH_BASE}/search`;
@@ -50,7 +59,7 @@ export async function runSearchV3(term, { signal, locale, brandFilter = null, pa
     const products = hits.map(hit => normalizeV3Product(hit, locale)).filter(Boolean);
     const count = typeof response?.count === 'number' ? response.count : products.length;
 
-    console.log(`[OFF] search q="${queryTerm}" brand="${brandFilter || 'none'}" hits=${products.length}`, {
+    console.log(`[OFF] search q="${queryTerm}" brand="${brandFilter || 'none'}" page=${requestBody.page} hits=${products.length}`, {
       ms: Date.now() - startedAt
     });
 
@@ -58,10 +67,12 @@ export async function runSearchV3(term, { signal, locale, brandFilter = null, pa
       count,
       products,
       query_term: queryTerm,
-      brand_filter: brandFilter ?? null
+      brand_filter: brandFilter ?? null,
+      page_size: requestBody.page_size,
+      page: requestBody.page
     };
   } catch (error) {
-    console.log(`[OFF] search error q="${queryTerm}" brand="${brandFilter || 'none'}"`, {
+    console.log(`[OFF] search error q="${queryTerm}" brand="${brandFilter || 'none'}" page=${requestBody.page}`, {
       status: error?.status || null,
       request_id: error?.requestId || null,
       body: error?.responseBody || null,

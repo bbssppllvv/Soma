@@ -1,9 +1,9 @@
 import { runSearchV3 } from './search-sal.js';
 
-export async function searchByNamePipeline(query, { signal, brand = null, locale = null, pageSize, filters } = {}) {
+export async function searchByNamePipeline(query, { signal, brand = null, locale = null, pageSize, filters, page = 1 } = {}) {
   const cleanQuery = typeof query === 'string' ? query.trim() : '';
   if (!cleanQuery) {
-    return { count: 0, products: [], query_term: '', brand_filter: brand ?? null };
+    return { count: 0, products: [], query_term: '', brand_filter: brand ?? null, page_size: pageSize, page };
   }
 
   try {
@@ -12,7 +12,8 @@ export async function searchByNamePipeline(query, { signal, brand = null, locale
       locale,
       brandFilter: brand,
       pageSize,
-      filters
+      filters,
+      page
     });
     if (result) {
       return result;
@@ -23,5 +24,5 @@ export async function searchByNamePipeline(query, { signal, brand = null, locale
     });
   }
 
-  return { count: 0, products: [], query_term: cleanQuery, brand_filter: brand ?? null };
+  return { count: 0, products: [], query_term: cleanQuery, brand_filter: brand ?? null, page_size: pageSize, page };
 }
