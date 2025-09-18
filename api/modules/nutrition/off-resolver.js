@@ -6,7 +6,7 @@ import { isVariantToken } from './variant-rules.js';
 const REQUIRE_BRAND = String(process.env.OFF_REQUIRE_BRAND || 'false').toLowerCase() === 'true';
 const OFF_BUDGET_MS = Number(process.env.OFF_GLOBAL_BUDGET_MS || 3000);
 
-const BRAND_ACCEPT_SCORE = 600; // minimum brand score to consider a match reliable
+const BRAND_ACCEPT_SCORE = 400; // minimum brand score to consider a match reliable (reduced after brand score rebalancing)
 const BRAND_MISS_PENALTY = 220; // penalty applied when brand context exists but no match
 
 const SWEET_SENSITIVE_CATEGORIES = new Set(['snack-sweet', 'cookie-biscuit', 'dessert']);
