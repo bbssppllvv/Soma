@@ -200,26 +200,37 @@ User needs ${Math.max(0, userContext.goals.cal_goal - userContext.todayTotals.ca
 
 BRAND DETECTION: Look for ANY brand text, logos, or names on packaging. Even if partially visible, extract the brand. For multi-word brands (Central Lechera Asturiana), include the complete brand name.
 
-FIELD SEPARATION LOGIC:
-- name: Complete product name as written on packaging (include brand + product + variants)
-- brand: Only the brand/manufacturer name (may be multi-word)
-- brand_normalized: Lowercase brand, preserve spaces and basic punctuation, remove only accents
-- clean_name: Core product type ONLY - never include brand names (milk, chocolate, cookies, candy, etc.)
-- required_tokens: Specific modifiers/variants from packaging in LOWERCASE (flavor, type, fat content, etc.)
+SEARCH OPTIMIZATION REQUIREMENTS:
+Our search system works best with SHORT, FOCUSED queries. Follow these rules for optimal search performance:
 
-BRAND_NORMALIZED RULES:
-- Convert to lowercase
-- Remove accents (ñ→n, é→e) but keep letters recognizable  
-- Preserve spaces in multi-word brands
-- Keep basic punctuation (&, ', -) for brand recognition
-- Do not over-simplify - maintain searchable brand identity
+FIELD REQUIREMENTS FOR SEARCH:
+- brand_normalized: EXACTLY as it appears on packaging, lowercase only (e.g., 'm&m's', 'coca-cola', 'central lechera asturiana')
+- clean_name: ONE OR TWO words maximum - core product type only (chocolate, milk, cola, cookies, butter)
+- required_tokens: Maximum 2-3 key modifiers in lowercase (peanut, butter, zero, light, semi, desnatada)
 
-FIELD SEPARATION PRINCIPLES:
-- Avoid duplication: each piece of information goes in exactly one field
-- clean_name = product category/type only (NEVER brand names like 'M&M's', 'Coca-Cola')
-- required_tokens = distinguishing characteristics/variants only
-- Preserve original language throughout all fields
-- CRITICAL: If clean_name contains any brand name, you are making an error`
+SEARCH QUERY CONSTRUCTION:
+We build search queries as: brand_normalized + clean_name + required_tokens
+Total query should be 4 words or less for best results.
+
+WORD COUNT LIMITS (CRITICAL):
+- clean_name: 1 word preferred (chocolate, milk, cola, cookies) - 2 words MAXIMUM
+- required_tokens: 1-2 essential modifiers only (peanut, zero, light, semi)
+- Total search query: brand + clean_name + required_tokens = 4 words MAXIMUM
+
+OPTIMIZATION EXAMPLES:
+✅ M&M's → brand_normalized: 'm&m's', clean_name: 'chocolate', required_tokens: ['peanut']
+   Query: 'm&m's chocolate peanut' (3 words - PERFECT)
+✅ Coca-Cola Zero → brand_normalized: 'coca-cola', clean_name: 'cola', required_tokens: ['zero']
+   Query: 'coca-cola cola zero' (3 words - PERFECT)  
+❌ Don't: clean_name: 'chocolate candies' (too long), required_tokens: ['peanut', 'butter', 'sweet'] (too many)
+
+LANGUAGE PREFERENCE:
+Use shorter English terms when possible:
+- 'leche' → 'milk' (universal and shorter)
+- 'mantequilla' → 'butter' (universal and shorter)
+- Keep Spanish only if no good English equivalent
+
+SUCCESS METRIC: Final search query should be 3-4 words total for optimal matching.`
         },
         { 
           type: "input_image", 
@@ -247,7 +258,7 @@ function createTextAnalysisRequest(text, userContext, model = 'gpt-5-mini') {
   return {
     model: model,
     user: `tg:${userContext.chatId}`,
-    instructions: "Analyze food from text input. Follow same field definitions as photo analysis.\n\nFIELD DEFINITIONS:\n- name: Complete product name from user input\n- brand: Extract brand if mentioned\n- brand_normalized: Lowercase with minimal normalization (same rules as photo analysis)\n- clean_name: Product type without brand (cola, chocolate, mantequilla)\n- required_tokens: Specific variants/modifiers only (zero, light, tradicional)\n\nCONSISTENCY: Use identical rules as photo analysis for brand_normalized and field separation. Preserve original language. No duplication between clean_name and required_tokens.",
+    instructions: "Analyze food from text input. CRITICAL: Follow SEARCH OPTIMIZATION rules for best results.\n\nSEARCH-OPTIMIZED FIELDS:\n- brand_normalized: Exact packaging brand, lowercase (m&m's, coca-cola, central lechera asturiana)\n- clean_name: 1-2 words MAX - core product type (chocolate, milk, cola, cookies)\n- required_tokens: 2-3 essential modifiers only, lowercase (peanut, butter, zero, light)\n\nFinal search query = brand_normalized + clean_name + required_tokens (4 words total max)\nKeep fields SHORT and FOCUSED for optimal search performance.",
     input: `Analyze food: "${text}"
 
 User needs ${Math.max(0, userContext.goals.cal_goal - userContext.todayTotals.calories)} cal, ${Math.max(0, userContext.goals.protein_goal_g - userContext.todayTotals.protein)}g protein today.`,
