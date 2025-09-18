@@ -6,7 +6,8 @@ import { REQUIRE_BRAND } from './off/constants.js';
 
 const DEFAULT_CONFIDENCE_FLOOR = 0.65;
 const MAX_PRODUCTS_CONSIDERED = 12;
-const MAX_SEARCH_PAGES = Number(process.env.OFF_SEARCH_MAX_PAGES || 3);
+const MAX_SEARCH_PAGES = Number(process.env.OFF_SEARCH_MAX_PAGES || 5);
+const NAME_SIMILARITY_THRESHOLD = Number(process.env.OFF_NAME_SIM_THRESHOLD || 0.6);
 
 function toBrandSlug(value) {
   if (!value) return '';
@@ -185,6 +186,82 @@ function buildOrQuery(phrases) {
   return quoted.join(' OR ');
 }
 
+function tokenizeNormalized(value) {
+  const normalized = normalizeValue(value || '');
+  if (!normalized) return [];
+  return normalized.split(' ').filter(token => token.length > 1);
+}
+
+function gatherCandidateNames(product) {
+  const names = [];
+  const pushName = (name) => {
+    const normalized = normalizeValue(name);
+    if (normalized) names.push(normalized);
+  };
+
+  if (product?.product_name) pushName(product.product_name);
+  if (product?.generic_name) pushName(product.generic_name);
+
+  for (const key of Object.keys(product || {})) {
+    if (key.startsWith('product_name_') && typeof product[key] === 'string') {
+      pushName(product[key]);
+    }
+    if (key.startsWith('generic_name_') && typeof product[key] === 'string') {
+      pushName(product[key]);
+    }
+  }
+
+  return [...new Set(names)];
+}
+
+function computeNameMetrics(names, targetNormalized, targetTokenSet) {
+  let bestJaccard = 0;
+  let exact = false;
+  let contains = false;
+  const hasTargetTokens = targetTokenSet && targetTokenSet.size > 0;
+
+  for (const name of names) {
+    if (!name) continue;
+    if (targetNormalized && name === targetNormalized) {
+      exact = true;
+    }
+    if (targetNormalized && name.includes(targetNormalized)) {
+      contains = true;
+    }
+
+    if (!hasTargetTokens) continue;
+
+    const tokens = tokenizeNormalized(name);
+    if (tokens.length === 0) continue;
+
+    let intersection = 0;
+    for (const token of tokens) {
+      if (targetTokenSet.has(token)) intersection += 1;
+    }
+    if (intersection === 0) continue;
+
+    const unionSize = new Set([...tokens, ...targetTokenSet]).size;
+    if (unionSize === 0) continue;
+
+    const jaccard = intersection / unionSize;
+    if (jaccard > bestJaccard) {
+      bestJaccard = jaccard;
+    }
+  }
+
+  return { bestJaccard, exact, contains };
+}
+
+function determineSelectionReason(info) {
+  if (info.brandMatch && info.tokenMatch && info.exactMatch) return 'brand_variant_exact';
+  if (info.brandMatch && info.tokenMatch) return 'brand_variant';
+  if (info.brandMatch && info.containsTarget) return 'brand_contains';
+  if (info.brandMatch) return 'brand_only';
+  if (info.tokenMatch && info.exactMatch) return 'variant_exact';
+  if (info.tokenMatch) return 'variant_only';
+  return 'best_available';
+}
+
 function buildSearchAttempts(item) {
   const attempts = [];
   const baseQuery = buildSearchTerm(item);
@@ -314,6 +391,17 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
 
   const debugTokens = [...variantTokens];
 
+  let targetNameNormalized = normalizeValue(item?.name || '');
+  if (!targetNameNormalized) targetNameNormalized = normalizeValue(item?.clean_name || '');
+  if (!targetNameNormalized) targetNameNormalized = normalizeValue(searchTerm);
+
+  const targetTokenSet = new Set(tokenizeNormalized(targetNameNormalized));
+  if (targetTokenSet.size === 0 && Array.isArray(item?.required_tokens)) {
+    for (const token of item.required_tokens) {
+      tokenizeNormalized(token).forEach(val => targetTokenSet.add(val));
+    }
+  }
+
   const productNameMatches = (product) => {
     if (variantTokens.length === 0) return false;
     const multiWordTokens = variantTokens.filter(token => token.includes(' '));
@@ -344,127 +432,138 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     return corpus.includes(preferredBrand);
   };
 
-  const isTokenMatch = (product) => {
-    if (variantTokens.length === 0) return false;
-    const nameMatch = productNameMatches(product);
-    const catMatch = categoryMatches(product);
-    
-    // DEBUG: Log why each product passes/fails
-    if (product?.code === '0850027880501') { // Mr beast cookies
-      console.log('[DEBUG] Mr beast cookies token check', {
-        variantTokens,
-        nameMatch,
-        catMatch,
-        product_name: product?.product_name,
-        normalized_name: normalizeValue(product?.product_name)
-      });
-    }
-    
-    return nameMatch || catMatch;
-  };
-
   const evaluateCandidates = (products, attempt) => {
-    const candidates = products;
-    let selection = null;
-    let selectionInsight = null;
+    if (!Array.isArray(products) || products.length === 0) {
+      return {
+        success: false,
+        failure: { item, reason: 'no_candidates', canonical: attempt.query || searchTerm },
+        meta: { totalCandidates: 0, brandMatchCount: 0, tokenMatchCount: 0, candidateRanking: [] }
+      };
+    }
 
     const requireBrand = Boolean(preferredBrand && attempt.brand);
+    const requireVariant = variantTokens.length > 0;
 
-    if (variantTokens.length > 0) {
-      const variantNameMatch = (product) => {
-        const brand = isBrandMatch(product);
-        const nameMatch = productNameMatches(product);
-        if (requireBrand) {
-          if (brand && nameMatch) {
-            selectionInsight = { brand, variant: true, reason: 'brand_and_variant_name' };
-            return true;
-          }
-          return false;
-        }
-        if (nameMatch) {
-          selectionInsight = { brand, variant: brand, reason: brand ? 'variant_name_brand_optional' : 'variant_name' };
-          return true;
-        }
-        return false;
-      };
+    const candidateInfos = [];
 
-      selection = findFirstMatch(candidates, variantNameMatch);
+    for (const product of products) {
+      const brandMatch = isBrandMatch(product);
+      const nameMatch = productNameMatches(product);
+      const categoryMatch = categoryMatches(product);
+      const tokenMatch = variantTokens.length === 0
+        ? Boolean(nameMatch || categoryMatch || brandMatch)
+        : Boolean(nameMatch || categoryMatch);
+      const names = gatherCandidateNames(product);
+      const { bestJaccard, exact, contains } = computeNameMetrics(names, targetNameNormalized, targetTokenSet);
 
-      if (!selection) {
-        selection = findFirstMatch(candidates, product => {
-          const brand = isBrandMatch(product);
-          const categoryMatch = categoryMatches(product);
-          if (requireBrand) {
-            if (brand && categoryMatch) {
-              selectionInsight = { brand, variant: true, reason: 'brand_and_variant_category' };
-              return true;
-            }
-            return false;
-          }
-          if (categoryMatch) {
-            selectionInsight = { brand, variant: Boolean(categoryMatch), reason: brand ? 'variant_category_brand_optional' : 'variant_category' };
-            return true;
-          }
-          return false;
-        });
-      }
+      let score = 0;
+      if (brandMatch) score += 5;
+      if (tokenMatch) score += 4;
+      if (nameMatch) score += 1;
+      if (categoryMatch) score += 0.5;
+      if (exact) score += 3;
+      else if (contains) score += 2;
+      score += bestJaccard * 3;
 
-      if (!selection) {
-        return {
-          success: false,
-          failure: { item, reason: 'variant_mismatch', canonical: attempt.query || searchTerm }
-        };
-      }
-    } else {
-      selection = findFirstMatch(candidates, product => {
-        const brand = isBrandMatch(product);
-        if (brand) {
-          selectionInsight = { brand, variant: false, reason: 'brand_only' };
-          return true;
-        }
-        return false;
-      }) || candidates[0];
-    }
-
-    if (!selection) {
-      return { success: false, failure: { item, reason: 'no_candidates', canonical: attempt.query || searchTerm } };
-    }
-
-    const hasNutrients = hasUsefulNutriments(selection);
-    const brandMatch = Boolean(selection && isBrandMatch(selection));
-    const tokenMatch = Boolean(selection && isTokenMatch(selection));
-
-    if (variantTokens.length > 0 && !tokenMatch) {
-      return { success: false, failure: { item, reason: 'variant_mismatch', canonical: attempt.query || searchTerm } };
-    }
-
-    if (!brandMatch && preferredBrand && attempt.brand) {
-      return { success: false, failure: { item, reason: 'brand_mismatch', canonical: attempt.query || searchTerm } };
-    }
-
-    if (selectionInsight) {
-      console.log('[OFF] selected candidate', {
-        query: attempt.query || searchTerm,
-        reason: selectionInsight.reason,
-        code: selection?.code || null,
-        name: selection?.product_name || null,
+      candidateInfos.push({
+        product,
         brandMatch,
+        nameMatch,
+        categoryMatch,
         tokenMatch,
-        hasNutrients
+        nameSimilarity: bestJaccard,
+        exactMatch: exact,
+        containsTarget: contains,
+        score
       });
     }
+
+    if (candidateInfos.length === 0) {
+      return {
+        success: false,
+        failure: { item, reason: 'no_candidates', canonical: attempt.query || searchTerm },
+        meta: { totalCandidates: 0, brandMatchCount: 0, tokenMatchCount: 0, candidateRanking: [] }
+      };
+    }
+
+    const sortedCandidates = [...candidateInfos].sort((a, b) => b.score - a.score);
+    const overallTop = sortedCandidates.slice(0, 5).map(info => ({
+      code: info.product?.code || null,
+      score: Number(info.score.toFixed(3)),
+      brand: info.brandMatch,
+      variant: info.tokenMatch,
+      name_similarity: Number(info.nameSimilarity.toFixed(3))
+    }));
+
+    const brandMatchCount = candidateInfos.filter(info => info.brandMatch).length;
+    const tokenMatchCount = candidateInfos.filter(info => info.tokenMatch).length;
+
+    const brandEligible = candidateInfos.filter(info => !requireBrand || info.brandMatch);
+    if (brandEligible.length === 0) {
+      return {
+        success: false,
+        failure: { item, reason: 'brand_mismatch', canonical: attempt.query || searchTerm },
+        meta: {
+          totalCandidates: candidateInfos.length,
+          brandMatchCount,
+          tokenMatchCount,
+          candidateRanking: overallTop
+        }
+      };
+    }
+
+    const variantEligible = brandEligible.filter(info => !requireVariant || info.tokenMatch);
+    if (variantEligible.length === 0) {
+      return {
+        success: false,
+        failure: { item, reason: 'variant_mismatch', canonical: attempt.query || searchTerm },
+        meta: {
+          totalCandidates: candidateInfos.length,
+          brandMatchCount,
+          tokenMatchCount,
+          candidateRanking: overallTop
+        }
+      };
+    }
+
+    const sortedEligible = [...variantEligible].sort((a, b) => b.score - a.score);
+    const best = sortedEligible[0];
+    const hasNutrients = hasUsefulNutriments(best.product);
+    const insightReason = determineSelectionReason(best);
+    const eligibleTop = sortedEligible.slice(0, 5).map(info => ({
+      code: info.product?.code || null,
+      score: Number(info.score.toFixed(3)),
+      brand: info.brandMatch,
+      variant: info.tokenMatch,
+      name_similarity: Number(info.nameSimilarity.toFixed(3))
+    }));
 
     return {
       success: true,
-      result: {
-        product: selection,
-        score: brandMatch || tokenMatch ? 1 : 0.5,
-        confidence: toConfidence({ brandMatch, tokenMatch, hasNutrients })
+      selection: {
+        product: best.product,
+        brandMatch: best.brandMatch,
+        tokenMatch: best.tokenMatch,
+        hasNutrients,
+        nameSimilarity: best.nameSimilarity,
+        exactMatch: best.exactMatch,
+        containsTarget: best.containsTarget,
+        score: best.score,
+        insightReason
+      },
+      meta: {
+        totalCandidates: candidateInfos.length,
+        brandMatchCount,
+        tokenMatchCount,
+        brandEligibleCount: brandEligible.length,
+        variantEligibleCount: variantEligible.length,
+        candidateRanking: eligibleTop
       }
     };
   };
 
   let selected = null;
+  let selectedMeta = null;
   let selectedAttempt = null;
   let lastFailure = null;
 
@@ -521,37 +620,47 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
           })
         });
 
-        const brandPassed = aggregated.filter(isBrandMatch).length;
-        const variantPassed = aggregated.filter(isTokenMatch).length;
         const evaluation = evaluateCandidates(aggregated, attempt);
 
         if (evaluation.success) {
+          const successLog = {
+            attempt: attempt.reason,
+            page,
+            aggregated_candidates: aggregated.length,
+            brand_passed: evaluation.meta?.brandMatchCount ?? 0,
+            variant_passed: evaluation.meta?.tokenMatchCount ?? 0,
+            result_code: evaluation.selection?.product?.code || null,
+            ranking: evaluation.meta?.candidateRanking || [],
+            page_codes: pageCodes
+          };
+          console.log('[OFF] page result', successLog);
+          selected = evaluation.selection;
+          selectedMeta = evaluation.meta;
+          selectedAttempt = attempt;
+          successThisAttempt = true;
+          const shouldFinalize = Boolean(
+            evaluation.selection?.exactMatch
+            || (evaluation.selection?.nameSimilarity ?? 0) >= NAME_SIMILARITY_THRESHOLD
+            || (evaluation.selection?.brandMatch && evaluation.selection?.containsTarget)
+          );
+          if (shouldFinalize) {
+            break;
+          }
+        } else {
+          lastFailure = evaluation.failure;
+
           console.log('[OFF] page result', {
             attempt: attempt.reason,
             page,
             aggregated_candidates: aggregated.length,
-            brand_passed: brandPassed,
-            variant_passed: variantPassed,
-            result_code: evaluation.result?.product?.code || null,
+            brand_passed: evaluation.meta?.brandMatchCount ?? 0,
+            variant_passed: evaluation.meta?.tokenMatchCount ?? 0,
+            next_page: page < MAX_SEARCH_PAGES ? page + 1 : null,
+            reason: evaluation.failure?.reason || null,
+            ranking: evaluation.meta?.candidateRanking || [],
             page_codes: pageCodes
           });
-          selected = evaluation.result;
-          selectedAttempt = attempt;
-          successThisAttempt = true;
-          break;
         }
-
-        lastFailure = evaluation.failure;
-
-        console.log('[OFF] page result', {
-          attempt: attempt.reason,
-          page,
-          aggregated_candidates: aggregated.length,
-          brand_passed: brandPassed,
-          variant_passed: variantPassed,
-          next_page: page < MAX_SEARCH_PAGES ? page + 1 : null,
-          page_codes: pageCodes
-        });
 
         const pageSizeUsed = Number(response?.page_size) || attempt.pageSize || null;
         const noMorePages = (pageSizeUsed && products.length < pageSizeUsed)
@@ -605,7 +714,29 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     return { item, reason: 'no_hits', canonical: searchTerm };
   }
 
-  return selected;
+  const finalConfidence = toConfidence({
+    brandMatch: selected.brandMatch,
+    tokenMatch: selected.tokenMatch,
+    hasNutrients: selected.hasNutrients
+  });
+
+  console.log('[OFF] selected candidate', {
+    attempt: selectedAttempt?.reason || null,
+    code: selected.product?.code || null,
+    name: selected.product?.product_name || null,
+    brandMatch: selected.brandMatch,
+    tokenMatch: selected.tokenMatch,
+    nameSimilarity: Number((selected.nameSimilarity || 0).toFixed(3)),
+    reason: selected.insightReason,
+    confidence: Number(finalConfidence.toFixed(3)),
+    ranking: selectedMeta?.candidateRanking || []
+  });
+
+  return {
+    product: selected.product,
+    score: selected.brandMatch || selected.tokenMatch ? 1 : 0.5,
+    confidence: finalConfidence
+  };
 }
 
 export function scalePerPortionOFF(prod, grams) {
