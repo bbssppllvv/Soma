@@ -4,7 +4,7 @@ import { hasUsefulNutriments } from './off/nutrients.js';
 import { normalizeForMatch } from './off/text.js';
 import { REQUIRE_BRAND } from './off/constants.js';
 
-const DEFAULT_CONFIDENCE_FLOOR = 0.55;
+const DEFAULT_CONFIDENCE_FLOOR = 0.65;
 
 function normalizeUPC(value) {
   return String(value || '').replace(/[^0-9]/g, '');
@@ -13,82 +13,34 @@ function normalizeUPC(value) {
 function buildSearchTerm(item) {
   const direct = typeof item?.off_query === 'string' ? item.off_query.trim() : '';
   if (direct) return direct;
-
-  const parts = new Set();
-  if (item?.name) parts.add(item.name);
-  if (item?.brand) parts.add(item.brand);
-  if (item?.clean_name) parts.add(item.clean_name);
-  if (Array.isArray(item?.required_tokens) && item.required_tokens.length > 0) {
-    parts.add(item.required_tokens.join(' '));
-  }
-
-  const combined = Array.from(parts)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  return combined || item?.name || '';
+  return typeof item?.name === 'string' ? item.name.trim() : '';
 }
 
-function normalizeToken(token) {
-  return normalizeForMatch(token || '').replace(/\s+/g, ' ').trim();
-}
-
-function expandTokenVariants(token) {
-  const normalized = normalizeToken(token);
-  if (!normalized) return [];
-  const variants = new Set([normalized]);
-  if (normalized.includes('creme')) {
-    variants.add(normalized.replace('creme', 'cream'));
-  }
-  if (normalized.includes('cream')) {
-    variants.add(normalized.replace('cream', 'creme'));
-  }
-  if (normalized.includes('&')) {
-    variants.add(normalized.replace(/&/g, 'and'));
-  }
-  return [...variants].filter(Boolean);
+function normalizeValue(value) {
+  return normalizeForMatch(value || '').replace(/\s+/g, ' ').trim();
 }
 
 function buildProductCorpus(product) {
-  const segments = [];
-  if (product?.product_name) segments.push(product.product_name);
-  if (product?.brands) segments.push(product.brands);
-  if (Array.isArray(product?.brands_tags)) segments.push(product.brands_tags.join(' '));
-  if (Array.isArray(product?.labels_tags)) segments.push(product.labels_tags.join(' '));
-  if (Array.isArray(product?.categories_tags)) segments.push(product.categories_tags.join(' '));
-  return normalizeForMatch(segments.join(' '));
+  const fields = [product?.product_name, product?.brands];
+  if (Array.isArray(product?.brands_tags)) fields.push(product.brands_tags.join(' '));
+  if (Array.isArray(product?.labels_tags)) fields.push(product.labels_tags.join(' '));
+  if (Array.isArray(product?.categories_tags)) fields.push(product.categories_tags.join(' '));
+  return normalizeForMatch(fields.filter(Boolean).join(' '));
 }
 
-function countTokenMatches(corpus, tokens = []) {
-  if (!corpus) return 0;
-  let matches = 0;
-  for (const token of tokens) {
-    const variants = expandTokenVariants(token);
-    if (variants.some(variant => variant && corpus.includes(variant))) {
-      matches += 1;
-    }
+function findFirstMatch(products, predicate) {
+  for (const product of products) {
+    if (predicate(product)) return product;
   }
-  return matches;
+  return null;
 }
 
-function hasBrandMatch(corpus, brandValue) {
-  const normalized = normalizeToken(brandValue);
-  if (!normalized) return false;
-  if (!corpus) return false;
-  if (corpus.includes(normalized)) return true;
-  const parts = normalized.split(' ').filter(part => part.length > 2);
-  if (parts.length === 0) return false;
-  const hits = parts.filter(part => corpus.includes(part));
-  return hits.length === parts.length || hits.length >= 1;
-}
-
-function toConfidence({ brandMatch, tokenMatchCount, hasNutrients }) {
-  let confidence = DEFAULT_CONFIDENCE_FLOOR;
-  if (brandMatch) confidence = Math.max(confidence, 0.82);
-  if (tokenMatchCount > 0) confidence = Math.max(confidence, 0.86 + Math.min(0.08, tokenMatchCount * 0.04));
-  if (hasNutrients) confidence = Math.max(confidence, 0.9);
-  return Math.min(confidence, 0.97);
+function toConfidence({ brandMatch, tokenMatch, hasNutrients }) {
+  if (brandMatch && tokenMatch) return 0.95;
+  if (brandMatch) return 0.9;
+  if (tokenMatch) return 0.85;
+  if (hasNutrients) return 0.75;
+  return DEFAULT_CONFIDENCE_FLOOR;
 }
 
 export async function resolveOneItemOFF(item, { signal } = {}) {
@@ -143,30 +95,42 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     return { item, reason: 'no_hits', canonical: searchTerm };
   }
 
-  const brandPreference = item?.off_brand_filter || item?.brand || item?.brand_normalized || '';
-  const tokenList = Array.isArray(item?.required_tokens) ? item.required_tokens : [];
+  const preferredBrand = normalizeValue(item?.off_brand_filter || item?.brand || item?.brand_normalized || '');
+  const preferredTokens = Array.isArray(item?.off_variant_tokens)
+    ? item.off_variant_tokens
+    : Array.isArray(item?.required_tokens)
+      ? item.required_tokens
+      : [];
+  const normalizedTokens = preferredTokens.map(normalizeValue).filter(Boolean);
 
-  const ranked = products.map((product, index) => {
+  const isBrandMatch = (product) => {
+    if (!preferredBrand) return false;
     const corpus = buildProductCorpus(product);
-    const hasNutrients = hasUsefulNutriments(product);
-    const tokenMatchCount = countTokenMatches(corpus, tokenList);
-    const brandMatch = hasBrandMatch(corpus, brandPreference);
-    const baseScore = hasNutrients ? 3 : 1;
-    const score = baseScore + (brandMatch ? 3 : 0) + Math.min(3, tokenMatchCount) + Math.max(0, 2 - index * 0.3);
-    return { product, score, brandMatch, tokenMatchCount, hasNutrients };
-  });
+    return corpus.includes(preferredBrand);
+  };
 
-  ranked.sort((a, b) => b.score - a.score);
+  const isTokenMatch = (product) => {
+    if (normalizedTokens.length === 0) return false;
+    const corpus = buildProductCorpus(product);
+    return normalizedTokens.some(token => token && corpus.includes(token));
+  };
 
-  const best = ranked[0];
-  if (!best) {
+  const brandHit = findFirstMatch(products, isBrandMatch);
+  const tokenHit = brandHit || findFirstMatch(products, isTokenMatch);
+  const fallback = tokenHit || products[0];
+
+  if (!fallback) {
     return { item, reason: 'no_candidates', canonical: searchTerm };
   }
 
+  const hasNutrients = hasUsefulNutriments(fallback);
+  const brandMatch = Boolean(fallback && (brandHit === fallback || isBrandMatch(fallback)));
+  const tokenMatch = Boolean(fallback && isTokenMatch(fallback));
+
   return {
-    product: best.product,
-    score: Math.round(best.score * 100) / 100,
-    confidence: toConfidence(best)
+    product: fallback,
+    score: brandMatch || tokenMatch ? 1 : 0.5,
+    confidence: toConfidence({ brandMatch, tokenMatch, hasNutrients })
   };
 }
 
