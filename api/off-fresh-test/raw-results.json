@@ -1,0 +1,2494 @@
+{
+  "results": [
+    {
+      "product": {
+        "id": "philadelphia_light",
+        "category": "dairy",
+        "brand": "Philadelphia",
+        "product_name": "light cream cheese",
+        "clean_name": "cream cheese",
+        "required_tokens": [
+          "light"
+        ],
+        "canonical_category": "dairy",
+        "expected_lucene": "brands:\"philadelphia\"^4 AND categories_tags:\"en:cheeses\" AND NOT categories_tags:\"en:plant-based-milk-alternatives\" AND (product_name:(\"light\"^3 OR ligera^2 OR lite^2) OR labels_tags:(\"en:light\" OR \"es:ligera\")) AND product_name:\"philadelphia light\"~3",
+        "variations": [
+          {
+            "query": "Philadelphia light",
+            "strategy": "brand_product"
+          },
+          {
+            "query": "philadelphia ligero",
+            "strategy": "brand_spanish"
+          },
+          {
+            "query": "Philadelphia Light Cream Cheese",
+            "strategy": "brand_full_name"
+          },
+          {
+            "query": "light cream cheese",
+            "strategy": "product_only"
+          },
+          {
+            "query": "Philadelphia",
+            "strategy": "brand_only"
+          },
+          {
+            "query": "philadelphia lite",
+            "strategy": "brand_variant"
+          }
+        ],
+        "expected_brands": [
+          "philadelphia"
+        ],
+        "expected_categories": [
+          "en:cream-cheeses",
+          "en:cheeses"
+        ],
+        "known_issues": [
+          "brand normalization",
+          "variant token matching"
+        ]
+      },
+      "results": {
+        "main_pipeline_brand_product": {
+          "product_id": "philadelphia_light",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150386006,
+          "end_time": 1758150389009,
+          "duration_ms": 3003,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "philadelphia light",
+              "brand": "Philadelphia",
+              "categoryTags": [
+                "en:cheeses"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "light"
+              ],
+              "labelFilters": [
+                "light"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "brand_product",
+          "test_query": "Philadelphia light"
+        },
+        "product_only_brand_product": {
+          "product_id": "philadelphia_light",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150389009,
+          "end_time": 1758150389811,
+          "duration_ms": 802,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "philadelphia light",
+              "brand": "Philadelphia",
+              "categoryTags": [
+                "en:cheeses"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "light"
+              ],
+              "labelFilters": [
+                "light"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "brand_product",
+          "test_query": "Philadelphia light"
+        },
+        "main_pipeline_brand_spanish": {
+          "product_id": "philadelphia_light",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150389811,
+          "end_time": 1758150392813,
+          "duration_ms": 3002,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "philadelphia ligero",
+              "brand": "Philadelphia",
+              "categoryTags": [
+                "en:cheeses"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "light"
+              ],
+              "labelFilters": [
+                "light"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "brand_spanish",
+          "test_query": "philadelphia ligero"
+        },
+        "product_only_brand_spanish": {
+          "product_id": "philadelphia_light",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150392813,
+          "end_time": 1758150393615,
+          "duration_ms": 802,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "philadelphia ligero",
+              "brand": "Philadelphia",
+              "categoryTags": [
+                "en:cheeses"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "light"
+              ],
+              "labelFilters": [
+                "light"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "brand_spanish",
+          "test_query": "philadelphia ligero"
+        },
+        "main_pipeline_brand_full_name": {
+          "product_id": "philadelphia_light",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150393615,
+          "end_time": 1758150396618,
+          "duration_ms": 3003,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "philadelphia light cream cheese",
+              "brand": "Philadelphia",
+              "categoryTags": [
+                "en:cheeses"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "light"
+              ],
+              "labelFilters": [
+                "light"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "brand_full_name",
+          "test_query": "Philadelphia Light Cream Cheese"
+        },
+        "product_only_brand_full_name": {
+          "product_id": "philadelphia_light",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150396618,
+          "end_time": 1758150397420,
+          "duration_ms": 802,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "philadelphia light cream cheese",
+              "brand": "Philadelphia",
+              "categoryTags": [
+                "en:cheeses"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "light"
+              ],
+              "labelFilters": [
+                "light"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "brand_full_name",
+          "test_query": "Philadelphia Light Cream Cheese"
+        },
+        "main_pipeline_product_only": {
+          "product_id": "philadelphia_light",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150397421,
+          "end_time": 1758150400422,
+          "duration_ms": 3001,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "light cream cheese",
+              "brand": "Philadelphia",
+              "categoryTags": [
+                "en:cheeses"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "light"
+              ],
+              "labelFilters": [
+                "light"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "product_only",
+          "test_query": "light cream cheese"
+        },
+        "product_only_product_only": {
+          "product_id": "philadelphia_light",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150400423,
+          "end_time": 1758150401224,
+          "duration_ms": 801,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "light cream cheese",
+              "brand": "Philadelphia",
+              "categoryTags": [
+                "en:cheeses"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "light"
+              ],
+              "labelFilters": [
+                "light"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "product_only",
+          "test_query": "light cream cheese"
+        },
+        "main_pipeline_brand_only": {
+          "product_id": "philadelphia_light",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150401224,
+          "end_time": 1758150404226,
+          "duration_ms": 3002,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "philadelphia",
+              "brand": "Philadelphia",
+              "categoryTags": [
+                "en:cheeses"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "light"
+              ],
+              "labelFilters": [
+                "light"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "brand_only",
+          "test_query": "Philadelphia"
+        },
+        "product_only_brand_only": {
+          "product_id": "philadelphia_light",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150404226,
+          "end_time": 1758150405028,
+          "duration_ms": 802,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "philadelphia",
+              "brand": "Philadelphia",
+              "categoryTags": [
+                "en:cheeses"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "light"
+              ],
+              "labelFilters": [
+                "light"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "brand_only",
+          "test_query": "Philadelphia"
+        },
+        "main_pipeline_brand_variant": {
+          "product_id": "philadelphia_light",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150405028,
+          "end_time": 1758150408030,
+          "duration_ms": 3002,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "philadelphia lite",
+              "brand": "Philadelphia",
+              "categoryTags": [
+                "en:cheeses"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "light"
+              ],
+              "labelFilters": [
+                "light"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "brand_variant",
+          "test_query": "philadelphia lite"
+        },
+        "product_only_brand_variant": {
+          "product_id": "philadelphia_light",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150408030,
+          "end_time": 1758150408832,
+          "duration_ms": 802,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "philadelphia lite",
+              "brand": "Philadelphia",
+              "categoryTags": [
+                "en:cheeses"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "light"
+              ],
+              "labelFilters": [
+                "light"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "brand_variant",
+          "test_query": "philadelphia lite"
+        }
+      },
+      "analysis": {
+        "product_id": "philadelphia_light",
+        "product_name": "light cream cheese",
+        "brand": "Philadelphia",
+        "category": "dairy",
+        "strategies_tested": 12,
+        "strategies_with_results": 0,
+        "strategies_with_errors": 0,
+        "strategies_timed_out": 0,
+        "total_unique_products": 0,
+        "brand_matches": 0,
+        "category_matches": 0,
+        "best_strategy": null,
+        "best_score": 0,
+        "recommendations": [
+          "No strategies returned results - check product data or API availability"
+        ]
+      }
+    },
+    {
+      "product": {
+        "id": "central_lechera_semi",
+        "category": "dairy",
+        "brand": "Central Lechera Asturiana",
+        "product_name": "leche semi desnatada",
+        "clean_name": "leche",
+        "required_tokens": [
+          "semi",
+          "desnatada"
+        ],
+        "canonical_category": "dairy",
+        "expected_lucene": "brands:\"central lechera asturiana\"^4 AND categories_tags:\"en:milks\" AND NOT categories_tags:\"en:plant-based-milk-alternatives\" AND ((product_name:(\"semi desnatada\"~1 OR semidesnatada OR \"semi-desnatada\") OR labels_tags:(\"es:semidesnatada\")) AND (product_name:(desnatada) OR labels_tags:(\"es:desnatada\"))) AND product_name:\"central lechera asturiana semi desnatada\"~3",
+        "variations": [
+          {
+            "query": "Central Lechera Asturiana Leche semi desnatada",
+            "strategy": "full_brand_product"
+          },
+          {
+            "query": "Central Lechera semi desnatada",
+            "strategy": "short_brand"
+          },
+          {
+            "query": "central lechera semidesnatada",
+            "strategy": "compound_variant"
+          },
+          {
+            "query": "Central Lechera semi-desnatada",
+            "strategy": "hyphenated"
+          },
+          {
+            "query": "leche semi desnatada",
+            "strategy": "product_only"
+          },
+          {
+            "query": "Central Lechera Asturiana",
+            "strategy": "brand_only"
+          }
+        ],
+        "expected_brands": [
+          "central-lechera-asturiana",
+          "central lechera"
+        ],
+        "expected_categories": [
+          "en:milks",
+          "en:semi-skimmed-milks"
+        ],
+        "known_issues": [
+          "multi-word brand normalization",
+          "compound variant tokens"
+        ]
+      },
+      "results": {
+        "main_pipeline_full_brand_product": {
+          "product_id": "central_lechera_semi",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150408833,
+          "end_time": 1758150411835,
+          "duration_ms": 3002,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "central lechera asturiana leche semi desnatada",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:milks"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "semi",
+                "desnatada"
+              ],
+              "labelFilters": [
+                "semi",
+                "desnatada"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "full_brand_product",
+          "test_query": "Central Lechera Asturiana Leche semi desnatada"
+        },
+        "product_only_full_brand_product": {
+          "product_id": "central_lechera_semi",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150411835,
+          "end_time": 1758150412636,
+          "duration_ms": 801,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "central lechera asturiana leche semi desnatada",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:milks"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "semi",
+                "desnatada"
+              ],
+              "labelFilters": [
+                "semi",
+                "desnatada"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "full_brand_product",
+          "test_query": "Central Lechera Asturiana Leche semi desnatada"
+        },
+        "main_pipeline_short_brand": {
+          "product_id": "central_lechera_semi",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150412636,
+          "end_time": 1758150415639,
+          "duration_ms": 3003,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "central lechera semi desnatada",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:milks"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "semi",
+                "desnatada"
+              ],
+              "labelFilters": [
+                "semi",
+                "desnatada"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "short_brand",
+          "test_query": "Central Lechera semi desnatada"
+        },
+        "product_only_short_brand": {
+          "product_id": "central_lechera_semi",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150415639,
+          "end_time": 1758150416443,
+          "duration_ms": 804,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "central lechera semi desnatada",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:milks"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "semi",
+                "desnatada"
+              ],
+              "labelFilters": [
+                "semi",
+                "desnatada"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "short_brand",
+          "test_query": "Central Lechera semi desnatada"
+        },
+        "main_pipeline_compound_variant": {
+          "product_id": "central_lechera_semi",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150416443,
+          "end_time": 1758150419445,
+          "duration_ms": 3002,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "central lechera semidesnatada",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:milks"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "semi",
+                "desnatada"
+              ],
+              "labelFilters": [
+                "semi",
+                "desnatada"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "compound_variant",
+          "test_query": "central lechera semidesnatada"
+        },
+        "product_only_compound_variant": {
+          "product_id": "central_lechera_semi",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150419445,
+          "end_time": 1758150420246,
+          "duration_ms": 801,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "central lechera semidesnatada",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:milks"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "semi",
+                "desnatada"
+              ],
+              "labelFilters": [
+                "semi",
+                "desnatada"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "compound_variant",
+          "test_query": "central lechera semidesnatada"
+        },
+        "main_pipeline_hyphenated": {
+          "product_id": "central_lechera_semi",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150420247,
+          "end_time": 1758150423249,
+          "duration_ms": 3002,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "central lechera semi desnatada",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:milks"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "semi",
+                "desnatada"
+              ],
+              "labelFilters": [
+                "semi",
+                "desnatada"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "hyphenated",
+          "test_query": "Central Lechera semi-desnatada"
+        },
+        "product_only_hyphenated": {
+          "product_id": "central_lechera_semi",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150423249,
+          "end_time": 1758150424050,
+          "duration_ms": 801,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "central lechera semi desnatada",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:milks"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "semi",
+                "desnatada"
+              ],
+              "labelFilters": [
+                "semi",
+                "desnatada"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "hyphenated",
+          "test_query": "Central Lechera semi-desnatada"
+        },
+        "main_pipeline_product_only": {
+          "product_id": "central_lechera_semi",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150424050,
+          "end_time": 1758150427053,
+          "duration_ms": 3003,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "leche semi desnatada",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:milks"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "semi",
+                "desnatada"
+              ],
+              "labelFilters": [
+                "semi",
+                "desnatada"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "product_only",
+          "test_query": "leche semi desnatada"
+        },
+        "product_only_product_only": {
+          "product_id": "central_lechera_semi",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150427053,
+          "end_time": 1758150427855,
+          "duration_ms": 802,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "leche semi desnatada",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:milks"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "semi",
+                "desnatada"
+              ],
+              "labelFilters": [
+                "semi",
+                "desnatada"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "product_only",
+          "test_query": "leche semi desnatada"
+        },
+        "main_pipeline_brand_only": {
+          "product_id": "central_lechera_semi",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150427855,
+          "end_time": 1758150430858,
+          "duration_ms": 3003,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "central lechera asturiana",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:milks"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "semi",
+                "desnatada"
+              ],
+              "labelFilters": [
+                "semi",
+                "desnatada"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "brand_only",
+          "test_query": "Central Lechera Asturiana"
+        },
+        "product_only_brand_only": {
+          "product_id": "central_lechera_semi",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150430859,
+          "end_time": 1758150431661,
+          "duration_ms": 802,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "central lechera asturiana",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:milks"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "semi",
+                "desnatada"
+              ],
+              "labelFilters": [
+                "semi",
+                "desnatada"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "brand_only",
+          "test_query": "Central Lechera Asturiana"
+        }
+      },
+      "analysis": {
+        "product_id": "central_lechera_semi",
+        "product_name": "leche semi desnatada",
+        "brand": "Central Lechera Asturiana",
+        "category": "dairy",
+        "strategies_tested": 12,
+        "strategies_with_results": 0,
+        "strategies_with_errors": 0,
+        "strategies_timed_out": 0,
+        "total_unique_products": 0,
+        "brand_matches": 0,
+        "category_matches": 0,
+        "best_strategy": null,
+        "best_score": 0,
+        "recommendations": [
+          "No strategies returned results - check product data or API availability"
+        ]
+      }
+    },
+    {
+      "product": {
+        "id": "central_lechera_mantequilla",
+        "category": "dairy",
+        "brand": "Central Lechera Asturiana",
+        "product_name": "mantequilla tradicional",
+        "clean_name": "mantequilla",
+        "required_tokens": [
+          "tradicional"
+        ],
+        "canonical_category": "dairy",
+        "expected_lucene": "brands:\"central lechera asturiana\"^4 AND categories_tags:\"en:butters\" AND NOT categories_tags:\"en:plant-based-milk-alternatives\" AND (product_name:(tradicional) OR labels_tags:(\"es:tradicional\")) AND product_name:\"central lechera asturiana tradicional\"~3",
+        "variations": [
+          {
+            "query": "Central Lechera Asturiana Mantequilla Tradicional",
+            "strategy": "full_name"
+          },
+          {
+            "query": "Central Lechera mantequilla tradicional",
+            "strategy": "short_brand"
+          },
+          {
+            "query": "mantequilla tradicional",
+            "strategy": "product_only"
+          },
+          {
+            "query": "Central Lechera tradicional",
+            "strategy": "brand_variant"
+          },
+          {
+            "query": "mantequilla traditional",
+            "strategy": "english_variant"
+          }
+        ],
+        "expected_brands": [
+          "central-lechera-asturiana"
+        ],
+        "expected_categories": [
+          "en:butters"
+        ],
+        "known_issues": [
+          "spanish-english variant mixing"
+        ]
+      },
+      "results": {
+        "main_pipeline_full_name": {
+          "product_id": "central_lechera_mantequilla",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150431661,
+          "end_time": 1758150434663,
+          "duration_ms": 3002,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "central lechera asturiana mantequilla tradicional",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:butters"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "tradicional"
+              ],
+              "labelFilters": [
+                "tradicional"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "full_name",
+          "test_query": "Central Lechera Asturiana Mantequilla Tradicional"
+        },
+        "product_only_full_name": {
+          "product_id": "central_lechera_mantequilla",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150434663,
+          "end_time": 1758150435465,
+          "duration_ms": 802,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "central lechera asturiana mantequilla tradicional",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:butters"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "tradicional"
+              ],
+              "labelFilters": [
+                "tradicional"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "full_name",
+          "test_query": "Central Lechera Asturiana Mantequilla Tradicional"
+        },
+        "main_pipeline_short_brand": {
+          "product_id": "central_lechera_mantequilla",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150435465,
+          "end_time": 1758150438467,
+          "duration_ms": 3002,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "central lechera mantequilla tradicional",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:butters"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "tradicional"
+              ],
+              "labelFilters": [
+                "tradicional"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "short_brand",
+          "test_query": "Central Lechera mantequilla tradicional"
+        },
+        "product_only_short_brand": {
+          "product_id": "central_lechera_mantequilla",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150438467,
+          "end_time": 1758150439270,
+          "duration_ms": 803,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "central lechera mantequilla tradicional",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:butters"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "tradicional"
+              ],
+              "labelFilters": [
+                "tradicional"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "short_brand",
+          "test_query": "Central Lechera mantequilla tradicional"
+        },
+        "main_pipeline_product_only": {
+          "product_id": "central_lechera_mantequilla",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150439270,
+          "end_time": 1758150442272,
+          "duration_ms": 3002,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "mantequilla tradicional",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:butters"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "tradicional"
+              ],
+              "labelFilters": [
+                "tradicional"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "product_only",
+          "test_query": "mantequilla tradicional"
+        },
+        "product_only_product_only": {
+          "product_id": "central_lechera_mantequilla",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150442272,
+          "end_time": 1758150443074,
+          "duration_ms": 802,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "mantequilla tradicional",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:butters"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "tradicional"
+              ],
+              "labelFilters": [
+                "tradicional"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "product_only",
+          "test_query": "mantequilla tradicional"
+        },
+        "main_pipeline_brand_variant": {
+          "product_id": "central_lechera_mantequilla",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150443074,
+          "end_time": 1758150446076,
+          "duration_ms": 3002,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "central lechera tradicional",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:milks"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "tradicional"
+              ],
+              "labelFilters": [
+                "tradicional"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "brand_variant",
+          "test_query": "Central Lechera tradicional"
+        },
+        "product_only_brand_variant": {
+          "product_id": "central_lechera_mantequilla",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150446076,
+          "end_time": 1758150446878,
+          "duration_ms": 802,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "central lechera tradicional",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:milks"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "tradicional"
+              ],
+              "labelFilters": [
+                "tradicional"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "brand_variant",
+          "test_query": "Central Lechera tradicional"
+        },
+        "main_pipeline_english_variant": {
+          "product_id": "central_lechera_mantequilla",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150446878,
+          "end_time": 1758150449883,
+          "duration_ms": 3005,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "mantequilla traditional",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:butters"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "tradicional"
+              ],
+              "labelFilters": [
+                "tradicional"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "english_variant",
+          "test_query": "mantequilla traditional"
+        },
+        "product_only_english_variant": {
+          "product_id": "central_lechera_mantequilla",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150449883,
+          "end_time": 1758150450685,
+          "duration_ms": 802,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "mantequilla traditional",
+              "brand": "Central Lechera Asturiana",
+              "categoryTags": [
+                "en:butters"
+              ],
+              "negativeCategoryTags": [
+                "en:plant-based-milk-alternatives"
+              ],
+              "variantTokens": [
+                "tradicional"
+              ],
+              "labelFilters": [
+                "tradicional"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "english_variant",
+          "test_query": "mantequilla traditional"
+        }
+      },
+      "analysis": {
+        "product_id": "central_lechera_mantequilla",
+        "product_name": "mantequilla tradicional",
+        "brand": "Central Lechera Asturiana",
+        "category": "dairy",
+        "strategies_tested": 10,
+        "strategies_with_results": 0,
+        "strategies_with_errors": 0,
+        "strategies_timed_out": 0,
+        "total_unique_products": 0,
+        "brand_matches": 0,
+        "category_matches": 0,
+        "best_strategy": null,
+        "best_score": 0,
+        "recommendations": [
+          "No strategies returned results - check product data or API availability"
+        ]
+      }
+    },
+    {
+      "product": {
+        "id": "coca_cola_original",
+        "category": "beverages",
+        "brand": "Coca-Cola",
+        "product_name": "cola",
+        "clean_name": "cola",
+        "required_tokens": [],
+        "canonical_category": "beverage",
+        "expected_lucene": "brands:\"coca cola\"^4 AND product_name:\"coca cola\"~3",
+        "variations": [
+          {
+            "query": "Coca-Cola",
+            "strategy": "brand_hyphenated"
+          },
+          {
+            "query": "Coca Cola",
+            "strategy": "brand_spaces"
+          },
+          {
+            "query": "coca cola original",
+            "strategy": "brand_variant"
+          },
+          {
+            "query": "cocacola",
+            "strategy": "brand_collapsed"
+          },
+          {
+            "query": "cola",
+            "strategy": "product_only"
+          }
+        ],
+        "expected_brands": [
+          "coca-cola"
+        ],
+        "expected_categories": [
+          "en:sodas",
+          "en:cola-sodas"
+        ],
+        "known_issues": [
+          "hyphen vs space normalization"
+        ]
+      },
+      "results": {
+        "main_pipeline_brand_hyphenated": {
+          "product_id": "coca_cola_original",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150450686,
+          "end_time": 1758150453687,
+          "duration_ms": 3001,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "coca cola",
+              "brand": "Coca-Cola",
+              "categoryTags": [
+                "en:beverages",
+                "en:sodas"
+              ],
+              "negativeCategoryTags": [],
+              "variantTokens": [],
+              "labelFilters": []
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "brand_hyphenated",
+          "test_query": "Coca-Cola"
+        },
+        "product_only_brand_hyphenated": {
+          "product_id": "coca_cola_original",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150453688,
+          "end_time": 1758150454490,
+          "duration_ms": 802,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "coca cola",
+              "brand": "Coca-Cola",
+              "categoryTags": [
+                "en:beverages",
+                "en:sodas"
+              ],
+              "negativeCategoryTags": [],
+              "variantTokens": [],
+              "labelFilters": []
+            },
+            "source": "product_only"
+          },
+          "variation": "brand_hyphenated",
+          "test_query": "Coca-Cola"
+        },
+        "main_pipeline_brand_spaces": {
+          "product_id": "coca_cola_original",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150454490,
+          "end_time": 1758150457494,
+          "duration_ms": 3004,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "coca cola",
+              "brand": "Coca-Cola",
+              "categoryTags": [
+                "en:beverages",
+                "en:sodas"
+              ],
+              "negativeCategoryTags": [],
+              "variantTokens": [],
+              "labelFilters": []
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "brand_spaces",
+          "test_query": "Coca Cola"
+        },
+        "product_only_brand_spaces": {
+          "product_id": "coca_cola_original",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150457494,
+          "end_time": 1758150458296,
+          "duration_ms": 802,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "coca cola",
+              "brand": "Coca-Cola",
+              "categoryTags": [
+                "en:beverages",
+                "en:sodas"
+              ],
+              "negativeCategoryTags": [],
+              "variantTokens": [],
+              "labelFilters": []
+            },
+            "source": "product_only"
+          },
+          "variation": "brand_spaces",
+          "test_query": "Coca Cola"
+        },
+        "main_pipeline_brand_variant": {
+          "product_id": "coca_cola_original",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150458296,
+          "end_time": 1758150461297,
+          "duration_ms": 3001,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "coca cola original",
+              "brand": "Coca-Cola",
+              "categoryTags": [
+                "en:beverages",
+                "en:sodas"
+              ],
+              "negativeCategoryTags": [],
+              "variantTokens": [],
+              "labelFilters": []
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "brand_variant",
+          "test_query": "coca cola original"
+        },
+        "product_only_brand_variant": {
+          "product_id": "coca_cola_original",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150461297,
+          "end_time": 1758150462099,
+          "duration_ms": 802,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "coca cola original",
+              "brand": "Coca-Cola",
+              "categoryTags": [
+                "en:beverages",
+                "en:sodas"
+              ],
+              "negativeCategoryTags": [],
+              "variantTokens": [],
+              "labelFilters": []
+            },
+            "source": "product_only"
+          },
+          "variation": "brand_variant",
+          "test_query": "coca cola original"
+        },
+        "main_pipeline_brand_collapsed": {
+          "product_id": "coca_cola_original",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150462099,
+          "end_time": 1758150465103,
+          "duration_ms": 3004,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "cocacola",
+              "brand": "Coca-Cola",
+              "categoryTags": [
+                "en:beverages",
+                "en:sodas"
+              ],
+              "negativeCategoryTags": [],
+              "variantTokens": [],
+              "labelFilters": []
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "brand_collapsed",
+          "test_query": "cocacola"
+        },
+        "product_only_brand_collapsed": {
+          "product_id": "coca_cola_original",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150465103,
+          "end_time": 1758150465905,
+          "duration_ms": 802,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "cocacola",
+              "brand": "Coca-Cola",
+              "categoryTags": [
+                "en:beverages",
+                "en:sodas"
+              ],
+              "negativeCategoryTags": [],
+              "variantTokens": [],
+              "labelFilters": []
+            },
+            "source": "product_only"
+          },
+          "variation": "brand_collapsed",
+          "test_query": "cocacola"
+        },
+        "main_pipeline_product_only": {
+          "product_id": "coca_cola_original",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150465905,
+          "end_time": 1758150468909,
+          "duration_ms": 3004,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "cola",
+              "brand": "Coca-Cola",
+              "categoryTags": [
+                "en:beverages",
+                "en:sodas"
+              ],
+              "negativeCategoryTags": [],
+              "variantTokens": [],
+              "labelFilters": []
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "product_only",
+          "test_query": "cola"
+        },
+        "product_only_product_only": {
+          "product_id": "coca_cola_original",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150468909,
+          "end_time": 1758150469711,
+          "duration_ms": 802,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "cola",
+              "brand": "Coca-Cola",
+              "categoryTags": [
+                "en:beverages",
+                "en:sodas"
+              ],
+              "negativeCategoryTags": [],
+              "variantTokens": [],
+              "labelFilters": []
+            },
+            "source": "product_only"
+          },
+          "variation": "product_only",
+          "test_query": "cola"
+        }
+      },
+      "analysis": {
+        "product_id": "coca_cola_original",
+        "product_name": "cola",
+        "brand": "Coca-Cola",
+        "category": "beverages",
+        "strategies_tested": 10,
+        "strategies_with_results": 0,
+        "strategies_with_errors": 0,
+        "strategies_timed_out": 0,
+        "total_unique_products": 0,
+        "brand_matches": 0,
+        "category_matches": 0,
+        "best_strategy": null,
+        "best_score": 0,
+        "recommendations": [
+          "No strategies returned results - check product data or API availability"
+        ]
+      }
+    },
+    {
+      "product": {
+        "id": "pepsi_zero",
+        "category": "beverages",
+        "brand": "Pepsi",
+        "product_name": "cola zero",
+        "clean_name": "cola",
+        "required_tokens": [
+          "zero"
+        ],
+        "canonical_category": "beverage",
+        "expected_lucene": "brands:\"pepsi\"^4 AND categories_tags:\"en:carbonated-drinks\" AND (product_name:(zero) OR labels_tags:(\"en:zero\" \"es:zero\"))",
+        "variations": [
+          {
+            "query": "Pepsi Zero",
+            "strategy": "brand_variant"
+          },
+          {
+            "query": "pepsi zero sugar",
+            "strategy": "brand_extended_variant"
+          },
+          {
+            "query": "Pepsi Zero Sugar",
+            "strategy": "brand_full_variant"
+          },
+          {
+            "query": "pepsi 0",
+            "strategy": "numeric_variant"
+          },
+          {
+            "query": "zero cola",
+            "strategy": "variant_product"
+          }
+        ],
+        "expected_brands": [
+          "pepsi"
+        ],
+        "expected_categories": [
+          "en:sodas",
+          "en:cola-sodas"
+        ],
+        "known_issues": [
+          "zero vs 0 variant matching"
+        ]
+      },
+      "results": {
+        "main_pipeline_brand_variant": {
+          "product_id": "pepsi_zero",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150469711,
+          "end_time": 1758150472712,
+          "duration_ms": 3001,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "pepsi zero",
+              "brand": "Pepsi",
+              "categoryTags": [
+                "en:beverages",
+                "en:sodas"
+              ],
+              "negativeCategoryTags": [],
+              "variantTokens": [
+                "zero"
+              ],
+              "labelFilters": [
+                "zero"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "brand_variant",
+          "test_query": "Pepsi Zero"
+        },
+        "product_only_brand_variant": {
+          "product_id": "pepsi_zero",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150472712,
+          "end_time": 1758150473514,
+          "duration_ms": 802,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "pepsi zero",
+              "brand": "Pepsi",
+              "categoryTags": [
+                "en:beverages",
+                "en:sodas"
+              ],
+              "negativeCategoryTags": [],
+              "variantTokens": [
+                "zero"
+              ],
+              "labelFilters": [
+                "zero"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "brand_variant",
+          "test_query": "Pepsi Zero"
+        },
+        "main_pipeline_brand_extended_variant": {
+          "product_id": "pepsi_zero",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150473514,
+          "end_time": 1758150476516,
+          "duration_ms": 3002,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "pepsi zero sugar",
+              "brand": "Pepsi",
+              "categoryTags": [
+                "en:beverages",
+                "en:sodas"
+              ],
+              "negativeCategoryTags": [],
+              "variantTokens": [
+                "zero"
+              ],
+              "labelFilters": [
+                "zero"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "brand_extended_variant",
+          "test_query": "pepsi zero sugar"
+        },
+        "product_only_brand_extended_variant": {
+          "product_id": "pepsi_zero",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150476517,
+          "end_time": 1758150477320,
+          "duration_ms": 803,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "pepsi zero sugar",
+              "brand": "Pepsi",
+              "categoryTags": [
+                "en:beverages",
+                "en:sodas"
+              ],
+              "negativeCategoryTags": [],
+              "variantTokens": [
+                "zero"
+              ],
+              "labelFilters": [
+                "zero"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "brand_extended_variant",
+          "test_query": "pepsi zero sugar"
+        },
+        "main_pipeline_brand_full_variant": {
+          "product_id": "pepsi_zero",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150477320,
+          "end_time": 1758150480322,
+          "duration_ms": 3002,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "pepsi zero sugar",
+              "brand": "Pepsi",
+              "categoryTags": [
+                "en:beverages",
+                "en:sodas"
+              ],
+              "negativeCategoryTags": [],
+              "variantTokens": [
+                "zero"
+              ],
+              "labelFilters": [
+                "zero"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "brand_full_variant",
+          "test_query": "Pepsi Zero Sugar"
+        },
+        "product_only_brand_full_variant": {
+          "product_id": "pepsi_zero",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150480322,
+          "end_time": 1758150481123,
+          "duration_ms": 801,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "pepsi zero sugar",
+              "brand": "Pepsi",
+              "categoryTags": [
+                "en:beverages",
+                "en:sodas"
+              ],
+              "negativeCategoryTags": [],
+              "variantTokens": [
+                "zero"
+              ],
+              "labelFilters": [
+                "zero"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "brand_full_variant",
+          "test_query": "Pepsi Zero Sugar"
+        },
+        "main_pipeline_numeric_variant": {
+          "product_id": "pepsi_zero",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150481124,
+          "end_time": 1758150484127,
+          "duration_ms": 3003,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "pepsi 0",
+              "brand": "Pepsi",
+              "categoryTags": [
+                "en:beverages",
+                "en:sodas"
+              ],
+              "negativeCategoryTags": [],
+              "variantTokens": [
+                "zero"
+              ],
+              "labelFilters": [
+                "zero"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "numeric_variant",
+          "test_query": "pepsi 0"
+        },
+        "product_only_numeric_variant": {
+          "product_id": "pepsi_zero",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150484127,
+          "end_time": 1758150484929,
+          "duration_ms": 802,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "pepsi 0",
+              "brand": "Pepsi",
+              "categoryTags": [
+                "en:beverages",
+                "en:sodas"
+              ],
+              "negativeCategoryTags": [],
+              "variantTokens": [
+                "zero"
+              ],
+              "labelFilters": [
+                "zero"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "numeric_variant",
+          "test_query": "pepsi 0"
+        },
+        "main_pipeline_variant_product": {
+          "product_id": "pepsi_zero",
+          "strategy": "main_pipeline",
+          "status": "success",
+          "start_time": 1758150484929,
+          "end_time": 1758150487931,
+          "duration_ms": 3002,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "zero cola",
+              "brand": "Pepsi",
+              "categoryTags": [
+                "en:beverages",
+                "en:sodas"
+              ],
+              "negativeCategoryTags": [],
+              "variantTokens": [
+                "zero"
+              ],
+              "labelFilters": [
+                "zero"
+              ]
+            },
+            "source": "main_pipeline"
+          },
+          "variation": "variant_product",
+          "test_query": "zero cola"
+        },
+        "product_only_variant_product": {
+          "product_id": "pepsi_zero",
+          "strategy": "product_only",
+          "status": "success",
+          "start_time": 1758150487931,
+          "end_time": 1758150488735,
+          "duration_ms": 804,
+          "error": null,
+          "products": [],
+          "count": 0,
+          "top_results": [],
+          "metadata": {
+            "query": {
+              "term": "zero cola",
+              "brand": "Pepsi",
+              "categoryTags": [
+                "en:beverages",
+                "en:sodas"
+              ],
+              "negativeCategoryTags": [],
+              "variantTokens": [
+                "zero"
+              ],
+              "labelFilters": [
+                "zero"
+              ]
+            },
+            "source": "product_only"
+          },
+          "variation": "variant_product",
+          "test_query": "zero cola"
+        }
+      },
+      "analysis": {
+        "product_id": "pepsi_zero",
+        "product_name": "cola zero",
+        "brand": "Pepsi",
+        "category": "beverages",
+        "strategies_tested": 10,
+        "strategies_with_results": 0,
+        "strategies_with_errors": 0,
+        "strategies_timed_out": 0,
+        "total_unique_products": 0,
+        "brand_matches": 0,
+        "category_matches": 0,
+        "best_strategy": null,
+        "best_score": 0,
+        "recommendations": [
+          "No strategies returned results - check product data or API availability"
+        ]
+      }
+    }
+  ],
+  "summary": {
+    "total_products": 5,
+    "total_tests": 54,
+    "successful_tests": 54,
+    "failed_tests": 0,
+    "timeout_tests": 0,
+    "total_duration_ms": 102729,
+    "strategies_performance": {
+      "main_pipeline_brand_product": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 3003,
+        "avg_results": 0,
+        "total_duration": 3003,
+        "total_results": 0
+      },
+      "product_only_brand_product": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 802,
+        "avg_results": 0,
+        "total_duration": 802,
+        "total_results": 0
+      },
+      "main_pipeline_brand_spanish": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 3002,
+        "avg_results": 0,
+        "total_duration": 3002,
+        "total_results": 0
+      },
+      "product_only_brand_spanish": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 802,
+        "avg_results": 0,
+        "total_duration": 802,
+        "total_results": 0
+      },
+      "main_pipeline_brand_full_name": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 3003,
+        "avg_results": 0,
+        "total_duration": 3003,
+        "total_results": 0
+      },
+      "product_only_brand_full_name": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 802,
+        "avg_results": 0,
+        "total_duration": 802,
+        "total_results": 0
+      },
+      "main_pipeline_product_only": {
+        "total": 4,
+        "success": 4,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 3003,
+        "avg_results": 0,
+        "total_duration": 12010,
+        "total_results": 0
+      },
+      "product_only_product_only": {
+        "total": 4,
+        "success": 4,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 802,
+        "avg_results": 0,
+        "total_duration": 3207,
+        "total_results": 0
+      },
+      "main_pipeline_brand_only": {
+        "total": 2,
+        "success": 2,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 3003,
+        "avg_results": 0,
+        "total_duration": 6005,
+        "total_results": 0
+      },
+      "product_only_brand_only": {
+        "total": 2,
+        "success": 2,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 802,
+        "avg_results": 0,
+        "total_duration": 1604,
+        "total_results": 0
+      },
+      "main_pipeline_brand_variant": {
+        "total": 4,
+        "success": 4,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 3002,
+        "avg_results": 0,
+        "total_duration": 12006,
+        "total_results": 0
+      },
+      "product_only_brand_variant": {
+        "total": 4,
+        "success": 4,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 802,
+        "avg_results": 0,
+        "total_duration": 3208,
+        "total_results": 0
+      },
+      "main_pipeline_full_brand_product": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 3002,
+        "avg_results": 0,
+        "total_duration": 3002,
+        "total_results": 0
+      },
+      "product_only_full_brand_product": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 801,
+        "avg_results": 0,
+        "total_duration": 801,
+        "total_results": 0
+      },
+      "main_pipeline_short_brand": {
+        "total": 2,
+        "success": 2,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 3003,
+        "avg_results": 0,
+        "total_duration": 6005,
+        "total_results": 0
+      },
+      "product_only_short_brand": {
+        "total": 2,
+        "success": 2,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 804,
+        "avg_results": 0,
+        "total_duration": 1607,
+        "total_results": 0
+      },
+      "main_pipeline_compound_variant": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 3002,
+        "avg_results": 0,
+        "total_duration": 3002,
+        "total_results": 0
+      },
+      "product_only_compound_variant": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 801,
+        "avg_results": 0,
+        "total_duration": 801,
+        "total_results": 0
+      },
+      "main_pipeline_hyphenated": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 3002,
+        "avg_results": 0,
+        "total_duration": 3002,
+        "total_results": 0
+      },
+      "product_only_hyphenated": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 801,
+        "avg_results": 0,
+        "total_duration": 801,
+        "total_results": 0
+      },
+      "main_pipeline_full_name": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 3002,
+        "avg_results": 0,
+        "total_duration": 3002,
+        "total_results": 0
+      },
+      "product_only_full_name": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 802,
+        "avg_results": 0,
+        "total_duration": 802,
+        "total_results": 0
+      },
+      "main_pipeline_english_variant": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 3005,
+        "avg_results": 0,
+        "total_duration": 3005,
+        "total_results": 0
+      },
+      "product_only_english_variant": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 802,
+        "avg_results": 0,
+        "total_duration": 802,
+        "total_results": 0
+      },
+      "main_pipeline_brand_hyphenated": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 3001,
+        "avg_results": 0,
+        "total_duration": 3001,
+        "total_results": 0
+      },
+      "product_only_brand_hyphenated": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 802,
+        "avg_results": 0,
+        "total_duration": 802,
+        "total_results": 0
+      },
+      "main_pipeline_brand_spaces": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 3004,
+        "avg_results": 0,
+        "total_duration": 3004,
+        "total_results": 0
+      },
+      "product_only_brand_spaces": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 802,
+        "avg_results": 0,
+        "total_duration": 802,
+        "total_results": 0
+      },
+      "main_pipeline_brand_collapsed": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 3004,
+        "avg_results": 0,
+        "total_duration": 3004,
+        "total_results": 0
+      },
+      "product_only_brand_collapsed": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 802,
+        "avg_results": 0,
+        "total_duration": 802,
+        "total_results": 0
+      },
+      "main_pipeline_brand_extended_variant": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 3002,
+        "avg_results": 0,
+        "total_duration": 3002,
+        "total_results": 0
+      },
+      "product_only_brand_extended_variant": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 803,
+        "avg_results": 0,
+        "total_duration": 803,
+        "total_results": 0
+      },
+      "main_pipeline_brand_full_variant": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 3002,
+        "avg_results": 0,
+        "total_duration": 3002,
+        "total_results": 0
+      },
+      "product_only_brand_full_variant": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 801,
+        "avg_results": 0,
+        "total_duration": 801,
+        "total_results": 0
+      },
+      "main_pipeline_numeric_variant": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 3003,
+        "avg_results": 0,
+        "total_duration": 3003,
+        "total_results": 0
+      },
+      "product_only_numeric_variant": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 802,
+        "avg_results": 0,
+        "total_duration": 802,
+        "total_results": 0
+      },
+      "main_pipeline_variant_product": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 3002,
+        "avg_results": 0,
+        "total_duration": 3002,
+        "total_results": 0
+      },
+      "product_only_variant_product": {
+        "total": 1,
+        "success": 1,
+        "timeout": 0,
+        "error": 0,
+        "avg_duration_ms": 804,
+        "avg_results": 0,
+        "total_duration": 804,
+        "total_results": 0
+      }
+    },
+    "category_performance": {
+      "dairy": {
+        "total_products": 3,
+        "avg_brand_matches": 0,
+        "avg_results_per_strategy": 0,
+        "best_strategies": []
+      },
+      "beverages": {
+        "total_products": 2,
+        "avg_brand_matches": 0,
+        "avg_results_per_strategy": 0,
+        "best_strategies": []
+      }
+    },
+    "issues_found": []
+  }
+}

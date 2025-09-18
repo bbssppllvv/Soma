@@ -1,0 +1,43 @@
+{
+  "endpoints": {
+    "sal": {
+      "total": 59,
+      "success": 0,
+      "errors": {},
+      "avgDuration": 2983.3728813559323,
+      "patterns": {},
+      "successRate": 0
+    },
+    "v2": {
+      "total": 0,
+      "success": 0,
+      "errors": {},
+      "avgDuration": 0,
+      "patterns": {},
+      "successRate": 0
+    },
+    "legacy": {
+      "total": 0,
+      "success": 0,
+      "errors": {},
+      "avgDuration": 0,
+      "patterns": {},
+      "successRate": 0
+    }
+  },
+  "queryPatterns": {},
+  "brandBehavior": {},
+  "categoryBehavior": {},
+  "timeoutAnalysis": {},
+  "rateLimit": {
+    "frequency": 0,
+    "triggers": [],
+    "patterns": [],
+    "avgTriggerTime": 0
+  },
+  "luceneQueries": {
+    "successful": [],
+    "failed": [],
+    "patterns": {}
+  }
+}

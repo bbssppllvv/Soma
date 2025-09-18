@@ -182,15 +182,36 @@ function buildFallbackNameClause(term) {
   return `product_name:${makeTerm(term, { proximity: 3 })}`;
 }
 
-function normalizeBrandForSearch(value) {
+export function normalizeBrandForSearch(value) {
   if (!value) return '';
-  return value
-    .replace(/&/g, 'and')
-    .replace(/'/g, '')
-    .replace(/-/g, ' ')
-    .replace(/\s+/g, ' ')
+  
+  // MINIMAL NORMALIZATION based on A/B test results
+  // API handles &, ', -, dots, numbers well - don't over-normalize!
+  
+  const normalized = value
+    .toString()
+    .toLowerCase()
     .trim()
-    .toLowerCase();
+    .normalize('NFKD') // Handle accents: Häagen-Dazs → haagen-dazs
+    .replace(/\p{M}/gu, '') // Remove combining marks
+    .replace(/\s+/g, ' '); // Multiple spaces to single
+
+  // Only remove single character tokens (main issue: "Ben & Jerry's" → "ben jerry s")
+  const tokens = normalized.split(' ')
+    .filter(Boolean)
+    .filter(token => token.length > 1); // Remove single chars like "s"
+
+  // Special case: if all original tokens were single chars, join them
+  // Example: "M&M's" → "m" "m" "s" → "mms"
+  if (tokens.length === 0) {
+    const allTokens = normalized.split(' ').filter(Boolean);
+    if (allTokens.length > 1 && allTokens.every(t => t.length === 1)) {
+      return allTokens.join('');
+    }
+    return value.toLowerCase(); // Return original if normalization failed
+  }
+
+  return tokens.join(' ');
 }
 
 function buildLuceneQuery({ term, brand, primaryCategory = null, excludeCategories = [], variantTokens = [] }) {
@@ -220,8 +241,17 @@ function buildLuceneQuery({ term, brand, primaryCategory = null, excludeCategori
     searchTerms.push(...variantTokens);
   }
   
-  const finalQuery = searchTerms.filter(Boolean).join(' ');
-  console.log(`[OFF] Simple query (no Lucene): "${finalQuery}"`);
+  // IMPROVEMENT: Deduplicate terms to avoid redundancy
+  const allWords = searchTerms
+    .filter(Boolean)
+    .join(' ')
+    .split(' ')
+    .filter(Boolean);
+  
+  const uniqueWords = [...new Set(allWords)]; // Remove duplicates
+  const finalQuery = uniqueWords.join(' ');
+  
+  console.log(`[OFF] Deduplicated query: "${finalQuery}" (from ${allWords.length} → ${uniqueWords.length} words)`);
   return finalQuery;
 }
 
@@ -278,17 +308,23 @@ function buildSearchQueries(cleanQuery, brand) {
 
 function toBrandSlug(value) {
   if (!value) return '';
-  return value
-    .toString()
-    .toLowerCase()
-    // Normalize special characters that cause issues
-    .replace(/&/g, 'and')           // M&M's → mandms  
-    .replace(/'/g, '')              // Ben & Jerry's → ben jerrys
-    .replace(/-/g, ' ')             // Häagen-Dazs → haagen dazs
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ') // Remove other special chars
-    .replace(/\s+/g, '-')           // spaces → hyphens
-    .replace(/^-+|-+$/g, '')        // trim hyphens
+  const lower = value.toString().toLowerCase();
+  const normalized = lower
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .replace(/&/g, ' ')
+    .replace(/["'’‘`´]/g, '')
+    .replace(/[_]/g, ' ')
+    .replace(/[^a-z0-9\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
+
+  if (!normalized) return '';
+
+  return normalized
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 function collectVariantLabelFilters(tokens = []) {

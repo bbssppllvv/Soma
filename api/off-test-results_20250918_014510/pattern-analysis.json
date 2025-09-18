@@ -1,0 +1,93 @@
+{
+  "timestamp": "2025-09-17T23:50:03.391Z",
+  "summary": {
+    "totalProducts": 11,
+    "totalTests": 236,
+    "analysisCategories": [
+      "brand_normalization",
+      "timeouts",
+      "lucene_effectiveness",
+      "success_patterns"
+    ]
+  },
+  "brandNormalization": {
+    "totalBrands": 10,
+    "problematicBrands": 5,
+    "commonIssues": [
+      {
+        "issue": "Brand not found in results for variation: pipeline",
+        "count": 3
+      },
+      {
+        "issue": "Multi-word brand - potential token fragmentation",
+        "count": 3
+      },
+      {
+        "issue": "Contains ampersand - potential special char issue",
+        "count": 2
+      },
+      {
+        "issue": "Contains apostrophe - potential normalization issue",
+        "count": 2
+      },
+      {
+        "issue": "Contains hyphen - space vs hyphen normalization",
+        "count": 1
+      }
+    ]
+  },
+  "timeoutPatterns": {
+    "totalTimeouts": 0,
+    "worstStrategies": [],
+    "problematicCategories": []
+  },
+  "luceneEffectiveness": {
+    "totalQueries": 1,
+    "mostEffectiveStructures": [
+      {
+        "structure": "",
+        "successRate": "100.0",
+        "avgResults": "9166.4"
+      }
+    ]
+  },
+  "successPatterns": {
+    "bestStrategies": [
+      {
+        "name": "main",
+        "successRate": "52.5",
+        "avgDuration": 2153
+      },
+      {
+        "name": "brand",
+        "successRate": "0.0",
+        "avgDuration": 1002
+      },
+      {
+        "name": "product",
+        "successRate": "0.0",
+        "avgDuration": 802
+      }
+    ]
+  },
+  "recommendations": [
+    {
+      "category": "Brand Normalization",
+      "priority": "HIGH",
+      "issue": "5 brands have normalization issues",
+      "solution": "Implement consistent brand normalization rules for special characters (&, ', -)",
+      "examples": [
+        "Central Lechera Asturiana",
+        "Coca-Cola",
+        "M&M's"
+      ]
+    },
+    {
+      "category": "Strategy Optimization",
+      "priority": "LOW",
+      "issue": "Uneven strategy performance",
+      "solution": "Consider prioritizing main strategy (52.5% success rate)",
+      "details": "Average 9166.4 results in 2153ms"
+    }
+  ]
+}

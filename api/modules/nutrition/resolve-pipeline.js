@@ -386,7 +386,16 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
 
   // De-duplicate by canonical name among candidates
   const groups = new Map(); // canonical -> [items]
-  for (const it of candidates.filter(it => (it.confidence ?? 0) >= 0.4).slice(0, 6)) {
+  const prioritizedCandidates = candidates
+    .filter(it => {
+      const confidence = Number.isFinite(it.confidence) ? it.confidence : 0;
+      if (confidence >= 0.4) return true;
+      const hasBrandSignal = Boolean(it.brand || it.brand_normalized || it.upc);
+      return hasBrandSignal && confidence >= 0.15;
+    })
+    .slice(0, 6);
+
+  for (const it of prioritizedCandidates) {
     const key = canonicalizeQuery(it.name);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(it);

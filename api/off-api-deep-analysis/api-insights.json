@@ -1,0 +1,87 @@
+{
+  "summary": {
+    "totalTests": 236,
+    "totalProducts": 11,
+    "overallSuccessRate": 0
+  },
+  "endpointComparison": {
+    "sal": {
+      "successRate": "0.0%",
+      "avgDuration": "2983ms",
+      "totalTests": 59,
+      "mainErrors": []
+    }
+  },
+  "criticalFindings": [],
+  "recommendations": [
+    "Improve brand normalization for special characters"
+  ],
+  "queryOptimization": {
+    "bestPatterns": []
+  },
+  "brandSpecificIssues": {
+    "Philadelphia": {
+      "successRate": "0.0%",
+      "issues": [],
+      "commonErrors": []
+    },
+    "Central Lechera Asturiana": {
+      "successRate": "0.0%",
+      "issues": [
+        "multi_word",
+        "multi_word"
+      ],
+      "commonErrors": []
+    },
+    "Coca-Cola": {
+      "successRate": "0.0%",
+      "issues": [
+        "special_characters"
+      ],
+      "commonErrors": []
+    },
+    "Pepsi": {
+      "successRate": "0.0%",
+      "issues": [],
+      "commonErrors": []
+    },
+    "M&M's": {
+      "successRate": "0.0%",
+      "issues": [
+        "special_characters"
+      ],
+      "commonErrors": []
+    },
+    "KitKat": {
+      "successRate": "0.0%",
+      "issues": [],
+      "commonErrors": []
+    },
+    "Alpro": {
+      "successRate": "0.0%",
+      "issues": [],
+      "commonErrors": []
+    },
+    "Oatly": {
+      "successRate": "0.0%",
+      "issues": [],
+      "commonErrors": []
+    },
+    "Ben & Jerry's": {
+      "successRate": "0.0%",
+      "issues": [
+        "special_characters",
+        "multi_word"
+      ],
+      "commonErrors": []
+    },
+    "Very Long Brand Name That Might Cause Issues": {
+      "successRate": "0.0%",
+      "issues": [
+        "multi_word"
+      ],
+      "commonErrors": []
+    }
+  },
+  "apiLimitations": []
+}

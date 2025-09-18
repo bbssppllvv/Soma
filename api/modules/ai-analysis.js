@@ -389,9 +389,11 @@ function normalizeAnalysisPayload(parsed, { messageText = '' } = {}) {
   const enrichedItems = rawItems.map(item => {
     const role = item?.item_role === 'dish' ? 'dish' : 'ingredient';
     const rawUnit = typeof item?.unit === 'string' ? item.unit.trim() : '';
-    const brand = typeof item?.brand === 'string' ? item.brand.trim() : '';
+    const rawBrand = typeof item?.brand === 'string' ? item.brand.trim() : '';
+    const normalizedBrand = typeof item?.brand_normalized === 'string' ? item.brand_normalized.trim() : '';
+    const brand = rawBrand || normalizedBrand || '';
     const upc = typeof item?.upc === 'string' ? item.upc.trim() : '';
-    const offCandidate = Boolean(brand || upc);
+    const offCandidate = Boolean(brand || normalizedBrand || upc);
     const name = item?.name || 'Unknown';
     const portionGrams = toGrams(item.portion, item.unit, item.name, item);
     let portionSource = hasUserText ? 'user' : 'ai';
