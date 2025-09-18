@@ -241,18 +241,26 @@ function buildLuceneQuery({ term, brand, primaryCategory = null, excludeCategori
     searchTerms.push(...variantTokens);
   }
   
-  // IMPROVEMENT: Deduplicate and prioritize important terms
+  // CRITICAL FIX: Smart deduplication and word prioritization
   const allWords = searchTerms
     .filter(Boolean)
     .join(' ')
     .split(' ')
-    .filter(Boolean);
+    .filter(Boolean)
+    .map(word => word.toLowerCase().trim()); // Normalize for comparison
   
-  const uniqueWords = [...new Set(allWords)]; // Remove duplicates
+  // Remove duplicates while preserving order (first occurrence wins)
+  const uniqueWords = [];
+  const seen = new Set();
+  for (const word of allWords) {
+    if (!seen.has(word) && word.length > 0) {
+      uniqueWords.push(word);
+      seen.add(word);
+    }
+  }
   
-  // CRITICAL: For better matching, prioritize brand + key terms only
-  // Too many words can dilute search relevance
-  const prioritizedWords = uniqueWords.slice(0, 4); // Limit to 4 most important words
+  // CRITICAL: Limit to 4 most important words to prevent query dilution
+  const prioritizedWords = uniqueWords.slice(0, 4);
   const finalQuery = prioritizedWords.join(' ');
   
   console.log(`[OFF] Optimized query: "${finalQuery}" (from ${allWords.length} → ${prioritizedWords.length} words)`);
@@ -348,6 +356,14 @@ async function runSearchV3(term, { signal, locale, categoryTags = [], negativeCa
     return null;
   }
 
+  // UNIVERSAL: Check cache first to prevent duplicate API calls
+  const cacheKey = JSON.stringify({ term: queryTerm, locale, categoryTags, negativeCategoryTags, brandFilter, variantTokens });
+  const cachedResult = getCachedResult(cacheKey);
+  if (cachedResult) {
+    console.log(`[OFF] Using cached result for query: "${queryTerm}"`);
+    return cachedResult;
+  }
+
   await acquireSearchToken(signal);
 
   const primaryCategory = Array.isArray(categoryTags) ? categoryTags[0] : categoryTags;
@@ -407,13 +423,18 @@ async function runSearchV3(term, { signal, locale, categoryTags = [], negativeCa
 
     emitMetric('off_fallback_step_used', { step: 'sal', hits: products.length });
 
-    return {
+    const result = {
       count,
       products,
       query_term: queryTerm,
       brand_filter: brandFilter,
       lucene_q: luceneQuery
     };
+    
+    // UNIVERSAL: Cache successful results to prevent duplicate API calls
+    setCachedResult(cacheKey, result);
+    
+    return result;
   } catch (error) {
     console.log(`[OFF] search v3 POST error q="${luceneQuery}" term="${queryTerm || '∅'}" brand="${brandFilter || 'none'}"`, {
       status: error?.status || null,
@@ -751,6 +772,35 @@ function cacheKey(url){ return `off:${url}`; }
 
 let searchTokens = SEARCH_BUCKET_CAPACITY;
 let lastRefillTs = Date.now();
+
+// UNIVERSAL: Query result cache to prevent duplicate API calls
+const queryCache = new Map();
+const CACHE_TTL_MS = 60000; // 1 minute cache
+
+function getCachedResult(queryKey) {
+  const cached = queryCache.get(queryKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.result;
+  }
+  return null;
+}
+
+function setCachedResult(queryKey, result) {
+  queryCache.set(queryKey, {
+    result: result,
+    timestamp: Date.now()
+  });
+  
+  // Clean old entries periodically
+  if (queryCache.size > 100) {
+    const now = Date.now();
+    for (const [key, value] of queryCache.entries()) {
+      if (now - value.timestamp > CACHE_TTL_MS) {
+        queryCache.delete(key);
+      }
+    }
+  }
+}
 
 function refillSearchTokens() {
   const now = Date.now();

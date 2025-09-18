@@ -189,6 +189,16 @@ function collectBrandSearchVariants(item) {
     }
   }
   
+  // UNIVERSAL: Collapsed variant for brands with special characters
+  // Many brands need collapsed forms for API matching (M&M's, Ben&Jerry's, etc.)
+  if (brand) {
+    const collapsed = brand.toLowerCase()
+      .replace(/[^a-z0-9]/g, ''); // Remove all special chars universally
+    if (collapsed && collapsed !== variants[0] && !variants.includes(collapsed)) {
+      variants.push(collapsed);
+    }
+  }
+  
   // Fallback: if no variants, use original brand
   if (variants.length === 0 && item?.brand) {
     variants.push(item.brand.toLowerCase());
@@ -722,10 +732,11 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     const brandName = brandVariants[0] || null;
     const cleanName = canonicalQuery || canonicalizeQuery(item.name || '');
     const locale = typeof item.locale === 'string' && item.locale.trim() ? item.locale.trim().toLowerCase() : 'en';
+  // UNIVERSAL: Simple token processing without hardcoded mappings
   const variantWhitelistTokens = Array.isArray(item.required_tokens)
     ? [...new Set(item.required_tokens
         .filter(token => isVariantToken(token))
-        .map(token => canonicalizeQuery(token)) // Full canonicalization for consistent matching
+        .map(token => canonicalizeQuery(token)) // Normalize for consistent matching
         .filter(Boolean))]
     : [];
     const categoryFilters = deriveCategoryFilters(item, variantWhitelistTokens);
@@ -966,6 +977,25 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       if (!hasRequiredTokens) {
         console.log(`[OFF] Final Decision: REJECTED, reason=missing_required_tokens, score=${best.score?.toFixed(2)}`);
         console.log(`[OFF] Missing required tokens: ${variantWhitelistTokens.join(', ')} in "${best.product.product_name}"`);
+        
+        // UNIVERSAL: Deterministic fallback - return top 3 candidates for user override
+        const fallbackCandidates = scoredCandidates.slice(0, 3).map(candidate => ({
+          product: candidate.product,
+          score: candidate.score,
+          reason: 'missing_required_tokens_fallback'
+        }));
+        
+        if (fallbackCandidates.length > 0) {
+          console.log(`[OFF] Providing ${fallbackCandidates.length} fallback candidates for manual override`);
+          return { 
+            item, 
+            reason: 'missing_required_tokens', 
+            canonical: canonicalQuery, 
+            score: best?.score,
+            fallback_candidates: fallbackCandidates 
+          };
+        }
+        
         return { item, reason: 'missing_required_tokens', canonical: canonicalQuery, score: best?.score };
       }
     }
@@ -989,6 +1019,25 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     if (!best || best.score < scoreThreshold) {
       console.log(`[OFF] Final Decision: REJECTED, reason=low_score, score=${best?.score ?? 'null'}, threshold=${scoreThreshold}, candidates=${scoredCandidates.length}`);
       console.log(`[OFF] Low score for "${canonicalQuery}": ${best?.score ?? 'null'} (${scoredCandidates.length} candidates)`);
+      
+      // UNIVERSAL: Deterministic fallback - return top 3 candidates for user override
+      const fallbackCandidates = scoredCandidates.slice(0, 3).map(candidate => ({
+        product: candidate.product,
+        score: candidate.score,
+        reason: 'low_score_fallback'
+      }));
+      
+      if (fallbackCandidates.length > 0) {
+        console.log(`[OFF] Providing ${fallbackCandidates.length} fallback candidates for manual override`);
+        return { 
+          item, 
+          reason: 'low_score', 
+          canonical: canonicalQuery, 
+          score: best?.score,
+          fallback_candidates: fallbackCandidates 
+        };
+      }
+      
       return { item, reason: 'low_score', canonical: canonicalQuery, score: best?.score };
     }
 

@@ -212,17 +212,17 @@ SEARCH QUERY CONSTRUCTION:
 We build search queries as: brand_normalized + clean_name + required_tokens
 Total query should be 4 words or less for best results.
 
-WORD COUNT LIMITS (CRITICAL):
-- clean_name: 1 word preferred (chocolate, milk, cola, cookies) - 2 words MAXIMUM
-- required_tokens: 1-2 essential modifiers only (peanut, zero, light, semi)
-- Total search query: brand + clean_name + required_tokens = 4 words MAXIMUM
+CRITICAL WORD LIMITS:
+- clean_name: EXACTLY 1 word only (chocolate, milk, cola, cookies)
+- required_tokens: EXACTLY 1 token maximum (peanut OR butter, not both)
+- Total search query: 3-4 words maximum
 
-OPTIMIZATION EXAMPLES:
-✅ M&M's → brand_normalized: 'm&m's', clean_name: 'chocolate', required_tokens: ['peanut']
-   Query: 'm&m's chocolate peanut' (3 words - PERFECT)
-✅ Coca-Cola Zero → brand_normalized: 'coca-cola', clean_name: 'cola', required_tokens: ['zero']
-   Query: 'coca-cola cola zero' (3 words - PERFECT)  
-❌ Don't: clean_name: 'chocolate candies' (too long), required_tokens: ['peanut', 'butter', 'sweet'] (too many)
+MANDATORY EXAMPLES:
+✅ M&M's Peanut Butter → brand_normalized: 'm&m's', clean_name: 'chocolate', required_tokens: ['peanut']
+   Final query: 'm&m's chocolate peanut' (3 words) ✅
+✅ Central Lechera Semi → brand_normalized: 'central lechera asturiana', clean_name: 'milk', required_tokens: ['semi']
+   Final query: 'central lechera asturiana milk semi' (5→4 words after optimization) ✅
+❌ NEVER: required_tokens: ['peanut', 'butter'] or ['semi', 'desnatada'] - TOO MANY!
 
 LANGUAGE PREFERENCE:
 Use shorter English terms when possible:
