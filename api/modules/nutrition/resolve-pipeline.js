@@ -5,6 +5,19 @@ import pLimit from 'p-limit';
 
 const OFF_MAX_ITEMS = Number(process.env.OFF_MAX_ITEMS || 4);
 const REQUIRE_BRAND = String(process.env.OFF_REQUIRE_BRAND || 'false').toLowerCase() === 'true';
+const RESOLVER_CONFIDENCE_FLOOR = 0.55;
+
+function chooseConfidence(baseConfidence, resolverResult) {
+  const base = Number.isFinite(baseConfidence) ? baseConfidence : 0.6;
+  if (resolverResult && Number.isFinite(resolverResult.confidence)) {
+    return Math.max(base, resolverResult.confidence);
+  }
+  if (resolverResult && Number.isFinite(resolverResult.score)) {
+    const normalized = Math.max(RESOLVER_CONFIDENCE_FLOOR, Math.min(0.98, resolverResult.score / 500));
+    return Math.max(base, normalized);
+  }
+  return base;
+}
 
 function ensureGramsFallback(it) {
   // 100 g/ml as universal default; avoids requiring product lists or densities
@@ -470,6 +483,7 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
             const scaled = scalePerPortionOFF(result.product, grams);
             const portionFieldValue = Number.isFinite(grams) ? grams : it.portion;
             const unitFieldValue = portionUnit || it.unit || 'g';
+            const finalConfidence = chooseConfidence(it.confidence, result);
             results.push({
               ...it,
               grams,
@@ -478,7 +492,7 @@ export async function resolveItemsWithOFF(items, { signal } = {}) {
                           product: result.product }, // Include full product for health data
               nutrients: { calories: scaled.calories, protein_g: scaled.protein_g, fat_g: scaled.fat_g,
                            carbs_g: scaled.carbs_g, fiber_g: scaled.fiber_g },
-              confidence: Math.max(it.confidence ?? 0.6, result.score),
+              confidence: finalConfidence,
               needs_clarification: false,
               data_source: 'off',
               locked_source: true,

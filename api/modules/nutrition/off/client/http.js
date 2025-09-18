@@ -1,6 +1,5 @@
 import { Agent } from 'undici';
 import { HTTP_TIMEOUT_MS, USER_AGENT, DEFAULT_LANG } from './config.js';
-import { combineSignals } from './throttle.js';
 
 function buildHeaders() {
   return {
@@ -8,6 +7,17 @@ function buildHeaders() {
     'Accept': 'application/json',
     'Accept-Language': DEFAULT_LANG
   };
+}
+
+function combineSignals(signalA, signalB) {
+  if (signalA && signalB && typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function') {
+    try {
+      return AbortSignal.any([signalA, signalB]);
+    } catch {
+      // ignore and fall back to manual combination
+    }
+  }
+  return signalA || signalB || undefined;
 }
 
 export const HTTP_AGENT = new Agent({

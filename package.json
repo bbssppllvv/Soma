@@ -10,7 +10,8 @@
     "start": "node api/telegram.js",
     "logs": "node local-log-server.js",
     "logs:tunnel": "npx ngrok http 3001",
-    "watch-versailles": "node watch-versailles.js"
+    "watch-versailles": "node watch-versailles.js",
+    "watch-simple": "node simple-log-watcher.js"
   },
   "dependencies": {
     "@vercel/node": "^3.0.21",

@@ -1,63 +1,37 @@
-import { SEARCH_BASE } from './config.js';
-import { SEARCH_PAGE_SIZE, SAL_TIMEOUT_MS } from './config.js';
-import { acquireSearchToken } from './throttle.js';
+import { SAL_TIMEOUT_MS, SEARCH_BASE, SEARCH_PAGE_SIZE } from './config.js';
 import { fetchWithBackoffPost } from './http.js';
-import { buildLuceneQuery, buildLangsParam } from './queries.js';
-import { normalizeBrandForSearch } from '../brand.js';
+import { buildLangsParam } from './text.js';
 import { normalizeV3Product } from './normalizers.js';
-import { getCachedResult, setCachedResult } from './query-cache.js';
-import { emitMetric } from './metrics.js';
 
-export async function runSearchV3(term, { signal, locale, categoryTags = [], negativeCategoryTags = [], brandFilter = null, variantTokens = [] } = {}) {
-  const queryTerm = term?.trim();
-  if (!queryTerm && !brandFilter && variantTokens.length === 0) {
-    return null;
+function clampPageSize(value) {
+  const numeric = Number.isFinite(value) ? value : Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return Math.min(SEARCH_PAGE_SIZE, 50);
   }
+  return Math.max(1, Math.min(numeric, 100));
+}
 
-  const cacheKey = JSON.stringify({ term: queryTerm, locale, categoryTags, negativeCategoryTags, brandFilter, variantTokens });
-  const cachedResult = getCachedResult(cacheKey);
-  if (cachedResult) {
-    console.log(`[OFF] Using cached result for query: "${queryTerm}"`);
-    return cachedResult;
-  }
-
-  await acquireSearchToken(signal);
-
-  const primaryCategory = Array.isArray(categoryTags) ? categoryTags[0] : categoryTags;
-
-  const luceneQuery = buildLuceneQuery({
-    term: queryTerm,
-    brand: brandFilter,
-    primaryCategory,
-    excludeCategories: negativeCategoryTags,
-    variantTokens
-  });
-
-  if (!luceneQuery) {
-    return null;
+export async function runSearchV3(term, { signal, locale, brandFilter = null, pageSize = SEARCH_PAGE_SIZE, filters = {} } = {}) {
+  const queryTerm = typeof term === 'string' ? term.trim() : '';
+  if (!queryTerm) {
+    return { count: 0, products: [], query_term: '', brand_filter: brandFilter ?? null };
   }
 
   const requestBody = {
-    q: luceneQuery,
-    page_size: Math.max(1, Math.min(SEARCH_PAGE_SIZE, 50)),
+    q: queryTerm,
+    page_size: clampPageSize(pageSize),
     fields: SEARCH_V3_FIELDS,
-    langs: buildLangsParam(locale),
-    boost_phrase: true
+    boost_phrase: true,
+    ...filters
   };
 
+  const langs = buildLangsParam(locale);
+  if (langs.length > 0) {
+    requestBody.langs = langs;
+  }
+
   if (brandFilter) {
-    const normalizedBrand = normalizeBrandForSearch(brandFilter);
-    if (normalizedBrand) {
-      requestBody.brands = [normalizedBrand];
-    }
-  }
-
-  if (primaryCategory) {
-    requestBody.categories = [primaryCategory];
-  }
-
-  if (negativeCategoryTags.length > 0) {
-    requestBody.not_categories = negativeCategoryTags;
+    requestBody.brands = [brandFilter];
   }
 
   const url = `${SEARCH_BASE}/search`;
@@ -71,48 +45,29 @@ export async function runSearchV3(term, { signal, locale, categoryTags = [], neg
       retryOnServerError: false,
       logBodyOnError: true
     });
-    const duration = Date.now() - startedAt;
 
     const hits = Array.isArray(response?.hits) ? response.hits : [];
     const products = hits.map(hit => normalizeV3Product(hit, locale)).filter(Boolean);
-    const count = typeof response?.count === 'number' ? response.count : hits.length;
+    const count = typeof response?.count === 'number' ? response.count : products.length;
 
-    console.log(`[OFF] search v3 POST q="${luceneQuery}" term="${queryTerm || '∅'}" brand="${brandFilter || 'none'}" hits=${products.length}`, {
-      count,
-      ms: duration
+    console.log(`[OFF] search q="${queryTerm}" brand="${brandFilter || 'none'}" hits=${products.length}`, {
+      ms: Date.now() - startedAt
     });
 
-    emitMetric('off_fallback_step_used', { step: 'sal', hits: products.length });
-
-    const result = {
+    return {
       count,
       products,
       query_term: queryTerm,
-      brand_filter: brandFilter,
-      lucene_q: luceneQuery
+      brand_filter: brandFilter ?? null
     };
-
-    setCachedResult(cacheKey, result);
-    return result;
   } catch (error) {
-    console.log(`[OFF] search v3 POST error q="${luceneQuery}" term="${queryTerm || '∅'}" brand="${brandFilter || 'none'}"`, {
+    console.log(`[OFF] search error q="${queryTerm}" brand="${brandFilter || 'none'}"`, {
       status: error?.status || null,
       request_id: error?.requestId || null,
       body: error?.responseBody || null,
       error: error?.message || 'unknown',
       ms: Date.now() - startedAt
     });
-
-    if (error?.status >= 500) {
-      emitMetric('off_sal_5xx', {
-        status: error.status,
-        brand: brandFilter || 'none',
-        category: primaryCategory || 'none'
-      });
-      console.log('[OFF] SaL 5xx error, allowing fallback to v2/legacy');
-      return null;
-    }
-
     throw error;
   }
 }
