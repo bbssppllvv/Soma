@@ -7,8 +7,46 @@ import { REQUIRE_BRAND } from './off/constants.js';
 const DEFAULT_CONFIDENCE_FLOOR = 0.65;
 const MAX_PRODUCTS_CONSIDERED = 12;
 const MAX_SEARCH_PAGES = Number(process.env.OFF_SEARCH_MAX_PAGES || 5);
+const MAX_BRAND_VARIANT_PAGES = Number(process.env.OFF_BRAND_VARIANT_MAX_PAGES || 20); // Увеличенная глубина для brand+variant
+const RESCUE_EXTRA_PAGES = Number(process.env.OFF_RESCUE_EXTRA_PAGES || 3);
 const NAME_SIMILARITY_THRESHOLD = Number(process.env.OFF_NAME_SIM_THRESHOLD || 0.6);
 const NEGATIVE_TOKEN_PENALTY = Number(process.env.OFF_NEGATIVE_TOKEN_PENALTY || 4);
+const BRAND_BOOST_MULTIPLIER = Number(process.env.OFF_BRAND_BOOST_MULTIPLIER || 2.0); // Бонус за точное совпадение бренда
+
+function getDynamicSearchDepth(attempt, hasVariantTokens = false) {
+  // Динамическая глубина поиска на основе типа запроса
+  if (attempt.brand && hasVariantTokens) {
+    // Для brand + variant используем увеличенную глубину
+    return MAX_BRAND_VARIANT_PAGES;
+  } else if (attempt.brand) {
+    // Для brand-only используем стандартную глубину + небольшой буфер
+    return Math.min(MAX_SEARCH_PAGES + 5, 12);
+  }
+  // Для generic поиска используем стандартную глубину
+  return MAX_SEARCH_PAGES;
+}
+
+function shouldContinueSearch(aggregated, page, maxPages, attempt) {
+  // Продолжаем поиск если:
+  // 1. Не достигли лимита страниц
+  // 2. И либо нет хороших кандидатов, либо есть бренд и мало результатов
+  if (page >= maxPages) return false;
+  
+  if (aggregated.length === 0) return true;
+  
+  // Если есть бренд-фильтр, продолжаем поиск дольше
+  if (attempt.brand && aggregated.length < 8) return true;
+  
+  // Проверяем качество топ-кандидатов
+  const topCandidates = aggregated.slice(0, 5);
+  const hasGoodMatches = topCandidates.some(prod => {
+    const corpus = buildProductCorpus(prod);
+    // Простая проверка на наличие ключевых токенов
+    return corpus.length > 10; // Минимальная проверка качества
+  });
+  
+  return !hasGoodMatches;
+}
 
 function toBrandSlug(value) {
   if (!value) return '';
@@ -195,6 +233,66 @@ function buildOrQuery(phrases) {
   return quoted.join(' OR ');
 }
 
+function splitOrQuery(phrases, maxChunkSize = 3) {
+  if (!Array.isArray(phrases) || phrases.length === 0) return [];
+  
+  const quoted = phrases.map(quoteForQuery).filter(Boolean);
+  if (quoted.length === 0) return [];
+  
+  // If small enough, return as single query
+  if (quoted.length <= maxChunkSize) {
+    return [quoted.join(' OR ')];
+  }
+  
+  // Split into chunks
+  const chunks = [];
+  for (let i = 0; i < quoted.length; i += maxChunkSize) {
+    const chunk = quoted.slice(i, i + maxChunkSize);
+    if (chunk.length > 0) {
+      chunks.push(chunk.join(' OR '));
+    }
+  }
+  
+  return chunks;
+}
+
+async function searchWithRetry(query, options, signal, maxRetries = 2) {
+  let lastError = null;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await searchByNameV1(query, { ...options, signal });
+      
+      // Log successful retry if this wasn't the first attempt
+      if (attempt > 0) {
+        console.log(`[OFF] Search succeeded on retry ${attempt} for query: ${query.substring(0, 50)}...`);
+      }
+      
+      return response;
+    } catch (error) {
+      lastError = error;
+      
+      // Check if this is a retryable error (500, 502, 503, 504, 429)
+      const isRetryable = error?.status >= 500 || error?.status === 429;
+      
+      if (!isRetryable || attempt === maxRetries) {
+        console.log(`[OFF] Search failed (non-retryable or max retries reached): ${error.message} for query: ${query.substring(0, 50)}...`);
+        throw error;
+      }
+      
+      // Log retry attempt
+      console.log(`[OFF] Search failed with ${error.status || 'unknown'}, retrying attempt ${attempt + 1} for query: ${query.substring(0, 50)}...`);
+      
+      // Exponential backoff with jitter
+      const baseDelay = Math.min(1000 * Math.pow(2, attempt), 5000);
+      const jitter = Math.random() * 500;
+      await new Promise(resolve => setTimeout(resolve, baseDelay + jitter));
+    }
+  }
+  
+  throw lastError;
+}
+
 function tokenizeNormalized(value) {
   const normalized = normalizeValue(value || '');
   if (!normalized) return [];
@@ -316,18 +414,154 @@ function buildSearchAttempts(item) {
   }
 
   const fallbackPhrases = collectFallbackPhrases(item);
-  const fallbackOrQuery = buildOrQuery(fallbackPhrases);
-  if (fallbackOrQuery && fallbackOrQuery !== baseQuery) {
-    attempts.push({
-      query: fallbackOrQuery,
-      brand: null,
-      reason: 'fallback_or_tokens',
-      pageSize: fallbackOrPageSize
+  
+  // Use split-OR strategy for large fallback queries (Nutella case)
+  if (fallbackPhrases.length > 3) {
+    const splitQueries = splitOrQuery(fallbackPhrases, 3);
+    console.log(`[OFF] Using split-OR strategy: ${fallbackPhrases.length} phrases → ${splitQueries.length} queries`);
+    
+    splitQueries.forEach((splitQuery, index) => {
+      if (splitQuery && splitQuery !== baseQuery) {
+        attempts.push({
+          query: splitQuery,
+          brand: null,
+          reason: `fallback_split_or_${index + 1}`,
+          pageSize: fallbackOrPageSize,
+          isSplitOr: true,
+          splitIndex: index
+        });
+      }
     });
+  } else {
+    // Use traditional OR query for smaller sets
+    const fallbackOrQuery = buildOrQuery(fallbackPhrases);
+    if (fallbackOrQuery && fallbackOrQuery !== baseQuery) {
+      attempts.push({
+        query: fallbackOrQuery,
+        brand: null,
+        reason: 'fallback_or_tokens',
+        pageSize: fallbackOrPageSize
+      });
+    }
   }
 
   return attempts;
 }
+
+function buildRescueAttempts(item, originalAttempts) {
+  const rescueAttempts = [];
+  const brandCandidates = [item?.off_brand_filter, item?.brand, item?.brand_normalized]
+    .map(value => value ? value.toString().trim() : '')
+    .filter(Boolean);
+  const brandSlug = brandCandidates.length > 0 ? toBrandSlug(brandCandidates[0]) : '';
+  const canonicalBrand = typeof item?.brand_canonical === 'string' ? item.brand_canonical.trim() : '';
+  const brandFilters = [canonicalBrand, brandSlug].filter(Boolean);
+  const brandFilterObject = brandFilters.length > 0 ? { brands_tags: brandFilters } : null;
+  
+  // Strategy 1: Brand filter without problematic attributes (if OFF supports exclusion)
+  if (brandSlug && Array.isArray(item?.off_neg_tokens) && item.off_neg_tokens.length > 0) {
+    const baseQuery = buildSearchTerm(item);
+    if (baseQuery) {
+      // Remove negative tokens from query for rescue attempt
+      let cleanQuery = baseQuery;
+      for (const negToken of item.off_neg_tokens) {
+        const regex = new RegExp(`\\b${negToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+        cleanQuery = cleanQuery.replace(regex, '').replace(/\s+/g, ' ').trim();
+      }
+      
+      if (cleanQuery && cleanQuery !== baseQuery) {
+        rescueAttempts.push({
+          query: cleanQuery,
+          brand: brandSlug,
+          reason: 'rescue_clean_query',
+          pageSize: Number(process.env.OFF_BRAND_PAGE_SIZE || 40),
+          filters: brandFilterObject
+        });
+      }
+    }
+  }
+  
+  // Strategy 2: Exact phrase search without brand (like browser search)
+  const primaryTokens = Array.isArray(item?.off_primary_tokens) ? item.off_primary_tokens : [];
+  if (primaryTokens.length >= 2) {
+    const exactPhrase = primaryTokens.slice(0, 2).join(' ');
+    rescueAttempts.push({
+      query: `"${exactPhrase}"`,
+      brand: null,
+      reason: 'rescue_exact_phrase_no_brand',
+      pageSize: Number(process.env.OFF_FALLBACK_PAGE_SIZE || 30),
+      filters: { categories_tags: ['whipped-creams', 'dairy-products', 'creams'] }
+    });
+  }
+  
+  // Strategy 3: Core tokens only with brand (simplified query)
+  if (brandSlug && primaryTokens.length > 0) {
+    const coreQuery = primaryTokens.slice(0, 2).join(' ');
+    if (coreQuery) {
+      rescueAttempts.push({
+        query: coreQuery,
+        brand: brandSlug,
+        reason: 'rescue_core_tokens_with_brand',
+        pageSize: Number(process.env.OFF_BRAND_PAGE_SIZE || 40),
+        filters: brandFilterObject
+      });
+    }
+  }
+
+  // Strategy 4: Fallback without brand filter but with strong anchor tokens
+  const fallbackPhrases = collectFallbackPhrases(item);
+  if (fallbackPhrases.length > 0) {
+    if (primaryTokens.length > 0) {
+      const anchorQuery = primaryTokens.slice(0, 2).map(token => `"${token}"`).join(' ');
+      if (anchorQuery) {
+        rescueAttempts.push({
+          query: anchorQuery,
+          brand: null,
+          reason: 'rescue_anchor_only',
+          pageSize: Number(process.env.OFF_FALLBACK_PAGE_SIZE || 20)
+        });
+      }
+    }
+  }
+  
+  // Strategy 3: Brand-only search (most permissive)
+  if (brandSlug) {
+    rescueAttempts.push({
+      query: brandSlug,
+      brand: brandSlug,
+      reason: 'rescue_brand_only',
+      pageSize: Number(process.env.OFF_BRAND_PAGE_SIZE || 40),
+      filters: brandFilterObject
+    });
+  }
+  
+  return rescueAttempts;
+}
+
+function shouldTriggerRescue(selected, selectedMeta) {
+  if (!selected) return false;
+  
+  // Trigger rescue if the selected candidate has negative matches (penalties)
+  if (selected.negativeMatch) {
+    console.log('[OFF] Rescue triggered: selected candidate has negative matches');
+    return true;
+  }
+  
+  // Trigger rescue if the selected candidate has avoided attributes
+  if (selected.avoidedAttrMatch) {
+    console.log('[OFF] Rescue triggered: selected candidate has avoided attributes');
+    return true;
+  }
+  
+  // Trigger rescue if confidence is low and we have negative tokens
+  if (selected.nameSimilarity < 0.4 && selected.score < 3) {
+    console.log('[OFF] Rescue triggered: low confidence score');
+    return true;
+  }
+  
+  return false;
+}
+
 
 function buildProductCorpus(product) {
   const fields = [product?.product_name, product?.brands];
@@ -479,14 +713,56 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
           })
         : false;
 
+      // Check for wanted/avoided attributes
+      const wantedAttrs = Array.isArray(item?.off_attr_want) ? item.off_attr_want : [];
+      const avoidedAttrs = Array.isArray(item?.off_attr_avoid) ? item.off_attr_avoid : [];
+      
+      let wantedAttrMatch = false;
+      let avoidedAttrMatch = false;
+      
+      if (wantedAttrs.length > 0 || avoidedAttrs.length > 0) {
+        const corpus = buildProductCorpus(product);
+        
+        for (const attr of wantedAttrs) {
+          if (corpus.includes(normalizeValue(attr))) {
+            wantedAttrMatch = true;
+            break;
+          }
+        }
+        
+        for (const attr of avoidedAttrs) {
+          if (corpus.includes(normalizeValue(attr))) {
+            avoidedAttrMatch = true;
+            break;
+          }
+        }
+      }
+
       let score = 0;
-      if (brandMatch) score += 5;
+      if (brandMatch) {
+        // Базовый бонус за бренд
+        score += 5;
+        
+        // Дополнительный boost для точного совпадения бренда при brand+variant запросах
+        if (attempt.brand && variantTokens.length > 0) {
+          score += 3 * BRAND_BOOST_MULTIPLIER;
+          console.log('[OFF] Brand boost applied', {
+            product_code: product?.code,
+            brand_boost: 3 * BRAND_BOOST_MULTIPLIER,
+            reason: 'exact_brand_match_with_variant'
+          });
+        }
+      }
       if (tokenMatch) score += 4;
       if (nameMatch) score += 1;
       if (categoryMatch) score += 0.5;
       if (exact) score += 3;
       else if (contains) score += 2;
       score += bestJaccard * 3;
+      
+      // Attribute scoring
+      if (wantedAttrMatch) score += 2; // Boost for wanted attributes
+      if (avoidedAttrMatch) score -= 3; // Penalty for avoided attributes
       if (negativeMatches) score -= NEGATIVE_TOKEN_PENALTY;
 
       candidateInfos.push({
@@ -499,6 +775,8 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         exactMatch: exact,
         containsTarget: contains,
         negativeMatch: negativeMatches,
+        wantedAttrMatch,
+        avoidedAttrMatch,
         score
       });
     }
@@ -603,15 +881,18 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       let pagesUsed = 0;
       let successThisAttempt = false;
 
-      for (let page = 1; page <= MAX_SEARCH_PAGES; page += 1) {
-        const response = await searchByNameV1(attempt.query, {
-          signal,
+      // Определяем динамическую глубину поиска
+      const hasVariantTokens = Array.isArray(debugTokens) && debugTokens.length > 1;
+      const maxPages = getDynamicSearchDepth(attempt, hasVariantTokens);
+      
+      for (let page = 1; page <= maxPages; page += 1) {
+        const response = await searchWithRetry(attempt.query, {
           brand: attempt.brand,
           locale: item?.locale || null,
           page,
           pageSize: attempt.pageSize,
           filters: attempt.filters
-        });
+        }, signal);
 
         pagesUsed = page;
         const products = Array.isArray(response?.products) ? response.products : [];
@@ -626,6 +907,16 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
           if (code && seenCodes.has(code)) continue;
           if (code) seenCodes.add(code);
           aggregated.push(prod);
+        }
+
+        // Проверяем, стоит ли продолжать поиск на основе качества результатов
+        if (!shouldContinueSearch(aggregated, page, maxPages, attempt)) {
+          console.log('[OFF] Early termination: sufficient quality results found', {
+            page,
+            aggregated: aggregated.length,
+            reason: 'quality_threshold_met'
+          });
+          break;
         }
 
         console.log('[OFF] detailed candidate analysis', {
@@ -666,12 +957,20 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
           selectedMeta = evaluation.meta;
           selectedAttempt = attempt;
           successThisAttempt = true;
+          
           const shouldFinalize = Boolean(
             evaluation.selection?.exactMatch
             || (evaluation.selection?.nameSimilarity ?? 0) >= NAME_SIMILARITY_THRESHOLD
             || (evaluation.selection?.brandMatch && evaluation.selection?.containsTarget)
           );
-          if (shouldFinalize) {
+          
+          // For split-OR queries, also finalize if we found a good candidate without negative matches
+          const isSplitOrSuccess = attempt.isSplitOr && !evaluation.selection?.negativeMatch && evaluation.selection?.score > 3;
+          
+          if (shouldFinalize || isSplitOrSuccess) {
+            if (isSplitOrSuccess) {
+              console.log('[OFF] Split-OR early success - good candidate found without penalties');
+            }
             break;
           }
         } else {
@@ -706,7 +1005,20 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
           brand: attempt.brand,
           result: `success_pages_${pagesUsed}`
         });
-        break;
+        
+        // For split-OR queries, break early if we found an excellent candidate
+        const isExcellentSplitOrResult = attempt.isSplitOr && selected && 
+          !selected.negativeMatch && selected.score > 5 && selected.nameSimilarity > 0.7;
+        
+        if (isExcellentSplitOrResult) {
+          console.log('[OFF] Excellent split-OR result found, skipping remaining attempts');
+          break;
+        }
+        
+        // Always break for non-split-OR successful attempts
+        if (!attempt.isSplitOr) {
+          break;
+        }
       }
 
       if (aggregated.length === 0) {
@@ -740,6 +1052,115 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     }
     console.log('[OFF] all search attempts failed', { attempts: attemptSummaries, canonical: searchTerm, last_reason: null });
     return { item, reason: 'no_hits', canonical: searchTerm };
+  }
+
+  // RESCUE QUERIES: Check if we need to trigger rescue search
+  if (shouldTriggerRescue(selected, selectedMeta)) {
+    const rescueAttempts = buildRescueAttempts(item, attempts);
+    
+    if (rescueAttempts.length > 0) {
+      try {
+        let bestRescue = null;
+        let bestRescueMeta = null;
+        let bestRescueAttempt = null;
+        
+        console.log('[OFF] Starting rescue search with', rescueAttempts.length, 'rescue attempts');
+        
+        for (const rescueAttempt of rescueAttempts) {
+          try {
+            console.log('[OFF] Rescue attempt:', {
+              reason: rescueAttempt.reason,
+              query: rescueAttempt.query,
+              brand: rescueAttempt.brand
+            });
+            
+            const seenCodes = new Set();
+            const aggregated = [];
+            let pagesUsed = 0;
+            
+            // Use extended page limit for rescue
+            const maxRescuePages = Math.min(MAX_SEARCH_PAGES + RESCUE_EXTRA_PAGES, 8);
+            
+            for (let page = 1; page <= maxRescuePages; page += 1) {
+              const response = await searchWithRetry(rescueAttempt.query, {
+                brand: rescueAttempt.brand,
+                locale: item?.locale || null,
+                page,
+                pageSize: rescueAttempt.pageSize,
+                filters: rescueAttempt.filters
+              }, signal);
+              
+              pagesUsed = page;
+              const products = Array.isArray(response?.products) ? response.products : [];
+              
+              for (const prod of products) {
+                const code = typeof prod?.code === 'string' ? prod.code : null;
+                if (code && seenCodes.has(code)) continue;
+                if (code) seenCodes.add(code);
+                aggregated.push(prod);
+              }
+              
+              // Early termination if we have enough candidates
+              if (aggregated.length >= MAX_PRODUCTS_CONSIDERED) break;
+              
+              const pageSizeUsed = Number(response?.page_size) || rescueAttempt.pageSize || null;
+              const noMorePages = (pageSizeUsed && products.length < pageSizeUsed);
+              if (noMorePages) break;
+            }
+            
+            // Evaluate rescue candidates using the same logic
+            const evaluation = evaluateCandidates(aggregated, rescueAttempt);
+            
+            if (evaluation.success) {
+              const candidate = evaluation.selection;
+              
+              // Accept rescue candidate if it's better (no negative matches or higher score)
+              if (!candidate.negativeMatch || (bestRescue && candidate.score > bestRescue.score)) {
+                bestRescue = candidate;
+                bestRescueMeta = evaluation.meta;
+                bestRescueAttempt = rescueAttempt;
+                
+                console.log('[OFF] Rescue candidate found:', {
+                  attempt: rescueAttempt.reason,
+                  code: candidate.product?.code,
+                  score: candidate.score,
+                  negative_match: candidate.negativeMatch,
+                  pages_used: pagesUsed
+                });
+                
+                // If we found a clean candidate, stop rescue search
+                if (!candidate.negativeMatch) {
+                  break;
+                }
+              }
+            }
+          } catch (error) {
+            console.log('[OFF] Rescue attempt failed:', rescueAttempt.reason, error.message);
+            continue;
+          }
+        }
+        
+        // Use rescue result if it's better than original
+        if (bestRescue && (!bestRescue.negativeMatch || bestRescue.score > selected.score)) {
+          console.log('[OFF] Using rescue result instead of original:', {
+            original_score: selected.score,
+            original_negative: selected.negativeMatch,
+            rescue_score: bestRescue.score,
+            rescue_negative: bestRescue.negativeMatch
+          });
+          
+          selected = bestRescue;
+          selectedMeta = bestRescueMeta;
+          selectedAttempt = bestRescueAttempt;
+        } else {
+          console.log('[OFF] Rescue search completed but original candidate is still better');
+        }
+        
+      } catch (rescueError) {
+        console.log('[OFF] Rescue search failed:', rescueError.message);
+        // Continue with original selected candidate
+      }
+    }
   }
 
   const finalConfidence = toConfidence({
