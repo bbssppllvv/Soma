@@ -205,7 +205,7 @@ FIELD SEPARATION LOGIC:
 - brand: Only the brand/manufacturer name (may be multi-word)
 - brand_normalized: Lowercase brand, preserve spaces and basic punctuation, remove only accents
 - clean_name: Core product type without brand or variants (milk, chocolate, cookies, etc.)
-- required_tokens: Specific modifiers/variants from packaging (flavor, type, fat content, etc.)
+- required_tokens: Specific modifiers/variants from packaging in LOWERCASE (flavor, type, fat content, etc.)
 
 BRAND_NORMALIZED RULES:
 - Convert to lowercase

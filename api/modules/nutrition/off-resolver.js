@@ -365,7 +365,12 @@ function computeBrandScore(brandContext, product) {
   }
 
   if (!exact && partialHits === 0) {
+    // Only apply penalty if brand context exists and no partial matches
+    // But reduce penalty if we're searching for a specific brand
     score -= BRAND_MISS_PENALTY;
+  } else if (!exact && partialHits > 0) {
+    // Bonus for partial brand matches (better than complete miss)
+    score += Math.min(200, partialHits * 50);
   }
 
   return { score, exact, partialHits };
@@ -711,9 +716,11 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     const brandName = brandVariants[0] || null;
     const cleanName = canonicalQuery || canonicalizeQuery(item.name || '');
     const locale = typeof item.locale === 'string' && item.locale.trim() ? item.locale.trim().toLowerCase() : 'en';
-    const variantWhitelistTokens = Array.isArray(item.required_tokens)
-      ? [...new Set(item.required_tokens.filter(token => isVariantToken(token)))]
-      : [];
+  const variantWhitelistTokens = Array.isArray(item.required_tokens)
+    ? [...new Set(item.required_tokens
+        .filter(token => isVariantToken(token))
+        .map(token => token.toLowerCase()))] // Normalize to lowercase for consistent matching
+    : [];
     const categoryFilters = deriveCategoryFilters(item, variantWhitelistTokens);
     const categoryTags = [];
     if (categoryFilters.primary) {
