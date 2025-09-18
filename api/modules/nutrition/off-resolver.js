@@ -254,8 +254,31 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       name: prod?.product_name || null,
       brands: prod?.brands || null,
       labels: prod?.labels_tags || null,
-      categories: prod?.categories_tags || null
+      categories: prod?.categories_tags || null,
+      keywords: prod?._keywords || null,
+      product_name_es: prod?.product_name_es || null,
+      product_name_en: prod?.product_name_en || null
     }))
+  });
+
+  // DETAILED ANALYSIS: Why each candidate was rejected
+  const debugTokens = collectVariantTokens(item);
+  console.log('[OFF] detailed candidate analysis', {
+    looking_for_tokens: debugTokens,
+    candidates: products.slice(0, 3).map(prod => {
+      const corpus = buildProductCorpus(prod);
+      
+      return {
+        code: prod?.code,
+        name: prod?.product_name,
+        corpus_normalized: corpus,
+        contains_tokens: debugTokens.map(token => ({
+          token,
+          found_in_corpus: corpus.includes(normalizeValue(token))
+        })),
+        why_status: debugTokens.some(token => corpus.includes(normalizeValue(token))) ? 'should_match' : 'no_token_match'
+      };
+    })
   });
 
   const preferredBrand = normalizeValue(item?.off_brand_filter || item?.brand || item?.brand_normalized || '');
