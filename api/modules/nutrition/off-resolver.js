@@ -6,7 +6,7 @@ import { isVariantToken } from './variant-rules.js';
 const REQUIRE_BRAND = String(process.env.OFF_REQUIRE_BRAND || 'false').toLowerCase() === 'true';
 const OFF_BUDGET_MS = Number(process.env.OFF_GLOBAL_BUDGET_MS || 3000);
 
-const BRAND_ACCEPT_SCORE = 200; // minimum brand score to consider a match reliable (further reduced for production)
+const BRAND_ACCEPT_SCORE = 100; // minimum brand score to consider a match reliable (final reduction for M&M's type brands)
 const BRAND_MISS_PENALTY = 100; // penalty applied when brand context exists but no match (reduced for production)
 
 const SWEET_SENSITIVE_CATEGORIES = new Set(['snack-sweet', 'cookie-biscuit', 'dessert']);
@@ -844,7 +844,17 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         responseBatches.push({ strategy, products: batch.products });
 
         if (brandContext) {
-          const hasStrongBrand = batch.products.some(product => computeBrandScore(brandContext, product).score >= BRAND_ACCEPT_SCORE);
+          const brandScores = batch.products.map(product => {
+            const score = computeBrandScore(brandContext, product);
+            return { name: product.product_name, brands: product.brands, score: score.score };
+          });
+          
+          const hasStrongBrand = brandScores.some(s => s.score >= BRAND_ACCEPT_SCORE);
+          const maxScore = Math.max(...brandScores.map(s => s.score));
+          
+          console.log(`[OFF] Brand scores for '${strategy}': max=${maxScore}, threshold=${BRAND_ACCEPT_SCORE}`);
+          console.log(`[OFF] Top brand scores:`, brandScores.slice(0, 3));
+          
           if (hasStrongBrand) {
             console.log(`[OFF] Strategy '${strategy}' produced a strong brand match, stopping search.`);
             break;
