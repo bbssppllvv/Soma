@@ -5,6 +5,7 @@ import { normalizeForMatch } from './off/text.js';
 import { REQUIRE_BRAND } from './off/constants.js';
 
 const DEFAULT_CONFIDENCE_FLOOR = 0.65;
+const MAX_PRODUCTS_CONSIDERED = 12;
 
 function normalizeUPC(value) {
   return String(value || '').replace(/[^0-9]/g, '');
@@ -18,6 +19,63 @@ function buildSearchTerm(item) {
 
 function normalizeValue(value) {
   return normalizeForMatch(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function expandVariantToken(token) {
+  const variants = new Set();
+  const raw = (token || '').toString().toLowerCase().trim();
+  if (!raw) return variants;
+
+  const rawCandidates = new Set([raw]);
+
+  if (raw.includes('&')) {
+    rawCandidates.add(raw.replace(/&/g, 'and'));
+  }
+  if (raw.includes(' and ')) {
+    rawCandidates.add(raw.replace(/\sand\s/g, ' & '));
+  }
+  if (raw.includes('creme')) {
+    rawCandidates.add(raw.replace(/creme/g, 'cream'));
+  }
+  if (raw.includes('cream')) {
+    rawCandidates.add(raw.replace(/cream/g, 'creme'));
+  }
+
+  for (const candidate of rawCandidates) {
+    const normalized = normalizeValue(candidate);
+    if (normalized) {
+      variants.add(normalized);
+    }
+  }
+
+  return variants;
+}
+
+function collectVariantTokens(item) {
+  const tokenSources = [];
+  if (Array.isArray(item?.off_variant_tokens) && item.off_variant_tokens.length > 0) {
+    tokenSources.push(item.off_variant_tokens);
+  } else if (Array.isArray(item?.required_tokens) && item.required_tokens.length > 0) {
+    tokenSources.push(item.required_tokens);
+  }
+
+  const tokens = new Set();
+
+  for (const source of tokenSources) {
+    if (!Array.isArray(source)) continue;
+    // Add individual tokens
+    source.forEach(token => {
+      expandVariantToken(token).forEach(value => tokens.add(value));
+    });
+
+    // Add combined phrase
+    const phrase = normalizeValue(source.join(' '));
+    if (phrase) {
+      expandVariantToken(phrase).forEach(value => tokens.add(value));
+    }
+  }
+
+  return [...tokens].filter(token => token.length > 2);
 }
 
 function buildProductCorpus(product) {
@@ -108,12 +166,8 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
   });
 
   const preferredBrand = normalizeValue(item?.off_brand_filter || item?.brand || item?.brand_normalized || '');
-  const preferredTokens = Array.isArray(item?.off_variant_tokens)
-    ? item.off_variant_tokens
-    : Array.isArray(item?.required_tokens)
-      ? item.required_tokens
-      : [];
-  const normalizedTokens = preferredTokens.map(normalizeValue).filter(Boolean);
+  const variantTokens = collectVariantTokens(item);
+  const candidates = products.slice(0, MAX_PRODUCTS_CONSIDERED);
 
   const isBrandMatch = (product) => {
     if (!preferredBrand) return false;
@@ -122,25 +176,74 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
   };
 
   const isTokenMatch = (product) => {
-    if (normalizedTokens.length === 0) return false;
+    if (variantTokens.length === 0) return false;
     const corpus = buildProductCorpus(product);
-    return normalizedTokens.some(token => token && corpus.includes(token));
+    return variantTokens.some(token => token && corpus.includes(token));
   };
 
-  const brandHit = findFirstMatch(products, isBrandMatch);
-  const tokenHit = brandHit || findFirstMatch(products, isTokenMatch);
-  const fallback = tokenHit || products[0];
+  let selection = null;
+  let selectionInsight = null;
 
-  if (!fallback) {
+  if (variantTokens.length > 0) {
+    selection = findFirstMatch(candidates, product => {
+      const brand = isBrandMatch(product);
+      const variant = isTokenMatch(product);
+      if (brand && variant) {
+        selectionInsight = { brand, variant, reason: 'brand_and_variant' };
+        return true;
+      }
+      return false;
+    });
+
+    if (!selection) {
+      console.log('[OFF] no variant match among top candidates', {
+        query: searchTerm,
+        tokens: variantTokens,
+        preferredBrand
+      });
+      return { item, reason: 'variant_mismatch', canonical: searchTerm };
+    }
+  } else {
+    selection = findFirstMatch(candidates, product => {
+      const brand = isBrandMatch(product);
+      if (brand) {
+        selectionInsight = { brand, variant: false, reason: 'brand_only' };
+        return true;
+      }
+      return false;
+    }) || candidates[0];
+  }
+
+  if (!selection) {
     return { item, reason: 'no_candidates', canonical: searchTerm };
   }
 
-  const hasNutrients = hasUsefulNutriments(fallback);
-  const brandMatch = Boolean(fallback && (brandHit === fallback || isBrandMatch(fallback)));
-  const tokenMatch = Boolean(fallback && isTokenMatch(fallback));
+  const hasNutrients = hasUsefulNutriments(selection);
+  const brandMatch = Boolean(selection && isBrandMatch(selection));
+  const tokenMatch = Boolean(selection && isTokenMatch(selection));
+
+  if (variantTokens.length > 0 && !tokenMatch) {
+    return { item, reason: 'variant_mismatch', canonical: searchTerm };
+  }
+
+  if (!brandMatch && preferredBrand) {
+    return { item, reason: 'brand_mismatch', canonical: searchTerm };
+  }
+
+  if (selectionInsight) {
+    console.log('[OFF] selected candidate', {
+      query: searchTerm,
+      reason: selectionInsight.reason,
+      code: selection?.code || null,
+      name: selection?.product_name || null,
+      brandMatch,
+      tokenMatch,
+      hasNutrients
+    });
+  }
 
   return {
-    product: fallback,
+    product: selection,
     score: brandMatch || tokenMatch ? 1 : 0.5,
     confidence: toConfidence({ brandMatch, tokenMatch, hasNutrients })
   };
