@@ -7,12 +7,20 @@
   "scripts": {
     "build": "mkdir -p public && echo 'Soma Bot - Serverless Functions' > public/index.html",
     "dev": "node api/telegram.js",
-    "start": "node api/telegram.js"
+    "start": "node api/telegram.js",
+    "logs": "node local-log-server.js",
+    "logs:tunnel": "npx ngrok http 3001"
   },
   "dependencies": {
     "@vercel/node": "^3.0.21",
     "p-limit": "^7.1.1",
     "sharp": "^0.34.4"
+  },
+  "devDependencies": {
+    "chalk": "^5.6.2",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1"
   },
   "engines": {
     "node": ">=18.0.0"

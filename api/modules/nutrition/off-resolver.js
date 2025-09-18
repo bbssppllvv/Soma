@@ -8,6 +8,7 @@ import { deriveCategoryFilters } from './off/categories.js';
 import { hasUsefulNutriments } from './off/nutrients.js';
 import { scoreProduct } from './off/scoring.js';
 import { limitTokens, normalizeForMatch } from './off/text.js';
+import remoteLogger from '../remote-logger.js';
 
 function buildVariantWhitelistTokens(item) {
   if (!Array.isArray(item?.required_tokens)) return [];
@@ -195,8 +196,8 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
   const canonicalQuery = canonicalizeQuery(fullProductName);
   
   // COMPREHENSIVE LOGGING for troubleshooting
-  console.log(`[OFF] === RESOLVING ITEM START ===`);
-  console.log(`[OFF] Input item:`, { 
+  remoteLogger.offLog('resolve_start', `=== RESOLVING ITEM START ===`);
+  remoteLogger.offLog('input', `Input item: ${item.name}`, { 
     name: item.name, 
     brand: item.brand,
     brand_normalized: item.brand_normalized,
@@ -206,7 +207,7 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     confidence: item.confidence,
     locale: item.locale
   });
-  console.log(`[OFF] Canonical query: "${canonicalQuery}" (from: "${fullProductName}")`);
+  remoteLogger.offLog('query', `Canonical query: "${canonicalQuery}" (from: "${fullProductName}")`);
   
   // DEFENSIVE: Check if clean_name contains brand name (GPT error)
   if (item.clean_name && item.brand) {
@@ -217,13 +218,15 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     );
     
     if (brandInClean) {
-      console.log(`[OFF] WARNING: clean_name contains brand name - GPT field separation error`);
-      console.log(`[OFF] clean_name: "${item.clean_name}", brand: "${item.brand}"`);
+      remoteLogger.warn(`[OFF] WARNING: clean_name contains brand name - GPT field separation error`, {
+        clean_name: item.clean_name,
+        brand: item.brand
+      });
       // Use generic product type instead
       const genericType = item.canonical_category === 'snack-sweet' ? 'chocolate' :
                          item.canonical_category === 'dairy' ? 'milk' :
                          item.canonical_category === 'beverage' ? 'drink' : 'product';
-      console.log(`[OFF] Using generic type: "${genericType}" instead of "${item.clean_name}"`);
+      remoteLogger.offLog('fallback', `Using generic type: "${genericType}" instead of "${item.clean_name}"`);
     }
   }
 

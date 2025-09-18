@@ -1,6 +1,31 @@
-import { normalizeBrandForSearch } from '../off-client.js';
 import { BRAND_MISS_PENALTY } from './constants.js';
 import { normalizeForMatch, stripLangPrefix } from './text.js';
+
+export function normalizeBrandForSearch(value) {
+  if (!value) return '';
+
+  const normalized = value
+    .toString()
+    .toLowerCase()
+    .trim()
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .replace(/\s+/g, ' ');
+
+  const tokens = normalized.split(' ')
+    .filter(Boolean)
+    .filter(token => token.length > 1);
+
+  if (tokens.length === 0) {
+    const allTokens = normalized.split(' ').filter(Boolean);
+    if (allTokens.length > 1 && allTokens.every(t => t.length === 1)) {
+      return allTokens.join('');
+    }
+    return value.toLowerCase();
+  }
+
+  return tokens.join(' ');
+}
 
 export function collectBrandSearchVariants(item) {
   const variants = [];
