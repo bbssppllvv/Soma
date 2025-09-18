@@ -318,7 +318,21 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
 
   const isTokenMatch = (product) => {
     if (variantTokens.length === 0) return false;
-    return productNameMatches(product) || categoryMatches(product);
+    const nameMatch = productNameMatches(product);
+    const catMatch = categoryMatches(product);
+    
+    // DEBUG: Log why each product passes/fails
+    if (product?.code === '0850027880501') { // Mr beast cookies
+      console.log('[DEBUG] Mr beast cookies token check', {
+        variantTokens,
+        nameMatch,
+        catMatch,
+        product_name: product?.product_name,
+        normalized_name: normalizeValue(product?.product_name)
+      });
+    }
+    
+    return nameMatch || catMatch;
   };
 
   let selection = null;
