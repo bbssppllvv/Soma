@@ -1152,6 +1152,9 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
   const preferredBrand = normalizeValue(item?.off_brand_filter || item?.brand || item?.brand_normalized || '');
   const variantTokens = collectVariantTokens(item);
   const attemptSummaries = [];
+  
+  // Объявляем compoundLocal в глобальной области видимости функции
+  const compoundLocal = deriveCompoundBlocks(item);
 
   if (attempts.length > 0) {
     console.log('[OFF] search attempts planned', attempts.map(attempt => ({
@@ -1243,9 +1246,6 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
 
     const requireBrand = Boolean(preferredBrand && attempt.brand);
     const requireVariant = variantTokens.length > 0;
-    
-    // Объявляем compoundLocal в правильной области видимости
-    const compoundLocal = deriveCompoundBlocks(item);
 
     // ИНТЕГРИРОВАННАЯ ЛОГИКА: Brand Gate v2 + Attribute Gate + Category Guard
     
