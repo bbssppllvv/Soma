@@ -151,6 +151,34 @@ function toBrandSlug(value) {
   return normalized || '';
 }
 
+function generateBrandSlugs(value) {
+  if (!value) return [];
+  
+  const primary = toBrandSlug(value);
+  const alternatives = [];
+  
+  // Universal rule: for brands with single letters separated by &, generate both formats
+  // Examples: "A&B" → ["a-b", "a-b-s"], "M&M's" → ["m-ms", "m-m-s"]
+  const singleLetterPattern = /^([a-z])\s*&\s*([a-z])('?s)?$/i;
+  const match = value.match(singleLetterPattern);
+  
+  if (match) {
+    const letter1 = match[1].toLowerCase();
+    const letter2 = match[2].toLowerCase();
+    const hasPossessive = match[3]; // 's
+    
+    // Format 1: letters joined with single dash
+    const joined = hasPossessive ? `${letter1}-${letter2}s` : `${letter1}-${letter2}`;
+    
+    // Format 2: each letter separated by dashes  
+    const separated = hasPossessive ? `${letter1}-${letter2}-s` : `${letter1}-${letter2}`;
+    
+    alternatives.push(joined, separated);
+  }
+  
+  return [primary, ...alternatives].filter((v, i, arr) => arr.indexOf(v) === i);
+}
+
 function normalizeUPC(value) {
   return String(value || '').replace(/[^0-9]/g, '');
 }
@@ -694,10 +722,10 @@ function buildSearchAttempts(item) {
   const brandCandidates = [item?.off_brand_filter, item?.brand, item?.brand_normalized]
     .map(value => value ? value.toString().trim() : '')
     .filter(Boolean);
-  const brandSlug = brandCandidates.length > 0 ? toBrandSlug(brandCandidates[0]) : '';
+  const brandSlugs = brandCandidates.length > 0 ? generateBrandSlugs(brandCandidates[0]) : [];
   const brandName = brandCandidates.length > 0 ? brandCandidates[0] : '';
   const canonicalBrand = typeof item?.brand_canonical === 'string' ? item.brand_canonical.trim() : '';
-  const brandFilters = [canonicalBrand, brandSlug].filter(Boolean);
+  const brandFilters = [canonicalBrand, ...brandSlugs].filter(Boolean);
   const brandFilterObject = brandFilters.length > 0 ? { brands_tags: brandFilters } : null;
   
   // 0. EARLY: Brand+Compound text search (critical fix #1)
@@ -787,7 +815,7 @@ function buildSearchAttempts(item) {
   if (primaryToken && brandName) {
     attempts.push({
       query: `"${primaryToken}"`, // В кавычках для точного поиска
-      brand: brandSlug,
+      brand: brandSlugs[0] || null,
       brandName: brandName, // Для CGI API
       reason: 'cgi_primary_exact_phrase',
       pageSize: brandPageSize,
@@ -801,7 +829,7 @@ function buildSearchAttempts(item) {
   if (primaryToken && brandName && primaryToken !== `"${primaryToken}"`) {
     attempts.push({
       query: primaryToken,
-      brand: brandSlug,
+      brand: brandSlugs[0] || null,
       brandName: brandName,
       reason: 'cgi_primary_no_quotes',
       pageSize: brandPageSize,
@@ -812,14 +840,14 @@ function buildSearchAttempts(item) {
   
   // 3. FALLBACK: только если нет primaryToken, используем buildSearchTerm
   const baseQuery = buildSearchTerm(item);
-  if (!primaryToken && baseQuery && brandSlug) {
+  if (!primaryToken && baseQuery && brandSlugs.length > 0) {
     // Проверяем, не смешанный ли язык
     const isLanguageMixed = detectLanguageMixing(baseQuery, item?.clean_name, item?.locale);
     
     if (!isLanguageMixed) {
       attempts.push({
         query: baseQuery,
-        brand: brandSlug,
+        brand: brandSlugs[0] || null,
         brandName: brandName,
         reason: 'brand_filtered_search_safe',
         pageSize: brandPageSize,
@@ -841,7 +869,7 @@ function buildSearchAttempts(item) {
   if (salQuery) {
     attempts.push({
       query: salQuery,
-      brand: brandSlug,
+      brand: brandSlugs[0] || null,
       reason: 'sal_fallback_controlled',
       pageSize: brandPageSize,
       filters: brandFilterObject,
@@ -915,13 +943,13 @@ function buildRescueAttempts(item, originalAttempts) {
   const brandCandidates = [item?.off_brand_filter, item?.brand, item?.brand_normalized]
     .map(value => value ? value.toString().trim() : '')
     .filter(Boolean);
-  const brandSlug = brandCandidates.length > 0 ? toBrandSlug(brandCandidates[0]) : '';
+  const brandSlugs = brandCandidates.length > 0 ? generateBrandSlugs(brandCandidates[0]) : [];
   const canonicalBrand = typeof item?.brand_canonical === 'string' ? item.brand_canonical.trim() : '';
-  const brandFilters = [canonicalBrand, brandSlug].filter(Boolean);
+  const brandFilters = [canonicalBrand, ...brandSlugs].filter(Boolean);
   const brandFilterObject = brandFilters.length > 0 ? { brands_tags: brandFilters } : null;
   
   // Strategy 1: Brand filter without problematic attributes (if OFF supports exclusion)
-  if (brandSlug && Array.isArray(item?.off_neg_tokens) && item.off_neg_tokens.length > 0) {
+  if (brandSlugs.length > 0 && Array.isArray(item?.off_neg_tokens) && item.off_neg_tokens.length > 0) {
     const baseQuery = buildSearchTerm(item);
     if (baseQuery) {
       // Remove negative tokens from query for rescue attempt
@@ -934,7 +962,7 @@ function buildRescueAttempts(item, originalAttempts) {
       if (cleanQuery && cleanQuery !== baseQuery) {
         rescueAttempts.push({
           query: cleanQuery,
-          brand: brandSlug,
+          brand: brandSlugs[0] || null,
           reason: 'rescue_clean_query',
           pageSize: Number(process.env.OFF_BRAND_PAGE_SIZE || 40),
           filters: brandFilterObject
@@ -974,12 +1002,12 @@ function buildRescueAttempts(item, originalAttempts) {
   }
   
   // Strategy 3: Core tokens only with brand (simplified query)
-  if (brandSlug && primaryTokens.length > 0) {
+  if (brandSlugs.length > 0 && primaryTokens.length > 0) {
     const coreQuery = primaryTokens.slice(0, 2).join(' ');
     if (coreQuery) {
       rescueAttempts.push({
         query: coreQuery,
-        brand: brandSlug,
+        brand: brandSlugs[0] || null,
         reason: 'rescue_core_tokens_with_brand',
         pageSize: Number(process.env.OFF_BRAND_PAGE_SIZE || 40),
         filters: brandFilterObject
@@ -1004,10 +1032,10 @@ function buildRescueAttempts(item, originalAttempts) {
   }
   
   // Strategy 3: Brand-only search (most permissive)
-  if (brandSlug) {
+  if (brandSlugs.length > 0) {
     rescueAttempts.push({
-      query: brandSlug,
-      brand: brandSlug,
+      query: brandSlugs[0],
+      brand: brandSlugs[0] || null,
       reason: 'rescue_brand_only',
       pageSize: Number(process.env.OFF_BRAND_PAGE_SIZE || 40),
       filters: brandFilterObject
