@@ -8,7 +8,7 @@
 const CATEGORY_MAPPINGS = {
   'snack-sweet': {
     off_categories: ['chocolates', 'bars', 'candies', 'sweets', 'confectioneries'],
-    conflicts: ['ice-creams-and-sorbets', 'frozen-desserts', 'dairy-desserts'],
+    conflicts: ['ice-creams-and-sorbets', 'frozen-desserts', 'dairy-desserts', 'spreads', 'nut-butters', 'peanut-butters', 'oilseed-purees', 'plant-based-spreads'],
     boost: 3
   },
   'dessert': {

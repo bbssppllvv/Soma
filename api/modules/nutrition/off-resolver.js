@@ -15,8 +15,17 @@ const NAME_SIMILARITY_THRESHOLD = Number(process.env.OFF_NAME_SIM_THRESHOLD || 0
 const NEGATIVE_TOKEN_PENALTY = Number(process.env.OFF_NEGATIVE_TOKEN_PENALTY || 4);
 const BRAND_BOOST_MULTIPLIER = Number(process.env.OFF_BRAND_BOOST_MULTIPLIER || 2.0); // Бонус за точное совпадение бренда
 
+// Compound Variant Guard config
+const COMPOUND_GUARD_ENABLED = (process.env.OFF_COMPOUND_GUARD_ENABLED || 'true') === 'true';
+const COMPOUND_FULL_BONUS = Number(process.env.OFF_COMPOUND_FULL_BONUS || 8);
+const COMPOUND_PARTIAL_PENALTY = Number(process.env.OFF_COMPOUND_PARTIAL_PENALTY || 6);
+const COMPOUND_DEGRADE_AFTER_PAGES = Number(process.env.OFF_COMPOUND_DEGRADE_AFTER_PAGES || 2);
+
 function getDynamicSearchDepth(attempt, hasVariantTokens = false) {
   // Динамическая глубина поиска на основе типа запроса
+  if (attempt.maxPagesOverride) {
+    return attempt.maxPagesOverride;
+  }
   if (attempt.brand && hasVariantTokens) {
     // Для brand + variant используем увеличенную глубину
     return MAX_BRAND_VARIANT_PAGES;
@@ -38,6 +47,9 @@ function shouldContinueSearch(aggregated, page, maxPages, attempt) {
   
   // Для brand+variant запросов всегда ищем глубже
   if (attempt.brand && page < 3) return true;
+  
+  // Для compound-запросов не останавливаемся слишком рано
+  if (attempt.isCompound && page < COMPOUND_DEGRADE_AFTER_PAGES) return true;
   
   // Если есть бренд-фильтр, продолжаем поиск дольше
   if (attempt.brand && aggregated.length < 20) return true;
@@ -226,6 +238,83 @@ function quoteForQuery(value) {
   const str = typeof value === 'string' ? value.trim() : '';
   if (!str) return null;
   return `"${str.replace(/"/g, '\\"')}"`;
+}
+
+// ===== Compound Variant Guard helpers =====
+function expandCompoundForms(phrase) {
+  const forms = new Set();
+  const base = normalizeValue(phrase);
+  if (!base) return forms;
+  const canonical = base.replace(/\s+/g, ' ').trim();
+  const joiners = [' and ', ' & ', " 'n' ", ' n '];
+  const creamVariants = ['cream', 'creme', 'crème'];
+  const hyphenate = (s) => s.replace(/\s+/g, '-');
+  const concat = (s) => s.replace(/\s+/g, '');
+
+  // Include canonical
+  forms.add(canonical);
+  forms.add(hyphenate(canonical));
+  forms.add(concat(canonical));
+
+  // Replace connectors
+  for (const join of joiners) {
+    const parts = canonical.split(/\s+(?:&|and|'n'|n)\s+/);
+    if (parts.length === 2) {
+      const j = `${parts[0]}${join}${parts[1]}`.replace(/\s+/g, ' ').trim();
+      forms.add(j);
+      forms.add(hyphenate(j));
+      forms.add(concat(j));
+    }
+  }
+
+  // Cream/creme/crème variants
+  if (/\b(cr[ea]me|crème)\b/.test(canonical)) {
+    for (const cv of creamVariants) {
+      const j = canonical.replace(/\b(cr[ea]me|crème)\b/g, cv);
+      forms.add(j);
+      forms.add(hyphenate(j));
+      forms.add(concat(j));
+    }
+  }
+
+  return new Set([...forms].map(normalizeValue));
+}
+
+function deriveCompoundBlocks(item) {
+  if (!COMPOUND_GUARD_ENABLED) return null;
+  const candidates = [];
+  const addFromArray = (arr) => {
+    if (!Array.isArray(arr)) return;
+    for (const s of arr) {
+      if (typeof s !== 'string') continue;
+      const norm = normalizeValue(s);
+      if (!norm) continue;
+      if (norm.split(' ').length >= 2) candidates.push(norm);
+    }
+  };
+  addFromArray(item?.off_primary_tokens);
+  addFromArray(item?.off_alt_tokens);
+
+  // Also attempt from name excluding brand words
+  const name = normalizeValue(item?.name || item?.clean_name || '');
+  if (name) {
+    const brandValues = [item?.off_brand_filter, item?.brand, item?.brand_normalized]
+      .map(normalizeValue)
+      .filter(Boolean);
+    const brandWords = new Set();
+    brandValues.forEach(val => val.split(' ').forEach(w => { if (w.length > 1) brandWords.add(w); }));
+    const words = name.split(' ').filter(w => w.length > 1 && !brandWords.has(w));
+    if (words.length >= 2) {
+      candidates.push(words.join(' '));
+    }
+  }
+
+  if (candidates.length === 0) return null;
+  // Pick the first distinct candidate
+  const canonical = candidates[0];
+  const forms = expandCompoundForms(canonical);
+  const words = new Set(canonical.split(' ').filter(Boolean));
+  return { canonical, forms, words };
 }
 
 function expandVariantToken(token) {
@@ -541,6 +630,40 @@ function buildSearchAttempts(item) {
   const canonicalBrand = typeof item?.brand_canonical === 'string' ? item.brand_canonical.trim() : '';
   const brandFilters = [canonicalBrand, brandSlug].filter(Boolean);
   const brandFilterObject = brandFilters.length > 0 ? { brands_tags: brandFilters } : null;
+  
+  // 0. EARLY: Compound phrase exact search (one page)
+  const compound = deriveCompoundBlocks(item);
+  if (compound && compound.canonical) {
+    const phrase = compound.canonical;
+    const pageSize = Number(process.env.OFF_COMPOUND_PAGE_SIZE || 20);
+    attempts.push({
+      query: `"${phrase}"`,
+      brand: brandSlug || null,
+      brandName: brandName || null,
+      reason: 'compound_phrase_exact',
+      pageSize,
+      filters: brandFilterObject,
+      preferCGI: true,
+      isExactPhrase: true,
+      isCompound: true,
+      maxPagesOverride: 1
+    });
+    const hyphen = phrase.replace(/\s+/g, '-');
+    if (hyphen && hyphen !== phrase) {
+      attempts.push({
+        query: `"${hyphen}"`,
+        brand: brandSlug || null,
+        brandName: brandName || null,
+        reason: 'compound_phrase_hyphen',
+        pageSize,
+        filters: brandFilterObject,
+        preferCGI: true,
+        isExactPhrase: true,
+        isCompound: true,
+        maxPagesOverride: 1
+      });
+    }
+  }
   
   // Page sizes
   const brandPageSize = Number(process.env.OFF_BRAND_PAGE_SIZE || 40);
@@ -895,6 +1018,15 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         names.push(normalizeValue(product[key]));
       }
     }
+    // Compound: prefer full block match
+    const compoundLocal = deriveCompoundBlocks(item);
+    if (compoundLocal && compoundLocal.forms && compoundLocal.forms.size > 0) {
+      const hasFull = names.some(name => {
+        const n = normalizeValue(name);
+        return Array.from(compoundLocal.forms).some(form => form && n.includes(form));
+      });
+      if (hasFull) return true;
+    }
     return names.some(name => tokensToUse.some(token => token && name.includes(token)));
   };
 
@@ -1118,6 +1250,41 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       // CATEGORY SCORING: интегрируем категорийные бонусы/штрафы
       score = applyCategoryScoring(score, product);
 
+      // Compound matching
+      const compoundLocal = deriveCompoundBlocks(item);
+      let compoundFull = false;
+      let compoundPartial = false;
+      if (compoundLocal && compoundLocal.forms && compoundLocal.forms.size > 0) {
+        const normalizedNames = names.map(n => normalizeValue(n));
+        compoundFull = normalizedNames.some(n => Array.from(compoundLocal.forms).some(f => n.includes(f)));
+        if (!compoundFull) {
+          const words = Array.from(compoundLocal.words || []);
+          const count = words.length;
+          const needed = Math.max(2, Math.ceil(count / 2));
+          const containsCount = (n) => words.filter(w => n.includes(w)).length;
+          compoundPartial = normalizedNames.some(n => containsCount(n) >= needed);
+        }
+      }
+
+      // Compound scoring adjustments
+      if (compoundLocal && (compoundFull || compoundPartial)) {
+        if (compoundFull) {
+          score += COMPOUND_FULL_BONUS;
+          console.log('[COMPOUND_GUARD] bonus applied (full)', {
+            phrase: compoundLocal.canonical,
+            product_code: product?.code,
+            bonus: COMPOUND_FULL_BONUS
+          });
+        } else if (compoundPartial) {
+          score -= COMPOUND_PARTIAL_PENALTY;
+          console.log('[COMPOUND_GUARD] penalty applied (partial)', {
+            phrase: compoundLocal.canonical,
+            product_code: product?.code,
+            penalty: COMPOUND_PARTIAL_PENALTY
+          });
+        }
+      }
+
       candidateInfos.push({
         product,
         brandMatch,
@@ -1130,6 +1297,8 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         negativeMatch: negativeMatches,
         wantedAttrMatch,
         avoidedAttrMatch,
+        compoundFull,
+        compoundPartial,
         score
       });
     }
@@ -1221,18 +1390,44 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     }
 
     const sortedEligible = [...variantEligible].sort((a, b) => b.score - a.score);
+    // Compound degrade logging
+    const compoundLocal = deriveCompoundBlocks(item);
+    if (compoundLocal) {
+      const fullCount = sortedEligible.filter(i => i.compoundFull).length;
+      const partialCount = sortedEligible.filter(i => i.compoundPartial && !i.compoundFull).length;
+      console.log('[COMPOUND_GUARD] blocks', { blocks: [compoundLocal.canonical], full: fullCount, partial: partialCount });
+    }
     
     // CLEAN-FIRST ВЫБОР: приоритет кандидатам без avoided атрибутов
     let best = null;
     
     if (isCleanPhase) {
       // В чистой фазе выбираем лучший без негативных совпадений
-      best = sortedEligible.find(info => !info.negativeMatch && info.brandMatch) || 
-             sortedEligible.find(info => !info.negativeMatch) || 
-             sortedEligible[0];
+      if (compoundLocal) {
+        best = sortedEligible.find(i => i.compoundFull && !i.negativeMatch) ||
+               sortedEligible.find(i => i.compoundFull) ||
+               sortedEligible.find(info => !info.negativeMatch && info.brandMatch) || 
+               sortedEligible.find(info => !info.negativeMatch) || 
+               sortedEligible[0];
+      } else {
+        best = sortedEligible.find(info => !info.negativeMatch && info.brandMatch) || 
+               sortedEligible.find(info => !info.negativeMatch) || 
+               sortedEligible[0];
+      }
     } else {
       // В грязной фазе предупреждаем о деградации
-      best = sortedEligible[0];
+      if (compoundLocal) {
+        const anyFull = sortedEligible.some(i => i.compoundFull);
+        const anyPartial = sortedEligible.some(i => i.compoundPartial);
+        if (!anyFull && anyPartial) {
+          best = sortedEligible.find(i => i.compoundPartial) || sortedEligible[0];
+          console.log('[COMPOUND_GUARD] degrade_to_partial');
+        } else {
+          best = sortedEligible[0];
+        }
+      } else {
+        best = sortedEligible[0];
+      }
       console.log('[OFF] DEGRADED SELECTION WARNING', {
         product_code: best?.product?.code,
         reason: 'no_clean_candidates_available',
