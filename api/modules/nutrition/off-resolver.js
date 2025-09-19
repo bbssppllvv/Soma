@@ -3,6 +3,8 @@ import { mapOFFProductToPer100g } from './off-map.js';
 import { hasUsefulNutriments } from './off/nutrients.js';
 import { normalizeForMatch } from './off/text.js';
 import { REQUIRE_BRAND } from './off/constants.js';
+import { applyBrandGateV2, shouldEnforceBrandGate, generateBrandSynonyms } from './off/brand-synonyms.js';
+import { applyCategoryGuard, applyCategoryScoring } from './off/category-guard.js';
 
 const DEFAULT_CONFIDENCE_FLOOR = 0.65;
 const MAX_PRODUCTS_CONSIDERED = 12;
@@ -893,14 +895,65 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     const requireBrand = Boolean(preferredBrand && attempt.brand);
     const requireVariant = variantTokens.length > 0;
 
-    // НОВАЯ ЛОГИКА: Двухфазный отбор с жёстким атрибутным gate
+    // ИНТЕГРИРОВАННАЯ ЛОГИКА: Brand Gate v2 + Attribute Gate + Category Guard
+    
+    // 1. BRAND GATE V2: строгая фильтрация при известном бренде
+    const enforceBrandGate = shouldEnforceBrandGate(item);
+    const brandName = item?.brand || item?.brand_normalized || item?.off_brand_filter;
+    const gptSynonyms = Array.isArray(item?.brand_synonyms) ? item.brand_synonyms : [];
+    
+    let brandFilteredProducts = products;
+    let brandGateStats = null;
+    
+    if (enforceBrandGate) {
+      const brandGateResult = applyBrandGateV2(products, brandName, gptSynonyms, true);
+      brandFilteredProducts = brandGateResult.validCandidates;
+      brandGateStats = brandGateResult.stats;
+      
+      console.log('[OFF] Brand Gate v2 applied', {
+        brand: brandName,
+        original_count: products.length,
+        after_brand_gate: brandFilteredProducts.length,
+        blocked: brandGateResult.stats.blocked,
+        salvaged: brandGateResult.stats.salvaged
+      });
+    }
+    
+    // 2. CATEGORY GUARD: предотвращение конфликтов категорий
+    const expectedCategory = item?.canonical_category;
+    const expectedFoodForm = item?.food_form;
+    const brandKnown = Boolean(brandName);
+    
+    let categoryFilteredProducts = brandFilteredProducts;
+    let categoryGateStats = null;
+    
+    if (expectedCategory) {
+      const categoryGuardResult = applyCategoryGuard(
+        brandFilteredProducts, 
+        expectedCategory, 
+        expectedFoodForm, 
+        brandKnown
+      );
+      categoryFilteredProducts = categoryGuardResult.validCandidates;
+      categoryGateStats = categoryGuardResult.stats;
+      
+      console.log('[OFF] Category Guard applied', {
+        expected_category: expectedCategory,
+        brand_known: brandKnown,
+        original_count: brandFilteredProducts.length,
+        after_category_guard: categoryFilteredProducts.length,
+        blocked: categoryGuardResult.stats.blocked
+      });
+    }
+    
+    // 3. ATTRIBUTE GATE: фильтрация avoided атрибутов
     const avoidedTerms = [
       ...(Array.isArray(item?.off_attr_avoid) ? item.off_attr_avoid : []),
       ...(Array.isArray(item?.off_neg_tokens) ? item.off_neg_tokens : [])
     ].map(term => term.toLowerCase().trim()).filter(Boolean);
 
     // Фаза А: фильтруем "чистые" кандидаты (без avoided атрибутов)
-    const cleanCandidates = products.filter(product => {
+    const cleanCandidates = categoryFilteredProducts.filter(product => {
       if (avoidedTerms.length === 0) return true;
       
       const productAttrs = extractProductAttributes(product);
@@ -912,15 +965,19 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     });
 
     // Фаза B: если нет чистых кандидатов, разрешаем "грязные" с пониженной уверенностью
-    const candidatesToEvaluate = cleanCandidates.length > 0 ? cleanCandidates : products;
+    const candidatesToEvaluate = cleanCandidates.length > 0 ? cleanCandidates : categoryFilteredProducts;
     const isCleanPhase = cleanCandidates.length > 0;
     
-    console.log('[OFF] Attribute gate filtering', {
-      total_products: products.length,
+    console.log('[OFF] Multi-gate filtering summary', {
+      original_products: products.length,
+      after_brand_gate: brandFilteredProducts.length,
+      after_category_guard: categoryFilteredProducts.length,
+      after_attribute_gate: candidatesToEvaluate.length,
       avoided_terms: avoidedTerms,
-      clean_candidates: cleanCandidates.length,
       using_clean_phase: isCleanPhase,
-      degraded_selection: !isCleanPhase
+      degraded_selection: !isCleanPhase,
+      brand_gate_enforced: enforceBrandGate,
+      category_guard_active: Boolean(expectedCategory)
     });
 
     const candidateInfos = [];
@@ -1015,6 +1072,9 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       if (!isCleanPhase) {
         score *= 0.7; // 30% штраф за использование "грязных" кандидатов
       }
+      
+      // CATEGORY SCORING: интегрируем категорийные бонусы/штрафы
+      score = applyCategoryScoring(score, product);
 
       candidateInfos.push({
         product,

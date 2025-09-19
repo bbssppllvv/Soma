@@ -22,3 +22,12 @@ export const HEDGE_TIMEOUT_MS = Number(process.env.OFF_HEDGE_TIMEOUT_MS || 400);
 
 // Флаг для переключения на CGI API вместо SAL
 export const USE_CGI_SEARCH = process.env.OFF_USE_CGI_SEARCH === 'true' || false;
+
+// Флаги для улучшений продакшена
+export const ENFORCE_BRAND_GATE_V2 = process.env.OFF_ENFORCE_BRAND_GATE_V2 === 'true';
+export const CATEGORY_HARD_BLOCKS_ENABLED = process.env.OFF_CATEGORY_HARD_BLOCKS_ENABLED === 'true';
+export const SPLIT_OR_REQUIRE_BRAND = process.env.OFF_SPLIT_OR_REQUIRE_BRAND === 'true';
+
+// Параметры Category Guard
+export const CATEGORY_MATCH_BOOST = Number(process.env.OFF_CATEGORY_MATCH_BOOST || 3);
+export const CATEGORY_CONFLICT_PENALTY = Number(process.env.OFF_CATEGORY_CONFLICT_PENALTY || 5);
