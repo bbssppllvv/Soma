@@ -1385,37 +1385,59 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       // CATEGORY SCORING: интегрируем категорийные бонусы/штрафы
       score = applyCategoryScoring(score, product);
 
-      // Compound matching v1.1: enhanced with separators, permutations, equivalents
+      // Compound matching v1.2: enhanced with categories, labels, and separated matches
       const compoundLocal = deriveCompoundBlocks(item);
       let compoundFull = false;
       let compoundPartial = false;
       if (COMPOUND_MATCHER_V11 && compoundLocal && compoundLocal.canonical) {
-        const normalizedNames = names.map(n => normalizeCompoundSeparators(n));
+        // Expand search corpus: names + categories + labels
+        const extendedCorpus = [
+          ...names.map(n => normalizeCompoundSeparators(n)),
+          ...(Array.isArray(product?.categories_tags) ? product.categories_tags.map(c => normalizeCompoundSeparators(c)) : []),
+          ...(Array.isArray(product?.labels_tags) ? product.labels_tags.map(l => normalizeCompoundSeparators(l)) : [])
+        ];
         const compoundPhrase = compoundLocal.canonical;
         const roots = compoundLocal.roots || [];
         
         // Check for exact phrase match (with separator normalization)
-        compoundFull = normalizedNames.some(n => n.includes(normalizeCompoundSeparators(compoundPhrase)));
+        compoundFull = extendedCorpus.some(text => text.includes(normalizeCompoundSeparators(compoundPhrase)));
         
         if (!compoundFull && roots.length >= 2) {
           // Window-based proximity matching with permutation support
           const windowSize = product?.ingredients_text && 
             roots.every(root => normalizeCompoundSeparators(product.ingredients_text).includes(root)) ? 4 : 3;
           
-          compoundFull = normalizedNames.some(name => {
-            return checkCompoundWithinWindow(name, roots, windowSize);
+          compoundFull = extendedCorpus.some(text => {
+            return checkCompoundWithinWindow(text, roots, windowSize);
           });
           
           if (!compoundFull) {
-            // Partial match: at least half the roots present
-            const needed = Math.max(2, Math.ceil(roots.length / 2));
-            compoundPartial = normalizedNames.some(name => {
-              const foundRoots = roots.filter(root => {
-                const equivalents = expandCompoundEquivalents(root);
-                return equivalents.some(eq => name.includes(eq));
-              });
-              return foundRoots.length >= needed;
+            // v1.2: Separated matches - all roots present anywhere in extended corpus
+            const allCorpusText = extendedCorpus.join(' ');
+            const foundRoots = roots.filter(root => {
+              const equivalents = expandCompoundEquivalents(root);
+              return equivalents.some(eq => allCorpusText.includes(eq));
             });
+            
+            if (foundRoots.length === roots.length) {
+              // All roots found separately - give soft pass instead of penalty
+              compoundPartial = true;
+              console.log('[COMPOUND_GUARD] separated_match all_roots_found', {
+                phrase: compoundPhrase,
+                found_roots: foundRoots,
+                product_code: product?.code
+              });
+            } else {
+              // Traditional partial match: at least half the roots present in single text
+              const needed = Math.max(2, Math.ceil(roots.length / 2));
+              compoundPartial = extendedCorpus.some(text => {
+                const foundInText = roots.filter(root => {
+                  const equivalents = expandCompoundEquivalents(root);
+                  return equivalents.some(eq => text.includes(eq));
+                });
+                return foundInText.length >= needed;
+              });
+            }
           }
         }
       } else if (compoundLocal && compoundLocal.forms && compoundLocal.forms.size > 0) {
@@ -1431,7 +1453,7 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         }
       }
 
-      // Compound scoring adjustments
+      // Compound scoring adjustments v1.2
       if (compoundLocal && (compoundFull || compoundPartial)) {
         if (compoundFull) {
           score += COMPOUND_FULL_BONUS;
@@ -1439,19 +1461,45 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
             console.log('[COMPOUND_GUARD] phrase="' + compoundLocal.canonical + '" bonus=' + COMPOUND_FULL_BONUS);
           }
         } else if (compoundPartial) {
-          score -= COMPOUND_PARTIAL_PENALTY;
-          if (PHASE_SUMMARY_LOGS) {
-            console.log('[COMPOUND_GUARD] phrase="' + compoundLocal.canonical + '" penalty=' + COMPOUND_PARTIAL_PENALTY);
+          // v1.2: For separated matches, give soft bonus instead of penalty
+          const extendedCorpus = [
+            ...names.map(n => normalizeCompoundSeparators(n)),
+            ...(Array.isArray(product?.categories_tags) ? product.categories_tags.map(c => normalizeCompoundSeparators(c)) : []),
+            ...(Array.isArray(product?.labels_tags) ? product.labels_tags.map(l => normalizeCompoundSeparators(l)) : [])
+          ];
+          const allCorpusText = extendedCorpus.join(' ');
+          const roots = compoundLocal.roots || [];
+          const foundRoots = roots.filter(root => {
+            const equivalents = expandCompoundEquivalents(root);
+            return equivalents.some(eq => allCorpusText.includes(eq));
+          });
+          
+          if (foundRoots.length === roots.length) {
+            // All roots found - soft bonus for separated match
+            const softBonus = Math.floor(COMPOUND_FULL_BONUS / 2);
+            score += softBonus;
+            if (PHASE_SUMMARY_LOGS) {
+              console.log('[COMPOUND_GUARD] phrase="' + compoundLocal.canonical + '" separated_bonus=' + softBonus);
+            }
+          } else {
+            // Traditional partial - penalty
+            score -= COMPOUND_PARTIAL_PENALTY;
+            if (PHASE_SUMMARY_LOGS) {
+              console.log('[COMPOUND_GUARD] phrase="' + compoundLocal.canonical + '" penalty=' + COMPOUND_PARTIAL_PENALTY);
+            }
           }
         }
       }
 
+      // v1.2: Update tokenMatch to include compound matches for variant_passed
+      const enhancedTokenMatch = tokenMatch || compoundFull || (compoundPartial && compoundLocal && compoundLocal.roots && compoundLocal.roots.length >= 2);
+      
       candidateInfos.push({
         product,
         brandMatch,
         nameMatch,
         categoryMatch,
-        tokenMatch,
+        tokenMatch: enhancedTokenMatch,
         nameSimilarity: bestJaccard,
         exactMatch: exact,
         containsTarget: contains,
