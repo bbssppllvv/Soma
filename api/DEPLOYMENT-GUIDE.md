@@ -26,14 +26,18 @@ git describe --tags
 ```bash
 # В .env файле или переменных хостинга:
 
-# ОБЯЗАТЕЛЬНЫЕ для умного поиска
+# ОБЯЗАТЕЛЬНЫЕ для полной системы
 OFF_USE_SMART_ROUTING=true
+OFF_ENFORCE_BRAND_GATE_V2=true
+OFF_CATEGORY_HARD_BLOCKS_ENABLED=true
 
 # ОПЦИОНАЛЬНЫЕ (настройка производительности)
 OFF_MIN_CGI_RESULTS=3
 OFF_MAX_SAL_PAGES_PRIMARY=3
 OFF_CGI_TIMEOUT_MS=3000
 OFF_SAL_TIMEOUT_MS=5000
+OFF_CATEGORY_MATCH_BOOST=3
+OFF_CATEGORY_CONFLICT_PENALTY=5
 
 # Ваши существующие переменные
 OPENAI_API_KEY=your_openai_key
@@ -51,6 +55,9 @@ cd api && OFF_USE_SMART_ROUTING=true node test-smart-routing.js
 
 # Тест продакшн улучшений  
 ./run-production-improvements-test.sh
+
+# Тест Feastables кейса (Brand Gate v2 + Category Guard)
+./run-feastables-test.sh
 ```
 
 ## 📊 **Ожидаемые результаты на хостинге**
@@ -60,9 +67,16 @@ cd api && OFF_USE_SMART_ROUTING=true node test-smart-routing.js
 - **Стало:** **позиция 1** через CGI API
 - **Улучшение:** **в 216 раз точнее!**
 
+### **🍫 Feastables Cookies & Creme:**
+- **Было:** мороженое Cookies & Cream (7613312361887) 
+- **Стало:** **продукты бренда Feastables** (0850027880273, 0850027880501)
+- **Улучшение:** **правильный бренд и категория!**
+
 ### **📈 Общие метрики:**
 - **Success@1:** 50%+ для локальных брендов
-- **Latency:** 400-600ms (отличная скорость)
+- **Brand accuracy:** 100% в топ-5 (нет чужих брендов)
+- **Category accuracy:** исключение конфликтующих категорий
+- **Latency:** 400-800ms (отличная скорость)
 - **API routing:** автоматический выбор CGI/SAL
 - **Attribute filtering:** исключение light/zero/spray
 
