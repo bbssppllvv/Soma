@@ -92,17 +92,24 @@ function detectProductForm(product) {
  * Проверяет совместимость форм продуктов
  */
 function areFormsCompatible(expectedForm, actualForm) {
-  if (!expectedForm || !actualForm) return true; // Неизвестные формы совместимы
+  // ВРЕМЕННОЕ ИСПРАВЛЕНИЕ: если expected_form неизвестна или неправильная - разрешаем все
+  if (!expectedForm || expectedForm === 'unknown' || expectedForm === 'soup') {
+    return true; // Не блокируем при неопределенной форме
+  }
+  
+  if (!actualForm) return true; // Неизвестная actual форма совместима
   if (expectedForm === actualForm) return true;
   
-  // Некоторые формы совместимы между собой
+  // Расширенные совместимые формы
   const compatibleForms = {
-    'bar': ['candy'],
-    'candy': ['bar'],
-    'whipped': ['jar'],
-    'jar': ['whipped'],
-    'drink': ['beverage'],
-    'beverage': ['drink']
+    'bar': ['candy', 'tablet'],
+    'candy': ['bar', 'tablet'],
+    'whipped': ['jar', 'spray', 'aerosol'],
+    'jar': ['whipped', 'spread'],
+    'spray': ['whipped', 'aerosol'],
+    'drink': ['beverage', 'milk'],
+    'beverage': ['drink', 'milk'],
+    'spread': ['jar']
   };
   
   return compatibleForms[expectedForm]?.includes(actualForm) || false;
