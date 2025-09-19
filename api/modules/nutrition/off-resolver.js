@@ -1435,17 +1435,13 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       if (compoundLocal && (compoundFull || compoundPartial)) {
         if (compoundFull) {
           score += COMPOUND_FULL_BONUS;
-          const phraseKey = `${compoundLocal.canonical}_${page || 1}`;
-          if (PHASE_SUMMARY_LOGS && !loggedPhrases.has(phraseKey)) {
+          if (PHASE_SUMMARY_LOGS) {
             console.log('[COMPOUND_GUARD] phrase="' + compoundLocal.canonical + '" bonus=' + COMPOUND_FULL_BONUS);
-            loggedPhrases.add(phraseKey);
           }
         } else if (compoundPartial) {
           score -= COMPOUND_PARTIAL_PENALTY;
-          const phraseKey = `${compoundLocal.canonical}_${page || 1}`;
-          if (PHASE_SUMMARY_LOGS && !loggedPhrases.has(phraseKey)) {
+          if (PHASE_SUMMARY_LOGS) {
             console.log('[COMPOUND_GUARD] phrase="' + compoundLocal.canonical + '" penalty=' + COMPOUND_PARTIAL_PENALTY);
-            loggedPhrases.add(phraseKey);
           }
         }
       }
@@ -1511,7 +1507,7 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       const isCompound = isCompoundScenario(compound);
       const currentPhase = getAttemptPhase(attempt);
       
-      if (PHASED_SM && isCompound && currentPhase !== Phase.DEGRADE) {
+      if (PHASED_SM && isCompound && getAttemptPhase(attempt) !== Phase.DEGRADE) {
         console.log('[PHASE_SM] compound scenario requires variant_passed, continuing search', {
           phase: currentPhase,
           brand_matches: brandEligible.length,
@@ -1532,7 +1528,7 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       // Only allowed in DEGRADE phase
       const genericNegatives = ['chocolate', 'bar', 'candy'];
       const brandCount = brandEligible.length;
-      if (brandCount >= 3 && (!PHASED_SM || currentPhase === Phase.DEGRADE)) {
+      if (brandCount >= 3 && (!PHASED_SM || getAttemptPhase(attempt) === Phase.DEGRADE)) {
         console.log('[NEGATIVE_RELAX] applying soft negatives for generic tokens', { tokens: genericNegatives });
         const relaxed = brandEligible.map(info => {
           const corpus = buildProductCorpus(info.product);
