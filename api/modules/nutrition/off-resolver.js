@@ -1356,7 +1356,7 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       const brandMatch = isBrandMatch(product);
       const nameMatch = productNameMatches(product);
       const categoryMatch = categoryMatches(product);
-      const tokenMatch = variantTokens.length === 0
+      let tokenMatch = variantTokens.length === 0
         ? Boolean(nameMatch || categoryMatch || brandMatch)
         : Boolean(nameMatch || categoryMatch);
       const names = gatherCandidateNames(product);
@@ -2082,6 +2082,8 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
             evaluation.selection?.exactMatch
             || (evaluation.selection?.nameSimilarity ?? 0) >= NAME_SIMILARITY_THRESHOLD
             || (evaluation.selection?.brandMatch && evaluation.selection?.containsTarget)
+            || (evaluation.selection?.brandMatch && evaluation.selection?.tokenMatch && evaluation.selection?.compoundFull)
+            || (evaluation.selection?.brandMatch && evaluation.selection?.tokenMatch && evaluation.selection?.score > 20)
           );
           
           // For split-OR queries, also finalize if we found a good candidate without negative matches
