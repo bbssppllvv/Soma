@@ -21,6 +21,14 @@ const COMPOUND_FULL_BONUS = Number(process.env.OFF_COMPOUND_FULL_BONUS || 8);
 const COMPOUND_PARTIAL_PENALTY = Number(process.env.OFF_COMPOUND_PARTIAL_PENALTY || 6);
 const COMPOUND_DEGRADE_AFTER_PAGES = Number(process.env.OFF_COMPOUND_DEGRADE_AFTER_PAGES || 2);
 
+// Critical fixes config
+const ENABLE_BRAND_COMPOUND_TEXT = (process.env.OFF_ENABLE_BRAND_COMPOUND_TEXT || 'true') === 'true';
+const PHASED_SM = (process.env.OFF_PHASED_SM || 'true') === 'true';
+const SERVER_BRAND_GUARD = (process.env.OFF_SERVER_BRAND_GUARD || 'true') === 'true';
+const RESCUE_COMPOUND_1P = (process.env.OFF_RESCUE_COMPOUND_1P || 'true') === 'true';
+const COMPOUND_MATCHER_V11 = (process.env.OFF_COMPOUND_MATCHER_V11 || 'true') === 'true';
+const PHASE_SUMMARY_LOGS = (process.env.OFF_PHASE_SUMMARY_LOGS || 'true') === 'true';
+
 function getDynamicSearchDepth(attempt, hasVariantTokens = false) {
   // Динамическая глубина поиска на основе типа запроса
   if (attempt.maxPagesOverride) {
@@ -638,8 +646,32 @@ function buildSearchAttempts(item) {
   const brandFilters = [canonicalBrand, brandSlug].filter(Boolean);
   const brandFilterObject = brandFilters.length > 0 ? { brands_tags: brandFilters } : null;
   
-  // 0. EARLY: Compound phrase exact search (one page)
+  // 0. EARLY: Brand+Compound text search (critical fix #1)
   const compound = deriveCompoundBlocks(item);
+  if (ENABLE_BRAND_COMPOUND_TEXT && compound && compound.canonical && brandName) {
+    const phrase = compound.canonical;
+    const pageSize = Number(process.env.OFF_COMPOUND_PAGE_SIZE || 20);
+    
+    // Generate brand forms for text search
+    const brandForms = generateBrandSynonyms(brandName, Array.isArray(item?.brand_synonyms) ? item.brand_synonyms : []);
+    const primaryBrandForm = brandForms[0] || brandName.toLowerCase();
+    
+    attempts.push({
+      query: `"${primaryBrandForm}" "${phrase}"`,
+      brand: null, // No server brand_filter
+      brandName: null,
+      reason: 'brand_compound_text',
+      pageSize,
+      filters: null,
+      preferCGI: true,
+      isExactPhrase: true,
+      isCompound: true,
+      isBrandCompoundText: true,
+      maxPagesOverride: 1
+    });
+  }
+
+  // 1. EARLY: Compound phrase exact search (one page)
   if (compound && compound.canonical) {
     const phrase = compound.canonical;
     const pageSize = Number(process.env.OFF_COMPOUND_PAGE_SIZE || 20);
@@ -1662,6 +1694,45 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         });
 
         const evaluation = evaluateCandidates(aggregated, attempt);
+
+        // Server brand guard: retry without brand_filter if many brands but no variant_passed
+        if (!evaluation.success && SERVER_BRAND_GUARD && attempt.brand && 
+            evaluation.failure?.reason === 'variant_mismatch' && 
+            evaluation.meta?.brandMatchCount > 0 && evaluation.meta?.tokenMatchCount === 0) {
+          console.log('[SERVER_BRAND_GUARD] retrying without server brand_filter', {
+            attempt: attempt.reason,
+            brand_matches: evaluation.meta.brandMatchCount,
+            variant_matches: evaluation.meta.tokenMatchCount
+          });
+          
+          try {
+            const retryResponse = await searchWithRetry(attempt.query, {
+              brand: null, // Remove server brand_filter
+              locale: item?.locale || null,
+              page: 1,
+              pageSize: attempt.pageSize,
+              filters: null
+            }, signal);
+            
+            const retryProducts = Array.isArray(retryResponse?.products) ? retryResponse.products : [];
+            if (retryProducts.length > 0) {
+              const retryEvaluation = evaluateCandidates(retryProducts, { ...attempt, brand: null });
+              if (retryEvaluation.success && retryEvaluation.selection?.tokenMatch) {
+                console.log('[SERVER_BRAND_GUARD] retry successful', {
+                  code: retryEvaluation.selection.product?.code,
+                  variant_match: retryEvaluation.selection.tokenMatch
+                });
+                // Use retry result instead
+                selected = retryEvaluation.selection;
+                selectedMeta = retryEvaluation.meta;
+                selectedAttempt = { ...attempt, reason: `${attempt.reason}_no_server_filter` };
+                successThisAttempt = true;
+              }
+            }
+          } catch (retryError) {
+            console.log('[SERVER_BRAND_GUARD] retry failed', { error: retryError.message });
+          }
+        }
 
         if (evaluation.success) {
           const successLog = {
