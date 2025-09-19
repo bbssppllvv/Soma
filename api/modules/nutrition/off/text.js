@@ -36,3 +36,31 @@ export function buildPhraseRegex(phrase) {
   if (parts.length === 0) return null;
   return new RegExp(`\\b${parts.join('\\s+')}\\b`, 'i');
 }
+
+// CompoundMatcher v1.1: enhanced normalization and equivalents
+export function normalizeCompoundSeparators(value) {
+  return (value || '')
+    .toString()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
+    .replace(/[/._–—\-&+']/g, ' ') // Normalize separators to space
+    .replace(/\s+/g, ' ') // Collapse multiple spaces
+    .trim();
+}
+
+const COMPOUND_EQUIVALENTS = {
+  butter: ['butter', 'paste', 'crema'],
+  cream: ['cream', 'creme', 'crème'],
+  and: ['and', '&', "'n", "n'"]
+};
+
+export function expandCompoundEquivalents(token) {
+  const normalized = normalizeText(token);
+  for (const [key, equivalents] of Object.entries(COMPOUND_EQUIVALENTS)) {
+    if (equivalents.includes(normalized)) {
+      return equivalents;
+    }
+  }
+  return [normalized];
+}

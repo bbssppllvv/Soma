@@ -1,7 +1,7 @@
 import { getByBarcode, searchByNameV1 } from './off-client.js';
 import { mapOFFProductToPer100g } from './off-map.js';
 import { hasUsefulNutriments } from './off/nutrients.js';
-import { normalizeForMatch } from './off/text.js';
+import { normalizeForMatch, normalizeCompoundSeparators, expandCompoundEquivalents } from './off/text.js';
 import { REQUIRE_BRAND } from './off/constants.js';
 import { applyBrandGateV2, shouldEnforceBrandGate, generateBrandSynonyms, checkBrandMatchWithSynonyms } from './off/brand-synonyms.js';
 import { applyCategoryGuard, applyCategoryScoring } from './off/category-guard.js';
@@ -28,6 +28,60 @@ const SERVER_BRAND_GUARD = (process.env.OFF_SERVER_BRAND_GUARD || 'true') === 't
 const RESCUE_COMPOUND_1P = (process.env.OFF_RESCUE_COMPOUND_1P || 'true') === 'true';
 const COMPOUND_MATCHER_V11 = (process.env.OFF_COMPOUND_MATCHER_V11 || 'true') === 'true';
 const PHASE_SUMMARY_LOGS = (process.env.OFF_PHASE_SUMMARY_LOGS || 'true') === 'true';
+
+// Phase enum for state machine
+const Phase = {
+  COMPOUND: 'COMPOUND',
+  BRAND_COMPOUND_TEXT: 'BRAND_COMPOUND_TEXT', 
+  BRAND_FILTER: 'BRAND_FILTER',
+  RESCUE_NO_BRAND: 'RESCUE_NO_BRAND',
+  DEGRADE: 'DEGRADE',
+  DONE: 'DONE'
+};
+
+function getAttemptPhase(attempt) {
+  if (attempt.reason === 'brand_compound_text') return Phase.BRAND_COMPOUND_TEXT;
+  if (attempt.reason?.includes('compound_phrase')) return Phase.COMPOUND;
+  if (attempt.brand || attempt.reason?.includes('brand')) return Phase.BRAND_FILTER;
+  if (attempt.reason?.includes('rescue')) return Phase.RESCUE_NO_BRAND;
+  return Phase.DEGRADE;
+}
+
+function isCompoundScenario(compound) {
+  return compound && compound.roots && compound.roots.length >= 2;
+}
+
+function checkCompoundWithinWindow(text, roots, windowSize = 3) {
+  if (!text || !Array.isArray(roots) || roots.length < 2) return false;
+  
+  const words = text.split(/\s+/).filter(Boolean);
+  const expandedRoots = roots.map(root => expandCompoundEquivalents(root)).flat();
+  
+  // Check all permutations of roots within window
+  for (let i = 0; i < words.length - 1; i++) {
+    const window = words.slice(i, i + windowSize);
+    const windowText = window.join(' ');
+    
+    // Check if all roots (or their equivalents) appear in this window
+    const foundRoots = expandedRoots.filter(root => windowText.includes(root));
+    const uniqueOriginalRoots = new Set();
+    
+    for (const foundRoot of foundRoots) {
+      for (const originalRoot of roots) {
+        const equivalents = expandCompoundEquivalents(originalRoot);
+        if (equivalents.includes(foundRoot)) {
+          uniqueOriginalRoots.add(originalRoot);
+        }
+      }
+    }
+    
+    if (uniqueOriginalRoots.size >= 2) {
+      return true;
+    }
+  }
+  
+  return false;
+}
 
 function getDynamicSearchDepth(attempt, hasVariantTokens = false) {
   // Динамическая глубина поиска на основе типа запроса
@@ -889,7 +943,24 @@ function buildRescueAttempts(item, originalAttempts) {
     }
   }
   
-  // Strategy 2: Exact phrase search without brand (like browser search)
+  // Strategy 2: Compound rescue with category (critical fix #4)
+  const compound = deriveCompoundBlocks(item);
+  if (RESCUE_COMPOUND_1P && compound && compound.canonical) {
+    const categoryFilters = item?.canonical_category ? 
+      { categories_tags: [item.canonical_category] } : null;
+    rescueAttempts.push({
+      query: `"${compound.canonical}"`,
+      brand: null,
+      brandName: null,
+      reason: 'rescue_compound_with_category',
+      pageSize: 20,
+      filters: categoryFilters,
+      isRescue: true,
+      maxPagesOverride: 1
+    });
+  }
+
+  // Strategy 3: Exact phrase search without brand (like browser search)
   const primaryTokens = Array.isArray(item?.off_primary_tokens) ? item.off_primary_tokens : [];
   if (primaryTokens.length >= 2) {
     const exactPhrase = primaryTokens.slice(0, 2).join(' ');
@@ -1314,11 +1385,41 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       // CATEGORY SCORING: интегрируем категорийные бонусы/штрафы
       score = applyCategoryScoring(score, product);
 
-      // Compound matching
+      // Compound matching v1.1: enhanced with separators, permutations, equivalents
       const compoundLocal = deriveCompoundBlocks(item);
       let compoundFull = false;
       let compoundPartial = false;
-      if (compoundLocal && compoundLocal.forms && compoundLocal.forms.size > 0) {
+      if (COMPOUND_MATCHER_V11 && compoundLocal && compoundLocal.canonical) {
+        const normalizedNames = names.map(n => normalizeCompoundSeparators(n));
+        const compoundPhrase = compoundLocal.canonical;
+        const roots = compoundLocal.roots || [];
+        
+        // Check for exact phrase match (with separator normalization)
+        compoundFull = normalizedNames.some(n => n.includes(normalizeCompoundSeparators(compoundPhrase)));
+        
+        if (!compoundFull && roots.length >= 2) {
+          // Window-based proximity matching with permutation support
+          const windowSize = product?.ingredients_text && 
+            roots.every(root => normalizeCompoundSeparators(product.ingredients_text).includes(root)) ? 4 : 3;
+          
+          compoundFull = normalizedNames.some(name => {
+            return checkCompoundWithinWindow(name, roots, windowSize);
+          });
+          
+          if (!compoundFull) {
+            // Partial match: at least half the roots present
+            const needed = Math.max(2, Math.ceil(roots.length / 2));
+            compoundPartial = normalizedNames.some(name => {
+              const foundRoots = roots.filter(root => {
+                const equivalents = expandCompoundEquivalents(root);
+                return equivalents.some(eq => name.includes(eq));
+              });
+              return foundRoots.length >= needed;
+            });
+          }
+        }
+      } else if (compoundLocal && compoundLocal.forms && compoundLocal.forms.size > 0) {
+        // Fallback to old logic if v1.1 disabled
         const normalizedNames = names.map(n => normalizeValue(n));
         compoundFull = normalizedNames.some(n => Array.from(compoundLocal.forms).some(f => n.includes(f)));
         if (!compoundFull) {
@@ -1334,18 +1435,18 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       if (compoundLocal && (compoundFull || compoundPartial)) {
         if (compoundFull) {
           score += COMPOUND_FULL_BONUS;
-          console.log('[COMPOUND_GUARD] bonus applied (full)', {
-            phrase: compoundLocal.canonical,
-            product_code: product?.code,
-            bonus: COMPOUND_FULL_BONUS
-          });
+          const phraseKey = `${compoundLocal.canonical}_${page || 1}`;
+          if (PHASE_SUMMARY_LOGS && !loggedPhrases.has(phraseKey)) {
+            console.log('[COMPOUND_GUARD] phrase="' + compoundLocal.canonical + '" bonus=' + COMPOUND_FULL_BONUS);
+            loggedPhrases.add(phraseKey);
+          }
         } else if (compoundPartial) {
           score -= COMPOUND_PARTIAL_PENALTY;
-          console.log('[COMPOUND_GUARD] penalty applied (partial)', {
-            phrase: compoundLocal.canonical,
-            product_code: product?.code,
-            penalty: COMPOUND_PARTIAL_PENALTY
-          });
+          const phraseKey = `${compoundLocal.canonical}_${page || 1}`;
+          if (PHASE_SUMMARY_LOGS && !loggedPhrases.has(phraseKey)) {
+            console.log('[COMPOUND_GUARD] phrase="' + compoundLocal.canonical + '" penalty=' + COMPOUND_PARTIAL_PENALTY);
+            loggedPhrases.add(phraseKey);
+          }
         }
       }
 
@@ -1405,10 +1506,33 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     // Brand-first degrade: если бренд совпал, но вариант нет – берём лучший бренд-кандидат вместо no_candidates
     const variantEligible = brandEligible.filter(info => !requireVariant || info.tokenMatch);
     if (variantEligible.length === 0) {
+      // State machine: compound scenario must have variant_passed=true to finalize
+      const compound = deriveCompoundBlocks(item);
+      const isCompound = isCompoundScenario(compound);
+      const currentPhase = getAttemptPhase(attempt);
+      
+      if (PHASED_SM && isCompound && currentPhase !== Phase.DEGRADE) {
+        console.log('[PHASE_SM] compound scenario requires variant_passed, continuing search', {
+          phase: currentPhase,
+          brand_matches: brandEligible.length,
+          variant_matches: 0
+        });
+        return {
+          success: false,
+          failure: { item, reason: 'no_variant', canonical: attempt.query || searchTerm },
+          meta: {
+            totalCandidates: candidateInfos.length,
+            brandMatchCount,
+            tokenMatchCount,
+            candidateRanking: overallTop
+          }
+        };
+      }
       // Negative relaxation: convert generic negatives to soft when brand candidates are many
+      // Only allowed in DEGRADE phase
       const genericNegatives = ['chocolate', 'bar', 'candy'];
       const brandCount = brandEligible.length;
-      if (brandCount >= 3) {
+      if (brandCount >= 3 && (!PHASED_SM || currentPhase === Phase.DEGRADE)) {
         console.log('[NEGATIVE_RELAX] applying soft negatives for generic tokens', { tokens: genericNegatives });
         const relaxed = brandEligible.map(info => {
           const corpus = buildProductCorpus(info.product);
@@ -1626,6 +1750,11 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
   let selectedMeta = null;
   let selectedAttempt = null;
   let lastFailure = null;
+  
+  // Phase summary logging
+  const loggedPhrases = new Set(); // For dedup
+  let currentPhase = null;
+  let phaseResults = { brand_passed: 0, variant_passed: 0, candidates: [] };
 
   for (const attempt of attempts) {
     try {
@@ -1634,6 +1763,20 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       let aggregatedCount = 0;
       let pagesUsed = 0;
       let successThisAttempt = false;
+      
+      // Phase tracking for summary logs
+      const attemptPhase = getAttemptPhase(attempt);
+      if (PHASE_SUMMARY_LOGS && currentPhase !== attemptPhase) {
+        if (currentPhase && phaseResults.candidates.length > 0) {
+          console.log(`[PHASE_END ${currentPhase}] variant_passed=${phaseResults.variant_passed} brand_passed=${phaseResults.brand_passed} next=${attemptPhase}`);
+          console.log(`Top: ${phaseResults.candidates.slice(0, 5).map(c => `${c.code}(${c.brand ? '+' : '-'}brand ${c.variant ? '+' : '-'}variant)`).join(', ')}`);
+          if (phaseResults.variant_passed === 0) {
+            console.log('Reasons: no_variant');
+          }
+        }
+        currentPhase = attemptPhase;
+        phaseResults = { brand_passed: 0, variant_passed: 0, candidates: [] };
+      }
 
       // Определяем динамическую глубину поиска
       const hasVariantTokens = Array.isArray(debugTokens) && debugTokens.length > 1;
@@ -1694,6 +1837,15 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         });
 
         const evaluation = evaluateCandidates(aggregated, attempt);
+        
+        // Update phase results for summary logging
+        if (PHASE_SUMMARY_LOGS && evaluation.meta) {
+          phaseResults.brand_passed = Math.max(phaseResults.brand_passed, evaluation.meta.brandMatchCount || 0);
+          phaseResults.variant_passed = Math.max(phaseResults.variant_passed, evaluation.meta.tokenMatchCount || 0);
+          if (evaluation.meta.candidateRanking) {
+            phaseResults.candidates = evaluation.meta.candidateRanking.slice(0, 5);
+          }
+        }
 
         // Server brand guard: retry without brand_filter if many brands but no variant_passed
         if (!evaluation.success && SERVER_BRAND_GUARD && attempt.brand && 
