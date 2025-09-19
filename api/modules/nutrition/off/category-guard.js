@@ -89,32 +89,147 @@ function detectProductForm(product) {
 }
 
 /**
- * Проверяет совместимость форм продуктов
+ * Умная система совместимости форм продуктов
+ * Прогрессивная логика: простая → умная → адаптивная
  */
-function areFormsCompatible(expectedForm, actualForm) {
-  // ВРЕМЕННОЕ ИСПРАВЛЕНИЕ: если expected_form неизвестна или неправильная - разрешаем все
-  if (!expectedForm || expectedForm === 'unknown' || expectedForm === 'soup' || expectedForm === 'loaf' || expectedForm === 'raw') {
-    return true; // Не блокируем при неопределенной/неправильной форме (включая 'raw')
-  }
-  
-  if (!actualForm) return true; // Неизвестная actual форма совместима
+function areFormsCompatible(expectedForm, actualForm, productCategories = []) {
+  // Уровень 1: Базовая совместимость
+  if (!expectedForm || !actualForm) return true;
   if (expectedForm === actualForm) return true;
   
-  // МАКСИМАЛЬНО РАСШИРЕННЫЕ совместимые формы для избежания блокировок
-  const compatibleForms = {
-    'bar': ['candy', 'tablet', 'spread', 'jar', 'raw'],
-    'candy': ['bar', 'tablet', 'spread', 'raw'],
-    'whipped': ['jar', 'spray', 'aerosol', 'spread'],
-    'jar': ['whipped', 'spread', 'bar'],
-    'spray': ['whipped', 'aerosol', 'spread'],
-    'drink': ['beverage', 'milk', 'whipped'],
-    'beverage': ['drink', 'milk'],
-    'spread': ['jar', 'bar', 'whipped', 'spray'],
-    'loaf': ['spread', 'jar', 'bar'], // loaf совместим со всем молочным
-    'raw': ['candy', 'bar', 'tablet', 'spread', 'jar'] // raw совместим с большинством форм
+  // Уровень 2: Умная логика на основе категорий
+  const compatibility = calculateSmartCompatibility(expectedForm, actualForm, productCategories);
+  
+  return compatibility.isCompatible;
+}
+
+/**
+ * Умная система расчета совместимости форм
+ */
+function calculateSmartCompatibility(expectedForm, actualForm, categories = []) {
+  // Определяем семейство форм на основе категорий продукта
+  const formFamily = detectFormFamily(categories);
+  
+  // Базовые правила совместимости по семействам
+  const familyRules = {
+    'confectionery': {
+      // Кондитерские изделия: конфеты, плитки, батончики
+      compatible: ['candy', 'bar', 'tablet', 'raw'],
+      reason: 'confectionery_family'
+    },
+    'dairy': {
+      // Молочные продукты: масло, сливки, молоко
+      compatible: ['spread', 'jar', 'whipped', 'drink', 'loaf'],
+      reason: 'dairy_family'
+    },
+    'beverages': {
+      // Напитки
+      compatible: ['drink', 'beverage', 'bottle'],
+      reason: 'beverage_family'
+    },
+    'spreads': {
+      // Пасты и намазки
+      compatible: ['spread', 'jar', 'tube', 'container'],
+      reason: 'spread_family'
+    }
   };
   
-  return compatibleForms[expectedForm]?.includes(actualForm) || false;
+  // Проверяем совместимость в рамках семейства
+  if (formFamily && familyRules[formFamily]) {
+    const rule = familyRules[formFamily];
+    const isCompatible = rule.compatible.includes(expectedForm) && rule.compatible.includes(actualForm);
+    
+    if (isCompatible) {
+      return {
+        isCompatible: true,
+        confidence: 0.9,
+        reason: rule.reason,
+        family: formFamily
+      };
+    }
+  }
+  
+  // Универсальные правила для неопределенных случаев
+  const universalCompatibility = getUniversalCompatibility(expectedForm, actualForm);
+  
+  return universalCompatibility;
+}
+
+/**
+ * Определяет семейство продукта на основе категорий
+ */
+function detectFormFamily(categories) {
+  if (!Array.isArray(categories)) return null;
+  
+  const categoryText = categories.join(' ').toLowerCase();
+  
+  // Кондитерские изделия
+  if (categoryText.includes('chocolate') || 
+      categoryText.includes('candies') || 
+      categoryText.includes('confectioneries') ||
+      categoryText.includes('sweet snacks')) {
+    return 'confectionery';
+  }
+  
+  // Молочные продукты
+  if (categoryText.includes('dairy') || 
+      categoryText.includes('milk') || 
+      categoryText.includes('butter') ||
+      categoryText.includes('cream')) {
+    return 'dairy';
+  }
+  
+  // Напитки
+  if (categoryText.includes('beverage') || 
+      categoryText.includes('drink') || 
+      categoryText.includes('juice')) {
+    return 'beverages';
+  }
+  
+  // Пасты и намазки
+  if (categoryText.includes('spread') || 
+      categoryText.includes('paste') || 
+      categoryText.includes('jam')) {
+    return 'spreads';
+  }
+  
+  return null;
+}
+
+/**
+ * Универсальные правила совместимости для неопределенных случаев
+ */
+function getUniversalCompatibility(expectedForm, actualForm) {
+  // Проблемные формы GPT - разрешаем с низкой уверенностью
+  const problematicForms = ['unknown', 'raw', 'soup', 'loaf'];
+  
+  if (problematicForms.includes(expectedForm)) {
+    return {
+      isCompatible: true,
+      confidence: 0.3,
+      reason: 'gpt_form_uncertainty',
+      fallback: true
+    };
+  }
+  
+  // Строгая проверка для четких форм
+  const strictCompatibility = {
+    'candy': ['bar', 'tablet'],
+    'bar': ['candy', 'tablet'],
+    'spread': ['jar'],
+    'jar': ['spread'],
+    'drink': ['beverage'],
+    'beverage': ['drink']
+  };
+  
+  const isStrictCompatible = strictCompatibility[expectedForm]?.includes(actualForm) || false;
+  
+  return {
+    isCompatible: isStrictCompatible,
+    confidence: isStrictCompatible ? 0.8 : 0.1,
+    reason: isStrictCompatible ? 'strict_compatibility' : 'no_compatibility',
+    strict: true
+  };
 }
 
 /**
@@ -206,9 +321,10 @@ export function applyCategoryGuard(products, expectedCategory, expectedFoodForm,
   for (const product of products) {
     const categoryCheck = checkCategoryMatch(product, expectedCategory, expectedFoodForm);
     
-    // FORM-AWARE CATEGORY GUARD: Проверяем совместимость форм
+    // FORM-AWARE CATEGORY GUARD: Умная проверка совместимости форм
     const productForm = detectProductForm(product);
-    const formCompatible = areFormsCompatible(expectedFoodForm, productForm);
+    const productCategories = extractProductCategories(product);
+    const formCompatible = areFormsCompatible(expectedFoodForm, productForm, productCategories);
     
     // Hard blocking при известном бренде и конфликте категории
     if (CATEGORY_CONFIG.HARD_BLOCKS_ENABLED && brandKnown && categoryCheck.conflict) {
@@ -227,20 +343,28 @@ export function applyCategoryGuard(products, expectedCategory, expectedFoodForm,
       continue;
     }
     
-    // Form mismatch blocking
+    // Smart Form compatibility check
     if (expectedFoodForm && productForm && !formCompatible) {
+      // Получаем детальную информацию о совместимости
+      const compatibilityDetails = calculateSmartCompatibility(expectedFoodForm, productForm, productCategories);
+      
       blocked.push({
         code: product.code,
         name: product.product_name,
         expected_form: expectedFoodForm,
         actual_form: productForm,
-        conflict_reason: 'form_mismatch'
+        conflict_reason: 'smart_form_mismatch',
+        compatibility_reason: compatibilityDetails.reason,
+        confidence: compatibilityDetails.confidence
       });
       
-      console.log('[CATEGORY_GUARD] form_mismatch blocked', {
+      console.log('[CATEGORY_GUARD] smart_form_mismatch blocked', {
         product_code: product.code,
         expected_form: expectedFoodForm,
-        actual_form: productForm
+        actual_form: productForm,
+        family: compatibilityDetails.family,
+        reason: compatibilityDetails.reason,
+        confidence: compatibilityDetails.confidence
       });
       continue;
     }
