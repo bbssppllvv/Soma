@@ -3,7 +3,7 @@ import { mapOFFProductToPer100g } from './off-map.js';
 import { hasUsefulNutriments } from './off/nutrients.js';
 import { normalizeForMatch } from './off/text.js';
 import { REQUIRE_BRAND } from './off/constants.js';
-import { applyBrandGateV2, shouldEnforceBrandGate, generateBrandSynonyms } from './off/brand-synonyms.js';
+import { applyBrandGateV2, shouldEnforceBrandGate, generateBrandSynonyms, checkBrandMatchWithSynonyms } from './off/brand-synonyms.js';
 import { applyCategoryGuard, applyCategoryScoring } from './off/category-guard.js';
 
 const DEFAULT_CONFIDENCE_FLOOR = 0.65;
@@ -246,6 +246,37 @@ function expandVariantToken(token) {
   }
   if (raw.includes('cream')) {
     rawCandidates.add(raw.replace(/cream/g, 'creme'));
+  }
+
+  // Расширяем варианты для Cookies & Creme / Cookies & Cream
+  const hasCookies = /\bcookies?\b/.test(raw);
+  const hasCream = /\bcreme\b|\bcream\b|\bcrème\b/.test(raw);
+  if (hasCookies && hasCream) {
+    const bases = [
+      raw,
+      raw.replace(/crème/g, 'creme'),
+      raw.replace(/crème/g, 'cream').replace(/creme/g, 'cream')
+    ];
+    for (const base of bases) {
+      const normalizedBase = base
+        .replace(/\s+&\s+/g, ' & ')
+        .replace(/\s+and\s+/g, ' and ')
+        .trim();
+      const pairs = [
+        [' & ', 'creme'],
+        [' & ', 'cream'],
+        [' and ', 'creme'],
+        [' and ', 'cream'],
+        [' n ', 'creme'],
+        [' n ', 'cream'],
+        [" 'n' ", 'creme'],
+        [" 'n' ", 'cream']
+      ];
+      for (const [joiner, creamWord] of pairs) {
+        rawCandidates.add(`cookies${joiner}${creamWord}`);
+        rawCandidates.add(`cookie${joiner}${creamWord}`);
+      }
+    }
   }
 
   for (const candidate of rawCandidates) {
@@ -878,9 +909,10 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
   };
 
   const isBrandMatch = (product) => {
-    if (!preferredBrand) return false;
-    const corpus = buildProductCorpus(product);
-    return corpus.includes(preferredBrand);
+    const brandName = item?.brand || item?.brand_normalized || item?.off_brand_filter;
+    if (!brandName) return false;
+    const result = checkBrandMatchWithSynonyms(product, brandName, Array.isArray(item?.brand_synonyms) ? item.brand_synonyms : []);
+    return Boolean(result && result.match);
   };
 
   const evaluateCandidates = (products, attempt) => {
@@ -991,12 +1023,13 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         : Boolean(nameMatch || categoryMatch);
       const names = gatherCandidateNames(product);
       const { bestJaccard, exact, contains } = computeNameMetrics(names, targetNameNormalized, targetTokenSet);
-      const negativeMatches = negativeTokens.size > 0
-        ? names.some(name => {
-            const tokens = tokenizeNormalized(name);
-            return tokens.some(token => negativeTokens.has(token));
-          })
-        : false;
+      let negativeMatches = false;
+      if (negativeTokens.size > 0) {
+        negativeMatches = names.some(name => {
+          const tokens = tokenizeNormalized(name);
+          return tokens.some(token => negativeTokens.has(token));
+        });
+      }
 
       // Check for wanted/avoided attributes
       const wantedAttrs = Array.isArray(item?.off_attr_want) ? item.off_attr_want : [];
@@ -1066,7 +1099,16 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         });
       }
       
-      if (negativeMatches) score -= NEGATIVE_TOKEN_PENALTY;
+      // Soft-negatives для chocolate: если совпал вариант cookies & creme, негативы про шоколад -> штраф, не бан
+      if (negativeMatches) {
+        const hasCookiesCremeVariant = variantTokens.some(v => /cookies?\s*(?:&|and|n|'n')\s*(?:creme|cream|crème)/.test(v));
+        const isChocolateNeg = Array.from(negativeTokens).some(t => /(white|milk|dark)\s+chocolate/.test(t));
+        if (hasCookiesCremeVariant && isChocolateNeg) {
+          score -= Math.max(1, Math.floor(NEGATIVE_TOKEN_PENALTY / 2)); // мягкий штраф
+        } else {
+          score -= NEGATIVE_TOKEN_PENALTY;
+        }
+      }
       
       // Общий штраф за грязную фазу
       if (!isCleanPhase) {
@@ -1127,8 +1169,45 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       };
     }
 
+    // Brand-first degrade: если бренд совпал, но вариант нет – берём лучший бренд-кандидат вместо no_candidates
     const variantEligible = brandEligible.filter(info => !requireVariant || info.tokenMatch);
     if (variantEligible.length === 0) {
+      const brandOnlySorted = [...brandEligible].sort((a, b) => b.score - a.score);
+      if (brandOnlySorted.length > 0) {
+        const bestBrandOnly = brandOnlySorted[0];
+        const eligibleTop = brandOnlySorted.slice(0, 5).map(info => ({
+          code: info.product?.code || null,
+          score: Number(info.score.toFixed(3)),
+          brand: info.brandMatch,
+          variant: info.tokenMatch,
+          name_similarity: Number(info.nameSimilarity.toFixed(3)),
+          negative_penalty: info.negativeMatch
+        }));
+        console.log('[OFF] BRAND-FIRST DEGRADE applied: variant mismatch, selecting best brand candidate');
+        return {
+          success: true,
+          selection: {
+            product: bestBrandOnly.product,
+            brandMatch: true,
+            tokenMatch: false,
+            hasNutrients: hasUsefulNutriments(bestBrandOnly.product),
+            nameSimilarity: bestBrandOnly.nameSimilarity,
+            exactMatch: bestBrandOnly.exactMatch,
+            containsTarget: bestBrandOnly.containsTarget,
+            negativeMatch: bestBrandOnly.negativeMatch,
+            score: bestBrandOnly.score,
+            insightReason: 'brand_first_degrade'
+          },
+          meta: {
+            totalCandidates: candidateInfos.length,
+            brandMatchCount,
+            tokenMatchCount,
+            brandEligibleCount: brandEligible.length,
+            variantEligibleCount: 0,
+            candidateRanking: eligibleTop
+          }
+        };
+      }
       return {
         success: false,
         failure: { item, reason: 'variant_mismatch', canonical: attempt.query || searchTerm },

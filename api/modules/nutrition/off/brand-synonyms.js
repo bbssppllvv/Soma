@@ -188,6 +188,15 @@ export function applyBrandGateV2(products, brandName, gptSynonyms = [], enforceG
     salvaged_codes: salvaged.map(s => s.code)
   });
   
+  // Специальный лог для виртуального совпадения бренда по имени
+  if (salvaged.length > 0) {
+    console.log('[BRAND_GATE_V2] virtual_name_match applied', {
+      brand: brandName,
+      salvaged_count: salvaged.length,
+      salvaged_codes: salvaged.map(s => s.code)
+    });
+  }
+  
   return {
     validCandidates,
     blocked,

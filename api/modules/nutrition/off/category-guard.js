@@ -179,6 +179,17 @@ export function applyCategoryGuard(products, expectedCategory, expectedFoodForm,
     penalized_count: penalized.length
   });
   
+  // Явный лог для кейса мороженого, чтобы проще было проверять приёмку
+  if (expectedCategory === 'snack-sweet') {
+    const blockedIceCream = blocked.filter(b => Array.isArray(b.categories) && b.categories.some(c => c.includes('ice-cream') || c.includes('ice-creams') || c.includes('ice-creams-and-sorbets') || c.includes('frozen')));
+    if (blockedIceCream.length > 0) {
+      console.log('[CATEGORY_GUARD] ice-cream blocked', {
+        blocked_codes: blockedIceCream.map(b => b.code),
+        count: blockedIceCream.length
+      });
+    }
+  }
+  
   return {
     validCandidates,
     blocked,
