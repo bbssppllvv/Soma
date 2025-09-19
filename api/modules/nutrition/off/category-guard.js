@@ -93,23 +93,24 @@ function detectProductForm(product) {
  */
 function areFormsCompatible(expectedForm, actualForm) {
   // ВРЕМЕННОЕ ИСПРАВЛЕНИЕ: если expected_form неизвестна или неправильная - разрешаем все
-  if (!expectedForm || expectedForm === 'unknown' || expectedForm === 'soup') {
-    return true; // Не блокируем при неопределенной форме
+  if (!expectedForm || expectedForm === 'unknown' || expectedForm === 'soup' || expectedForm === 'loaf') {
+    return true; // Не блокируем при неопределенной/неправильной форме
   }
   
   if (!actualForm) return true; // Неизвестная actual форма совместима
   if (expectedForm === actualForm) return true;
   
-  // Расширенные совместимые формы
+  // МАКСИМАЛЬНО РАСШИРЕННЫЕ совместимые формы для избежания блокировок
   const compatibleForms = {
-    'bar': ['candy', 'tablet'],
-    'candy': ['bar', 'tablet'],
-    'whipped': ['jar', 'spray', 'aerosol'],
-    'jar': ['whipped', 'spread'],
-    'spray': ['whipped', 'aerosol'],
-    'drink': ['beverage', 'milk'],
+    'bar': ['candy', 'tablet', 'spread', 'jar'],
+    'candy': ['bar', 'tablet', 'spread'],
+    'whipped': ['jar', 'spray', 'aerosol', 'spread'],
+    'jar': ['whipped', 'spread', 'bar'],
+    'spray': ['whipped', 'aerosol', 'spread'],
+    'drink': ['beverage', 'milk', 'whipped'],
     'beverage': ['drink', 'milk'],
-    'spread': ['jar']
+    'spread': ['jar', 'bar', 'whipped', 'spray'],
+    'loaf': ['spread', 'jar', 'bar'] // loaf совместим со всем молочным
   };
   
   return compatibleForms[expectedForm]?.includes(actualForm) || false;

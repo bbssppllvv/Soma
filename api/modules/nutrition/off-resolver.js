@@ -734,9 +734,10 @@ function buildSearchAttempts(item) {
     const phrase = compound.canonical;
     const pageSize = Number(process.env.OFF_COMPOUND_PAGE_SIZE || 20);
     
-    // Generate brand forms for text search
+    // Generate brand forms for text search - используем оригинальный бренд для текстового поиска
     const brandForms = generateBrandSynonyms(brandName, Array.isArray(item?.brand_synonyms) ? item.brand_synonyms : []);
-    const primaryBrandForm = brandForms[0] || brandName.toLowerCase();
+    // Для текстового поиска используем оригинальный бренд, а не нормализованный
+    const primaryBrandForm = brandName.toLowerCase();
     
     attempts.push({
       query: `"${primaryBrandForm}" "${phrase}"`,
@@ -991,7 +992,8 @@ function buildRescueAttempts(item, originalAttempts) {
   // Strategy 3: GPT Fallback Rescue - узкий поиск с fallback phrases
   if (brandSlugs.length > 0 && Array.isArray(item?.off_fallback_phrases) && item.off_fallback_phrases.length > 0) {
     const brandSynonyms = generateBrandSynonyms(brandCandidates[0], Array.isArray(item?.brand_synonyms) ? item.brand_synonyms : []);
-    const primaryBrandForm = brandSynonyms[0] || brandCandidates[0].toLowerCase();
+    // Для текстового поиска используем оригинальный бренд
+    const primaryBrandForm = brandCandidates[0].toLowerCase();
     
     for (const fallbackPhrase of item.off_fallback_phrases) {
       if (fallbackPhrase && fallbackPhrase.trim()) {
@@ -1519,7 +1521,7 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       score = applyCategoryScoring(score, product);
 
       // COMPOUND GUARD V2: Строгий вариант-матч с GPT токенами
-      const compoundLocal = deriveCompoundBlocks(item);
+      // Используем уже объявленный compoundLocal из строки 1197
       let compoundFull = false;
       let compoundPartial = false;
       let variantPassed = false;
