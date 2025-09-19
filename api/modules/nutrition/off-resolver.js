@@ -1204,6 +1204,8 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     const brandName = item?.brand || item?.brand_normalized || item?.off_brand_filter;
     if (!brandName) return false;
     const result = checkBrandMatchWithSynonyms(product, brandName, Array.isArray(item?.brand_synonyms) ? item.brand_synonyms : []);
+    
+    
     return Boolean(result && result.match);
   };
 
@@ -1376,6 +1378,30 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       if (exact) score += 3;
       else if (contains) score += 2;
       score += bestJaccard * 3;
+      
+      // Дополнительный бонус за точное соответствие бренда в названии продукта
+      if (brandMatch && product?.product_name) {
+        const productNameLower = product.product_name.toLowerCase();
+        const originalBrand = item?.brand || '';
+        
+        // Проверяем различные варианты бренда в названии
+        const brandVariants = [
+          originalBrand.toLowerCase(),
+          originalBrand.toLowerCase().replace(/&/g, '&'), // M&Ms -> M&Ms
+          originalBrand.toLowerCase().replace(/&/g, ' and '), // M&Ms -> m and ms
+          originalBrand.toLowerCase().replace(/'/g, ''), // M&Ms -> M&Ms
+          originalBrand.toLowerCase() + "'s", // M&Ms -> m&ms's
+          originalBrand.toLowerCase().replace(/s$/, "'s"), // M&Ms -> m&m's
+        ];
+        
+        const hasBrandInName = brandVariants.some(variant => 
+          variant && productNameLower.includes(variant)
+        );
+        
+        if (hasBrandInName) {
+          score += 1; // Небольшой бонус за точное соответствие бренда в названии
+        }
+      }
       
       // Attribute scoring
       if (wantedAttrMatch) score += 2; // Boost for wanted attributes

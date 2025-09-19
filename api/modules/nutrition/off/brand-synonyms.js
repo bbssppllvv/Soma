@@ -29,9 +29,58 @@ function normalizeBrandForComparison(brand) {
     .normalize('NFKD')
     .replace(/\p{M}/gu, '') // Убираем диакритику
     .replace(/[&]/g, ' and ') // & → and
+    .replace(/[']/g, 's') // ' → s (для M&M's → M&Ms)
     .replace(/[^\w\s]/g, ' ') // Убираем пунктуацию
     .replace(/\s+/g, ' ') // Схлопываем пробелы
     .trim();
+}
+
+/**
+ * Универсальные правила генерации brand slugs для brands_tags matching
+ */
+function generateUniversalBrandSlugs(value) {
+  if (!value) return [];
+  
+  // Базовая нормализация для brands_tags
+  const toBrandSlug = (val) => {
+    return val
+      .toString()
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/\p{M}/gu, '')
+      .replace(/&/g, '-')
+      .replace(/["'''`´]/g, '')
+      .replace(/_/g, '-')
+      .replace(/[^a-z0-9\s-]/g, '-')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .trim();
+  };
+  
+  const primary = toBrandSlug(value);
+  const alternatives = [];
+  
+  // Universal rule: for brands with single letters separated by &, generate both formats
+  // Examples: "A&B" → ["a-b"], "M&M's" → ["m-ms", "m-m-s"]
+  const singleLetterPattern = /^([a-z])\s*&\s*([a-z])('?s)?$/i;
+  const match = value.match(singleLetterPattern);
+  
+  if (match) {
+    const letter1 = match[1].toLowerCase();
+    const letter2 = match[2].toLowerCase();
+    const hasPossessive = match[3]; // 's
+    
+    // Format 1: letters joined with single dash (m-ms)
+    const joined = `${letter1}-${letter2}${hasPossessive ? 's' : ''}`;
+    
+    // Format 2: each letter separated by dashes (m-m-s)
+    const separated = `${letter1}-${letter2}${hasPossessive ? '-s' : ''}`;
+    
+    alternatives.push(joined, separated);
+  }
+  
+  return [primary, ...alternatives].filter((v, i, arr) => arr.indexOf(v) === i);
 }
 
 /**
@@ -41,7 +90,16 @@ export function generateBrandSynonyms(brandName, gptSynonyms = []) {
   if (!brandName) return [];
   
   const normalized = normalizeBrandForComparison(brandName);
-  const synonyms = new Set([normalized, brandName.toLowerCase()]);
+  const synonyms = new Set([
+    normalized, 
+    brandName.toLowerCase(),
+    // Добавляем оригинальный вид без изменений (для точного matching в brands/product_name)
+    brandName.toString().toLowerCase()
+  ]);
+  
+  // Добавляем универсальные brand slugs (для brands_tags matching)
+  const brandSlugs = generateUniversalBrandSlugs(brandName);
+  brandSlugs.forEach(slug => synonyms.add(slug));
   
   // Добавляем GPT синонимы
   if (Array.isArray(gptSynonyms)) {
@@ -121,17 +179,20 @@ export function checkBrandMatchWithSynonyms(product, brandName, gptSynonyms = []
     }
   }
   
-  // Проверяем product_name (если brands_tags пуст)
-  const hasEmptyBrandsTags = !product.brands_tags || product.brands_tags.length === 0;
-  if (hasEmptyBrandsTags && product.product_name) {
-    const productNameNormalized = normalizeBrandForComparison(product.product_name);
+  // Проверяем product_name и product_name_en (всегда, не только если brands_tags пуст)
+  const productNames = [product.product_name, product.product_name_en].filter(Boolean);
+  
+  for (const productName of productNames) {
+    const productNameNormalized = normalizeBrandForComparison(productName);
     
     const hasNameMatch = synonyms.some(synonym => 
       productNameNormalized.includes(synonym) || synonym.includes(productNameNormalized)
     );
     
     if (hasNameMatch) {
-      return { match: true, source: 'product_name_salvage', synonym_used: synonyms };
+      const hasEmptyBrandsTags = !product.brands_tags || product.brands_tags.length === 0;
+      const source = hasEmptyBrandsTags ? 'product_name_salvage' : 'product_name_match';
+      return { match: true, source, synonym_used: synonyms };
     }
   }
   
