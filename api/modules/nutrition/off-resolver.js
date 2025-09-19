@@ -1195,8 +1195,7 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         names.push(normalizeValue(product[key]));
       }
     }
-    // Compound: strict gating
-    const compoundLocal = deriveCompoundBlocks(item);
+    // Compound: strict gating (используем compoundLocal из evaluateCandidates)
     if (compoundLocal && compoundLocal.forms && compoundLocal.forms.size > 0) {
       const normalizedNames = names.map(n => normalizeValue(n));
       const hasFull = normalizedNames.some(n => Array.from(compoundLocal.forms).some(form => form && n.includes(form)));
@@ -1244,6 +1243,9 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
 
     const requireBrand = Boolean(preferredBrand && attempt.brand);
     const requireVariant = variantTokens.length > 0;
+    
+    // Объявляем compoundLocal в правильной области видимости
+    const compoundLocal = deriveCompoundBlocks(item);
 
     // ИНТЕГРИРОВАННАЯ ЛОГИКА: Brand Gate v2 + Attribute Gate + Category Guard
     
@@ -1830,8 +1832,7 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     }
 
     const sortedEligible = [...variantEligible].sort((a, b) => b.score - a.score);
-    // Compound degrade logging
-    const compoundLocal = deriveCompoundBlocks(item);
+    // Compound degrade logging (используем compoundLocal из evaluateCandidates)
     if (compoundLocal) {
       const fullCount = sortedEligible.filter(i => i.compoundFull).length;
       const partialCount = sortedEligible.filter(i => i.compoundPartial && !i.compoundFull).length;
