@@ -289,7 +289,14 @@ function deriveCompoundBlocks(item) {
       if (typeof s !== 'string') continue;
       const norm = normalizeValue(s);
       if (!norm) continue;
-      if (norm.split(' ').length >= 2) candidates.push(norm);
+      // Skip phrases where all tokens are 2 chars or less
+      const tokens = norm.split(' ').filter(Boolean);
+      const allShort = tokens.length > 0 && tokens.every(t => t.length <= 2);
+      if (allShort) continue;
+      const hasJoiner = /\b(&|and|'n|n)\b|-/i.test(s);
+      if (tokens.length >= 2 || hasJoiner) {
+        candidates.push(norm);
+      }
     }
   };
   addFromArray(item?.off_primary_tokens);
@@ -298,15 +305,14 @@ function deriveCompoundBlocks(item) {
   // Also attempt from name excluding brand words
   const name = normalizeValue(item?.name || item?.clean_name || '');
   if (name) {
-    const brandValues = [item?.off_brand_filter, item?.brand, item?.brand_normalized]
+    const brandValues = [item?.off_brand_filter, item?.brand, item?.brand_normalized, ...(Array.isArray(item?.brand_synonyms) ? item.brand_synonyms : [])]
       .map(normalizeValue)
       .filter(Boolean);
     const brandWords = new Set();
     brandValues.forEach(val => val.split(' ').forEach(w => { if (w.length > 1) brandWords.add(w); }));
     const words = name.split(' ').filter(w => w.length > 1 && !brandWords.has(w));
-    if (words.length >= 2) {
-      candidates.push(words.join(' '));
-    }
+    // Do not generate from name if it reduces to brand-only fragments
+    if (words.length >= 2) candidates.push(words.join(' '));
   }
 
   if (candidates.length === 0) return null;
@@ -314,6 +320,7 @@ function deriveCompoundBlocks(item) {
   const canonical = candidates[0];
   const forms = expandCompoundForms(canonical);
   const words = new Set(canonical.split(' ').filter(Boolean));
+  console.log('[COMPOUND_GUARD] phrase', { phrase: canonical });
   return { canonical, forms, words };
 }
 
@@ -638,11 +645,11 @@ function buildSearchAttempts(item) {
     const pageSize = Number(process.env.OFF_COMPOUND_PAGE_SIZE || 20);
     attempts.push({
       query: `"${phrase}"`,
-      brand: brandSlug || null,
-      brandName: brandName || null,
+      brand: null,
+      brandName: null,
       reason: 'compound_phrase_exact',
       pageSize,
-      filters: brandFilterObject,
+      filters: null,
       preferCGI: true,
       isExactPhrase: true,
       isCompound: true,
@@ -652,11 +659,26 @@ function buildSearchAttempts(item) {
     if (hyphen && hyphen !== phrase) {
       attempts.push({
         query: `"${hyphen}"`,
-        brand: brandSlug || null,
-        brandName: brandName || null,
+        brand: null,
+        brandName: null,
         reason: 'compound_phrase_hyphen',
         pageSize,
-        filters: brandFilterObject,
+        filters: null,
+        preferCGI: true,
+        isExactPhrase: true,
+        isCompound: true,
+        maxPagesOverride: 1
+      });
+    }
+    const concat = phrase.replace(/\s+/g, '');
+    if (concat && concat !== phrase) {
+      attempts.push({
+        query: `"${concat}"`,
+        brand: null,
+        brandName: null,
+        reason: 'compound_phrase_concat',
+        pageSize,
+        filters: null,
         preferCGI: true,
         isExactPhrase: true,
         isCompound: true,
@@ -1018,15 +1040,22 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         names.push(normalizeValue(product[key]));
       }
     }
-    // Compound: prefer full block match
+    // Compound: strict gating
     const compoundLocal = deriveCompoundBlocks(item);
     if (compoundLocal && compoundLocal.forms && compoundLocal.forms.size > 0) {
-      const hasFull = names.some(name => {
-        const n = normalizeValue(name);
-        return Array.from(compoundLocal.forms).some(form => form && n.includes(form));
-      });
+      const normalizedNames = names.map(n => normalizeValue(n));
+      const hasFull = normalizedNames.some(n => Array.from(compoundLocal.forms).some(form => form && n.includes(form)));
       if (hasFull) return true;
+      // Require proximity of all roots if no exact form
+      const words = Array.from(compoundLocal.words || []);
+      if (words.length >= 2) {
+        const passesProximity = normalizedNames.some(n => words.every(w => n.includes(w)));
+        if (passesProximity) return true;
+      }
+      // Otherwise do not pass as variant
+      return false;
     }
+    // Non-compound fallback
     return names.some(name => tokensToUse.some(token => token && name.includes(token)));
   };
 
@@ -1241,6 +1270,9 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
           score -= NEGATIVE_TOKEN_PENALTY;
         }
       }
+
+      // Negative relaxation: if no variant passed anywhere and many brand candidates exist, relax generic negatives
+      // This is applied later at selection time; here we just record flags
       
       // Общий штраф за грязную фазу
       if (!isCleanPhase) {
@@ -1341,7 +1373,85 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
     // Brand-first degrade: если бренд совпал, но вариант нет – берём лучший бренд-кандидат вместо no_candidates
     const variantEligible = brandEligible.filter(info => !requireVariant || info.tokenMatch);
     if (variantEligible.length === 0) {
-      const brandOnlySorted = [...brandEligible].sort((a, b) => b.score - a.score);
+      // Negative relaxation: convert generic negatives to soft when brand candidates are many
+      const genericNegatives = ['chocolate', 'bar', 'candy'];
+      const brandCount = brandEligible.length;
+      if (brandCount >= 3) {
+        console.log('[NEGATIVE_RELAX] applying soft negatives for generic tokens', { tokens: genericNegatives });
+        const relaxed = brandEligible.map(info => {
+          const corpus = buildProductCorpus(info.product);
+          const hits = genericNegatives.some(t => corpus.includes(normalizeValue(t)));
+          const adjusted = { ...info };
+          if (hits && info.negativeMatch) {
+            adjusted.negativeMatch = false;
+            adjusted.score = adjusted.score + Math.max(1, Math.floor(NEGATIVE_TOKEN_PENALTY / 2));
+          }
+          return adjusted;
+        });
+        const resorted = [...relaxed].sort((a, b) => b.score - a.score);
+        const eligibleTop = resorted.slice(0, 5).map(info => ({
+          code: info.product?.code || null,
+          score: Number(info.score.toFixed(3)),
+          brand: info.brandMatch,
+          variant: info.tokenMatch,
+          name_similarity: Number(info.nameSimilarity.toFixed(3)),
+          negative_penalty: info.negativeMatch
+        }));
+        const bestRelaxed = resorted[0];
+        return {
+          success: true,
+          selection: {
+            product: bestRelaxed.product,
+            brandMatch: true,
+            tokenMatch: false,
+            hasNutrients: hasUsefulNutriments(bestRelaxed.product),
+            nameSimilarity: bestRelaxed.nameSimilarity,
+            exactMatch: bestRelaxed.exactMatch,
+            containsTarget: bestRelaxed.containsTarget,
+            negativeMatch: bestRelaxed.negativeMatch,
+            score: bestRelaxed.score,
+            insightReason: 'brand_first_degrade_with_negative_relax'
+          },
+          meta: {
+            totalCandidates: candidateInfos.length,
+            brandMatchCount,
+            tokenMatchCount,
+            brandEligibleCount: relaxed.length,
+            variantEligibleCount: 0,
+            candidateRanking: eligibleTop
+          }
+        };
+      }
+      // Form-aware degrade: cluster by form
+      const getFormCluster = (product) => {
+        const corpus = buildProductCorpus(product);
+        if (/(bar|tablet|tableta|tab|barra)/.test(corpus)) return 'bar';
+        if (/(gumm(y|ies)|gelat|chew)/.test(corpus)) return 'gummies';
+        if (/(pieces|candy|bites|drops)/.test(corpus)) return 'candy';
+        if (/(drink|beverage|soda|milkshake)/.test(corpus)) return 'beverage';
+        if (/(spread|butter|paste|puree)/.test(corpus)) return 'spread';
+        return 'unknown';
+      };
+      const expectedCluster = getFormCluster(findFirstMatch(products, () => true) || {});
+      let filtered = brandEligible;
+      if (expectedCluster !== 'unknown') {
+        filtered = brandEligible.filter(i => getFormCluster(i.product) === expectedCluster);
+        if (filtered.length === 0) {
+          console.log('[DEGRADE_BLOCKED_BY_FORM]', { expected: expectedCluster });
+          // продлеваем поиск вместо деградации по форме
+          return {
+            success: false,
+            failure: { item, reason: 'variant_mismatch', canonical: attempt.query || searchTerm },
+            meta: {
+              totalCandidates: candidateInfos.length,
+              brandMatchCount,
+              tokenMatchCount,
+              candidateRanking: overallTop
+            }
+          };
+        }
+      }
+      const brandOnlySorted = [...filtered].sort((a, b) => b.score - a.score);
       if (brandOnlySorted.length > 0) {
         const bestBrandOnly = brandOnlySorted[0];
         const eligibleTop = brandOnlySorted.slice(0, 5).map(info => ({
