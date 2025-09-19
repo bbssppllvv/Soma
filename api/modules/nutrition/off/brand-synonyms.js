@@ -146,7 +146,10 @@ export function checkBrandMatchWithSynonyms(product, brandName, gptSynonyms = []
   
   const synonyms = generateBrandSynonyms(brandName, gptSynonyms);
   
-  // Проверяем brands_tags
+  // BRAND GATE V3: Универсальный бренд-матч через объединение полей
+  // brands_tags ∪ brands_imported ∪ brands_old ∪ brand_synonyms(GPT)
+  
+  // 1. Проверяем brands_tags
   if (Array.isArray(product.brands_tags)) {
     const brandTagsNormalized = product.brands_tags.map(tag => 
       normalizeBrandForComparison(tag.replace(/^[a-z]{2}:/, ''))
@@ -163,9 +166,12 @@ export function checkBrandMatchWithSynonyms(product, brandName, gptSynonyms = []
     }
   }
   
-  // Проверяем brands массив
+  // 2. Проверяем brands массив (может содержать несколько брендов через запятую)
   if (product.brands) {
-    const brandsArray = Array.isArray(product.brands) ? product.brands : [product.brands];
+    const brandsArray = Array.isArray(product.brands) 
+      ? product.brands 
+      : product.brands.split(',').map(b => b.trim()).filter(Boolean);
+    
     const brandsNormalized = brandsArray.map(normalizeBrandForComparison);
     
     const hasBrandMatch = synonyms.some(synonym => 
@@ -179,8 +185,53 @@ export function checkBrandMatchWithSynonyms(product, brandName, gptSynonyms = []
     }
   }
   
-  // Проверяем product_name и product_name_en (всегда, не только если brands_tags пуст)
-  const productNames = [product.product_name, product.product_name_en].filter(Boolean);
+  // 3. Проверяем brands_imported (исторические данные)
+  if (product.brands_imported) {
+    const brandsImported = Array.isArray(product.brands_imported)
+      ? product.brands_imported
+      : product.brands_imported.split(',').map(b => b.trim()).filter(Boolean);
+    
+    const brandsImportedNormalized = brandsImported.map(normalizeBrandForComparison);
+    
+    const hasImportedMatch = synonyms.some(synonym => 
+      brandsImportedNormalized.some(brand => 
+        brand.includes(synonym) || synonym.includes(brand)
+      )
+    );
+    
+    if (hasImportedMatch) {
+      return { match: true, source: 'brands_imported', synonym_used: synonyms };
+    }
+  }
+  
+  // 4. Проверяем brands_old (старые данные)
+  if (product.brands_old) {
+    const brandsOld = Array.isArray(product.brands_old)
+      ? product.brands_old
+      : product.brands_old.split(',').map(b => b.trim()).filter(Boolean);
+    
+    const brandsOldNormalized = brandsOld.map(normalizeBrandForComparison);
+    
+    const hasOldMatch = synonyms.some(synonym => 
+      brandsOldNormalized.some(brand => 
+        brand.includes(synonym) || synonym.includes(brand)
+      )
+    );
+    
+    if (hasOldMatch) {
+      return { match: true, source: 'brands_old', synonym_used: synonyms };
+    }
+  }
+  
+  // 5. VIRTUAL BRAND MATCH: Проверяем product_name и все языковые варианты
+  const productNames = [
+    product.product_name, 
+    product.product_name_en,
+    product.product_name_fr,
+    product.product_name_es,
+    product.product_name_de,
+    product.abbreviated_product_name
+  ].filter(Boolean);
   
   for (const productName of productNames) {
     const productNameNormalized = normalizeBrandForComparison(productName);
@@ -191,8 +242,21 @@ export function checkBrandMatchWithSynonyms(product, brandName, gptSynonyms = []
     
     if (hasNameMatch) {
       const hasEmptyBrandsTags = !product.brands_tags || product.brands_tags.length === 0;
-      const source = hasEmptyBrandsTags ? 'product_name_salvage' : 'product_name_match';
-      return { match: true, source, synonym_used: synonyms };
+      const hasEmptyBrands = !product.brands;
+      
+      if (hasEmptyBrandsTags && hasEmptyBrands) {
+        // Полный virtual brand match - нет никаких brand полей
+        console.log('[BRAND_GATE_V3] virtual_brand_match applied', {
+          product_code: product.code,
+          brand_name: brandName,
+          matched_in: productName,
+          reason: 'empty_brand_fields'
+        });
+        return { match: true, source: 'virtual_brand_match', synonym_used: synonyms };
+      } else {
+        // Дополнительное подтверждение бренда через название
+        return { match: true, source: 'product_name_confirmation', synonym_used: synonyms };
+      }
     }
   }
   

@@ -987,6 +987,28 @@ function buildRescueAttempts(item, originalAttempts) {
       maxPagesOverride: 1
     });
   }
+  
+  // Strategy 3: GPT Fallback Rescue - узкий поиск с fallback phrases
+  if (brandSlugs.length > 0 && Array.isArray(item?.off_fallback_phrases) && item.off_fallback_phrases.length > 0) {
+    const brandSynonyms = generateBrandSynonyms(brandCandidates[0], Array.isArray(item?.brand_synonyms) ? item.brand_synonyms : []);
+    const primaryBrandForm = brandSynonyms[0] || brandCandidates[0].toLowerCase();
+    
+    for (const fallbackPhrase of item.off_fallback_phrases) {
+      if (fallbackPhrase && fallbackPhrase.trim()) {
+        rescueAttempts.push({
+          query: `"${primaryBrandForm}" "${fallbackPhrase.trim()}"`,
+          brand: null, // Без server brand_filter
+          brandName: null,
+          reason: 'rescue_gpt_fallback',
+          pageSize: 20,
+          filters: null,
+          isRescue: true,
+          maxPagesOverride: 1,
+          fallbackPhrase: fallbackPhrase.trim()
+        });
+      }
+    }
+  }
 
   // Strategy 3: Exact phrase search without brand (like browser search)
   const primaryTokens = Array.isArray(item?.off_primary_tokens) ? item.off_primary_tokens : [];
@@ -1272,7 +1294,7 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       });
     }
     
-    // 3. ATTRIBUTE GATE: фильтрация avoided атрибутов
+    // 3. ATTRIBUTE GATE V2: жёсткие/мягкие фильтры через off_attr_avoid + labels_tags
     const avoidedTerms = [
       ...(Array.isArray(item?.off_attr_avoid) ? item.off_attr_avoid : []),
       ...(Array.isArray(item?.off_neg_tokens) ? item.off_neg_tokens : [])
@@ -1287,12 +1309,30 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         productAttrs.some(attr => attr.includes(avoided) || avoided.includes(attr))
       );
       
+      if (hasAvoidedAttr) {
+        console.log('[ATTRIBUTE_GATE] avoided=' + avoidedTerms.join(',') + ' removed (clean phase)', {
+          product_code: product.code,
+          product_name: product.product_name,
+          avoided_attrs: productAttrs.filter(attr => 
+            avoidedTerms.some(avoided => attr.includes(avoided) || avoided.includes(attr))
+          )
+        });
+      }
+      
       return !hasAvoidedAttr;
     });
 
     // Фаза B: если нет чистых кандидатов, разрешаем "грязные" с пониженной уверенностью
     const candidatesToEvaluate = cleanCandidates.length > 0 ? cleanCandidates : categoryFilteredProducts;
     const isCleanPhase = cleanCandidates.length > 0;
+    
+    if (!isCleanPhase && avoidedTerms.length > 0) {
+      console.log('[ATTRIBUTE_GATE] entering dirty phase - avoided attributes allowed with penalty', {
+        clean_candidates: cleanCandidates.length,
+        total_candidates: categoryFilteredProducts.length,
+        avoided_terms: avoidedTerms
+      });
+    }
     
     console.log('[OFF] Multi-gate filtering summary', {
       original_products: products.length,
@@ -1403,6 +1443,45 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         }
       }
       
+      // DATA-DRIVEN SCORING: популярность и качество данных
+      let popularityBonus = 0;
+      let dataQualityBonus = 0;
+      
+      // Популярность через unique_scans_n
+      if (product.unique_scans_n && product.unique_scans_n > 10) {
+        popularityBonus = Math.log10(product.unique_scans_n) * 0.5;
+        score += popularityBonus;
+      }
+      
+      // Качество данных через states_tags
+      if (Array.isArray(product.states_tags)) {
+        const qualityIndicators = [
+          'en:complete',
+          'en:nutrition-facts-completed', 
+          'en:ingredients-completed',
+          'en:photos-validated'
+        ];
+        
+        const completedStates = product.states_tags.filter(
+          tag => qualityIndicators.includes(tag)
+        ).length;
+        
+        if (completedStates > 0) {
+          dataQualityBonus = completedStates * 0.2;
+          score += dataQualityBonus;
+        }
+      }
+      
+      if (popularityBonus > 0 || dataQualityBonus > 0) {
+        console.log('[SCORING] popularity_bonus=' + popularityBonus.toFixed(1) + ', data_quality_bonus=' + dataQualityBonus.toFixed(1), {
+          product_code: product.code,
+          unique_scans: product.unique_scans_n,
+          completed_states: product.states_tags?.filter(tag => 
+            ['en:complete', 'en:nutrition-facts-completed', 'en:ingredients-completed', 'en:photos-validated'].includes(tag)
+          ).length || 0
+        });
+      }
+      
       // Attribute scoring
       if (wantedAttrMatch) score += 2; // Boost for wanted attributes
       
@@ -1439,60 +1518,81 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
       // CATEGORY SCORING: интегрируем категорийные бонусы/штрафы
       score = applyCategoryScoring(score, product);
 
-      // Compound matching v1.2: enhanced with categories, labels, and separated matches
+      // COMPOUND GUARD V2: Строгий вариант-матч с GPT токенами
       const compoundLocal = deriveCompoundBlocks(item);
       let compoundFull = false;
       let compoundPartial = false;
+      let variantPassed = false;
+      
       if (COMPOUND_MATCHER_V11 && compoundLocal && compoundLocal.canonical) {
+        // Используем GPT токены: off_primary_tokens + off_alt_tokens
+        const primaryTokens = Array.isArray(item?.off_primary_tokens) ? item.off_primary_tokens : [];
+        const altTokens = Array.isArray(item?.off_alt_tokens) ? item.off_alt_tokens : [];
+        
         // Expand search corpus: names + categories + labels
         const extendedCorpus = [
           ...names.map(n => normalizeCompoundSeparators(n)),
           ...(Array.isArray(product?.categories_tags) ? product.categories_tags.map(c => normalizeCompoundSeparators(c)) : []),
           ...(Array.isArray(product?.labels_tags) ? product.labels_tags.map(l => normalizeCompoundSeparators(l)) : [])
         ];
+        
         const compoundPhrase = compoundLocal.canonical;
         const roots = compoundLocal.roots || [];
         
-        // Check for exact phrase match (with separator normalization)
-        compoundFull = extendedCorpus.some(text => text.includes(normalizeCompoundSeparators(compoundPhrase)));
+        // 1. Проверяем точные формы compound (peanut butter / peanut-butter / peanutbutter)
+        const compoundVariants = [
+          compoundPhrase,
+          compoundPhrase.replace(/\s+/g, '-'),
+          compoundPhrase.replace(/\s+/g, ''),
+          compoundPhrase.replace(/\s+/g, ' and '),
+          ...primaryTokens,
+          ...altTokens
+        ].map(v => normalizeCompoundSeparators(v));
         
-        if (!compoundFull && roots.length >= 2) {
-          // Window-based proximity matching with permutation support
-          const windowSize = product?.ingredients_text && 
-            roots.every(root => normalizeCompoundSeparators(product.ingredients_text).includes(root)) ? 4 : 3;
-          
-          compoundFull = extendedCorpus.some(text => {
+        compoundFull = extendedCorpus.some(text => 
+          compoundVariants.some(variant => text.includes(variant))
+        );
+        
+        if (compoundFull) {
+          variantPassed = true;
+          if (PHASE_SUMMARY_LOGS) {
+            console.log('[COMPOUND_GUARD] phrase="' + compoundPhrase + '" full_match bonus=' + COMPOUND_FULL_BONUS);
+          }
+        } else if (roots.length >= 2) {
+          // 2. Проверяем proximity: оба корня рядом (окно ≤3 слов)
+          const windowSize = 3;
+          const proximityMatch = extendedCorpus.some(text => {
             return checkCompoundWithinWindow(text, roots, windowSize);
           });
           
-          if (!compoundFull) {
-            // v1.2: Separated matches - all roots present anywhere in extended corpus
+          if (proximityMatch) {
+            compoundFull = true;
+            variantPassed = true;
+            if (PHASE_SUMMARY_LOGS) {
+              console.log('[COMPOUND_GUARD] phrase="' + compoundPhrase + '" proximity_match bonus=' + COMPOUND_FULL_BONUS);
+            }
+          } else {
+            // 3. Частичное совпадение - только один токен найден
             const allCorpusText = extendedCorpus.join(' ');
             const foundRoots = roots.filter(root => {
               const equivalents = expandCompoundEquivalents(root);
-              return equivalents.some(eq => allCorpusText.includes(eq));
+              return equivalents.some(equiv => allCorpusText.includes(equiv));
             });
             
-            if (foundRoots.length === roots.length) {
-              // All roots found separately - give soft pass instead of penalty
+            if (foundRoots.length > 0 && foundRoots.length < roots.length) {
+              // Частичное совпадение - penalty, НЕ variant_passed
               compoundPartial = true;
-              console.log('[COMPOUND_GUARD] separated_match all_roots_found', {
-                phrase: compoundPhrase,
-                found_roots: foundRoots,
-                product_code: product?.code
-              });
-            } else {
-              // Traditional partial match: at least half the roots present in single text
-              const needed = Math.max(2, Math.ceil(roots.length / 2));
-              compoundPartial = extendedCorpus.some(text => {
-                const foundInText = roots.filter(root => {
-                  const equivalents = expandCompoundEquivalents(root);
-                  return equivalents.some(eq => text.includes(eq));
-                });
-                return foundInText.length >= needed;
-              });
+              variantPassed = false;
+              if (PHASE_SUMMARY_LOGS) {
+                console.log('[COMPOUND_GUARD] phrase="' + compoundPhrase + '" partial_penalty=' + COMPOUND_PARTIAL_PENALTY);
+              }
             }
           }
+        }
+        
+        // Обновляем tokenMatch для compound сценариев
+        if (variantPassed) {
+          tokenMatch = true;
         }
       } else if (compoundLocal && compoundLocal.forms && compoundLocal.forms.size > 0) {
         // Fallback to old logic if v1.1 disabled
@@ -1507,41 +1607,15 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
         }
       }
 
-      // Compound scoring adjustments v1.2
+      // COMPOUND GUARD V2: Scoring adjustments
       if (compoundLocal && (compoundFull || compoundPartial)) {
-        if (compoundFull) {
+        if (compoundFull && variantPassed) {
           score += COMPOUND_FULL_BONUS;
-          if (PHASE_SUMMARY_LOGS) {
-            console.log('[COMPOUND_GUARD] phrase="' + compoundLocal.canonical + '" bonus=' + COMPOUND_FULL_BONUS);
-          }
-        } else if (compoundPartial) {
-          // v1.2: For separated matches, give soft bonus instead of penalty
-          const extendedCorpus = [
-            ...names.map(n => normalizeCompoundSeparators(n)),
-            ...(Array.isArray(product?.categories_tags) ? product.categories_tags.map(c => normalizeCompoundSeparators(c)) : []),
-            ...(Array.isArray(product?.labels_tags) ? product.labels_tags.map(l => normalizeCompoundSeparators(l)) : [])
-          ];
-          const allCorpusText = extendedCorpus.join(' ');
-          const roots = compoundLocal.roots || [];
-          const foundRoots = roots.filter(root => {
-            const equivalents = expandCompoundEquivalents(root);
-            return equivalents.some(eq => allCorpusText.includes(eq));
-          });
-          
-          if (foundRoots.length === roots.length) {
-            // All roots found - soft bonus for separated match
-            const softBonus = Math.floor(COMPOUND_FULL_BONUS / 2);
-            score += softBonus;
-            if (PHASE_SUMMARY_LOGS) {
-              console.log('[COMPOUND_GUARD] phrase="' + compoundLocal.canonical + '" separated_bonus=' + softBonus);
-            }
-          } else {
-            // Traditional partial - penalty
-            score -= COMPOUND_PARTIAL_PENALTY;
-            if (PHASE_SUMMARY_LOGS) {
-              console.log('[COMPOUND_GUARD] phrase="' + compoundLocal.canonical + '" penalty=' + COMPOUND_PARTIAL_PENALTY);
-            }
-          }
+          // Логирование уже выполнено выше
+        } else if (compoundPartial && !variantPassed) {
+          // Частичное совпадение - penalty
+          score -= COMPOUND_PARTIAL_PENALTY;
+          // Логирование уже выполнено выше
         }
       }
 
@@ -2114,8 +2188,16 @@ export async function resolveOneItemOFF(item, { signal } = {}) {
             console.log('[OFF] Rescue attempt:', {
               reason: rescueAttempt.reason,
               query: rescueAttempt.query,
-              brand: rescueAttempt.brand
+              brand: rescueAttempt.brand,
+              fallback_phrase: rescueAttempt.fallbackPhrase
             });
+            
+            if (rescueAttempt.reason === 'rescue_gpt_fallback') {
+              console.log('[RESCUE] GPT_fallback phrase="' + rescueAttempt.fallbackPhrase + '"', {
+                brand_form: rescueAttempt.query.split('"')[1],
+                fallback_phrase: rescueAttempt.fallbackPhrase
+              });
+            }
             
             const seenCodes = new Set();
             const aggregated = [];
